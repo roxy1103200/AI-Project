@@ -1,0 +1,87 @@
+package com.cinema.ticketing.auth;
+
+import com.cinema.ticketing.common.BusinessException;
+import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
+@Service
+public class AuthService {
+
+    private static final Duration TOKEN_TTL = Duration.ofHours(2);
+
+    private final UserMapper userMapper;
+    private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
+    private final Map<String, LoginSession> sessions = new ConcurrentHashMap<>();
+
+    public AuthService(UserMapper userMapper) {
+        this.userMapper = userMapper;
+    }
+
+    public UserAccount register(String username, String password, String phone) {
+        validateCredentials(username, password);
+        if (userMapper.findByUsername(username) != null) {
+            throw new BusinessException(409, "用户名已存在");
+        }
+        UserAccount account = new UserAccount();
+        account.setUsername(username);
+        account.setPasswordHash(passwordEncoder.encode(password));
+        account.setPhone(phone);
+        account.setRole("USER");
+        account.setStatus("ACTIVE");
+        userMapper.insert(account);
+        return account;
+    }
+
+    public LoginResult login(String username, String password) {
+        UserAccount account = userMapper.findByUsername(username);
+        if (account == null || !passwordEncoder.matches(password, account.getPasswordHash())) {
+            throw new BusinessException(401, "用户名或密码错误");
+        }
+        if (!"ACTIVE".equals(account.getStatus())) {
+            throw new BusinessException(403, "用户已被禁用");
+        }
+        String token = UUID.randomUUID().toString();
+        sessions.put(token, new LoginSession(account.getId(), account.getRole(), Instant.now().plus(TOKEN_TTL)));
+        return new LoginResult(token, account.getId(), account.getUsername(), account.getRole(), TOKEN_TTL.toSeconds());
+    }
+
+    public void logout(String token) {
+        if (token != null) {
+            sessions.remove(token);
+        }
+    }
+
+    public void requireAdmin(String token) {
+        LoginSession session = requireSession(token);
+        if (!"ADMIN".equals(session.role())) {
+            throw new BusinessException(403, "需要管理员权限");
+        }
+    }
+
+    private LoginSession requireSession(String token) {
+        LoginSession session = sessions.get(token);
+        if (session == null || session.expiresAt().isBefore(Instant.now())) {
+            sessions.remove(token);
+            throw new BusinessException(401, "登录已失效，请重新登录");
+        }
+        return session;
+    }
+
+    private void validateCredentials(String username, String password) {
+        if (username == null || username.isBlank() || password == null || password.length() < 8) {
+            throw new BusinessException(400, "用户名不能为空，密码长度不能少于 8 位");
+        }
+    }
+
+    public record LoginResult(String token, Long userId, String username, String role, long expiresInSeconds) {
+    }
+
+    private record LoginSession(Long userId, String role, Instant expiresAt) {
+    }
+}

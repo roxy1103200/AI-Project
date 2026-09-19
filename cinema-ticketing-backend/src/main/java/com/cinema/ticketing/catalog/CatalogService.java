@@ -32,6 +32,7 @@ public class CatalogService {
 
     public long create(String resource, Map<String, Object> values) {
         ResourceDefinition definition = definition(resource);
+        rejectUserMutation(resource);
         Object[] parameters = definition.parameters(values);
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
@@ -51,6 +52,7 @@ public class CatalogService {
 
     public void update(String resource, long id, Map<String, Object> values) {
         ResourceDefinition definition = definition(resource);
+        rejectUserMutation(resource);
         Object[] parameters = definition.parameters(values, id);
         jdbcTemplate.update(definition.updateSql(), parameters);
     }
@@ -58,6 +60,12 @@ public class CatalogService {
     public void delete(String resource, long id) {
         ResourceDefinition definition = definition(resource);
         jdbcTemplate.update(definition.deleteSql(), id);
+    }
+
+    private void rejectUserMutation(String resource) {
+        if ("users".equals(resource)) {
+            throw new BusinessException(400, "用户必须通过 /api/auth/register 创建或通过专用账户接口修改");
+        }
     }
 
     private ResourceDefinition definition(String resource) {
@@ -75,14 +83,15 @@ public class CatalogService {
     private record ResourceDefinition(
             String table,
             List<String> fields,
-            String columns) {
+            String columns,
+            String readColumns) {
 
         private String listSql() {
-            return "SELECT id, " + columns + " FROM " + table + " ORDER BY id DESC";
+            return "SELECT id, " + readColumns + " FROM " + table + " ORDER BY id DESC";
         }
 
         private String findSql() {
-            return "SELECT id, " + columns + " FROM " + table + " WHERE id = ?";
+            return "SELECT id, " + readColumns + " FROM " + table + " WHERE id = ?";
         }
 
         private String insertSql() {
@@ -113,7 +122,8 @@ public class CatalogService {
         }
 
         private static ResourceDefinition users() {
-            return of("users", "username,password_hash,phone,role,status");
+            return of("users", "username,password_hash,phone,role,status",
+                    "username,phone,role,status");
         }
 
         private static ResourceDefinition movies() {
@@ -138,7 +148,12 @@ public class CatalogService {
 
         private static ResourceDefinition of(String table, String fieldList) {
             List<String> fields = List.of(fieldList.split(","));
-            return new ResourceDefinition(table, fields, fieldList);
+            return new ResourceDefinition(table, fields, fieldList, fieldList);
+        }
+
+        private static ResourceDefinition of(String table, String fieldList, String readColumns) {
+            List<String> fields = List.of(fieldList.split(","));
+            return new ResourceDefinition(table, fields, fieldList, readColumns);
         }
     }
 }

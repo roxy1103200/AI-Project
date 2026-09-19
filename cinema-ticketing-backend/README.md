@@ -29,6 +29,10 @@
 - `GET /api/orders?userId={userId}`：订单列表
 - `GET /api/orders/{orderNo}`：订单详情
 
-写接口暂未接入鉴权；鉴权、锁座、支付和状态机将在后续阶段统一接入，不能把当前管理接口直接暴露到生产环境。
+写接口已要求 `X-Auth-Token`，只有登录后的 `ADMIN` 用户可以操作；注册接口为 `POST /api/auth/register`，登录接口为 `POST /api/auth/login`，退出接口为 `POST /api/auth/logout`。
+
+用户列表和详情只返回脱敏字段，绝不返回 `password_hash`。密码使用 BCrypt 哈希保存。当前 token 存储在进程内存中，后续阶段会迁移到 Redis，并补充刷新、撤销和多实例共享能力。
+
+持久化取舍：用户账户与鉴权查询已使用 MyBatis Mapper；通用后台资源 CRUD 暂时保留 JdbcTemplate 动态实现，以减少重复 Mapper 样板代码。后续若进入多条件查询和复杂事务，将按资源拆分为独立 Entity、Mapper、Service 层。
 
 数据库、服务端口和凭据均支持通过环境变量覆盖：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`SERVER_PORT`。
