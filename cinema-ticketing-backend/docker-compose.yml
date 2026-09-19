@@ -11,6 +11,7 @@ services:
       - "3306:3306"
     volumes:
       - mysql-data:/var/lib/mysql
+      - ./src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
 
   redis:
     image: redis:7.4-alpine
@@ -27,6 +28,28 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+
+  cinema-api:
+    build: .
+    container_name: cinema-api
+    environment:
+      DB_URL: jdbc:mysql://mysql:3306/cinema_ticketing?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      DB_USERNAME: cinema
+      DB_PASSWORD: cinema
+    depends_on:
+      - mysql
+      - redis
+      - rabbitmq
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: cinema-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      - cinema-api
 
 volumes:
   mysql-data:
