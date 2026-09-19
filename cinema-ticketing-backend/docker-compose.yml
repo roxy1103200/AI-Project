@@ -1,0 +1,32 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: cinema-mysql
+    environment:
+      MYSQL_DATABASE: cinema_ticketing
+      MYSQL_USER: cinema
+      MYSQL_PASSWORD: cinema
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: cinema-redis
+    ports:
+      - "6379:6379"
+
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    container_name: cinema-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: cinema
+      RABBITMQ_DEFAULT_PASS: cinema
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+volumes:
+  mysql-data:

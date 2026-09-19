@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <annotationProcessing>
+      <profile name="Maven default annotation processors profile" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <module name="jakarta.annotation-api" />
+        <module name="spring-test" />
+        <module name="assertj-core" />
+        <module name="awaitility" />
+        <module name="classmate" />
+        <module name="spring-jcl" />
+        <module name="commons-io" />
+        <module name="spring-web" />
+        <module name="jul-to-slf4j.module-compile" />
+        <module name="slf4j-api" />
+        <module name="springdoc-openapi-starter-webmvc-ui" />
+        <module name="byte-buddy-agent" />
+        <module name="spring-core" />
+        <module name="spring-webmvc" />
+        <module name="opentest4j" />
+        <module name="mockito-junit-jupiter" />
+        <module name="spring-expression" />
+        <module name="spring-aop" />
+        <module name="accessors-smart" />
+        <module name="mybatis-spring" />
+        <module name="micrometer-commons" />
+        <module name="webjars-locator-lite" />
+        <module name="spring-beans" />
+        <module name="xmlunit-core" />
+        <module name="jakarta.activation-api" />
+        <module name="jsonassert" />
+        <module name="jakarta.validation-api" />
+        <module name="micrometer-observation" />
+        <module name="slf4j-api (1).module-compile" />
+        <module name="json-smart" />
+        <module name="springdoc-openapi-starter-common" />
+        <module name="cinema-ticketing-backend" />
+        <module name="springdoc-openapi-starter-webmvc-api" />
+        <module name="spring-context" />
+        <module name="jspecify" />
+        <module name="objenesis" />
+        <module name="mysql-connector-j" />
+        <module name="spring-jdbc" />
+        <module name="spring-tx" />
+        <module name="byte-buddy" />
+        <module name="apiguardian-api" />
+        <module name="hamcrest" />
+        <module name="mockito-core" />
+        <module name="HikariCP" />
+        <module name="swagger-ui" />
+        <module name="javax.inject" />
+      </profile>
+      <profile name="Annotation profile for mybatis" enabled="true">
+        <sourceOutputDir name="target/generated-sources/annotations" />
+        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
+        <outputRelativeToContentRoot value="true" />
+        <processorPath useClasspath="false">
+          <entry name="D:/downlod/code/maven/em/apache-maven-3.9.4/mvn_repo/net/bytebuddy/byte-buddy-agent/1.15.10/byte-buddy-agent-1.15.10.jar" />
+        </processorPath>
+        <module name="mybatis" />
+      </profile>
+      <profile name="Annotation profile for SnakeYAML" enabled="true">
+        <sourceOutputDir name="../generated-sources/annotations" />
+        <sourceTestOutputDir name="../generated-test-sources/test-annotations" />
+        <module name="slf4j-api (1).test" />
+        <module name="snakeyaml.test" />
+        <module name="slf4j-api (1).main" />
+        <module name="jul-to-slf4j.test" />
+        <module name="snakeyaml.main" />
+        <module name="jul-to-slf4j.main" />
+      </profile>
+    </annotationProcessing>
+    <bytecodeTargetLevel target="21" />
+  </component>
+  <component name="JavacSettings">
+    <option name="ADDITIONAL_OPTIONS_OVERRIDE">
+      <module name="byte-buddy" options="-Xlint:all,-options,-processing" />
+      <module name="byte-buddy-agent" options="-Xlint:all,-options,-processing" />
+      <module name="cinema-ticketing-backend" options="-parameters" />
+      <module name="client_java" options="-Xlint:all,-serial,-processing,-options -Werror -XDcompilePolicy=simple &quot;-Xplugin:ErrorProne&#10;                            -Xep:AlmostJavadoc:OFF&#10;                            -Xep:MissingSummary:OFF&#10;                            -Xep:LongDoubleConversion:OFF&#10;                            -Xep:StringSplitter:OFF&#10;                            -XepExcludedPaths:.*/generated/.*&quot;" />
+      <module name="client_java (1)" options="-Xlint:all,-serial,-processing,-options -Werror --should-stop=ifError=FLOW -XDcompilePolicy=simple &quot;-Xplugin:ErrorProne&#10;                            -Xep:AlmostJavadoc:OFF&#10;                            -Xep:MissingSummary:OFF&#10;                            -Xep:LongDoubleConversion:OFF&#10;                            -Xep:StringSplitter:OFF&#10;                            -XepExcludedPaths:.*/generated/.*&quot;" />
+      <module name="jakarta.activation-api" options="-Xlint:all" />
+      <module name="jakarta.annotation-api" options="-Xlint:all" />
+      <module name="jakarta.validation-api" options="-Xlint:all" />
+      <module name="mybatis" options="-parameters" />
+      <module name="mybatis-spring" options="-parameters" />
+      <module name="prometheus-metrics-bom" options="-Xlint:all,-serial,-processing,-options -Werror -XDcompilePolicy=simple &quot;-Xplugin:ErrorProne&#10;                            -Xep:AlmostJavadoc:OFF&#10;                            -Xep:MissingSummary:OFF&#10;                            -Xep:LongDoubleConversion:OFF&#10;                            -Xep:StringSplitter:OFF&#10;                            -XepExcludedPaths:.*/generated/.*&quot;" />
+      <module name="prometheus-metrics-bom (1)" options="-Xlint:all,-serial,-processing,-options -Werror --should-stop=ifError=FLOW -XDcompilePolicy=simple &quot;-Xplugin:ErrorProne&#10;                            -Xep:AlmostJavadoc:OFF&#10;                            -Xep:MissingSummary:OFF&#10;                            -Xep:LongDoubleConversion:OFF&#10;                            -Xep:StringSplitter:OFF&#10;                            -XepExcludedPaths:.*/generated/.*&quot;" />
+      <module name="springdoc-openapi-starter-common" options="-parameters" />
+      <module name="springdoc-openapi-starter-webmvc-api" options="-parameters" />
+      <module name="springdoc-openapi-starter-webmvc-ui" options="-parameters" />
+    </option>
+  </component>
+</project>
