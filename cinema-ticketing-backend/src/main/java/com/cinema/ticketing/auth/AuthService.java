@@ -1,6 +1,7 @@
 package com.cinema.ticketing.auth;
 
 import com.cinema.ticketing.common.BusinessException;
+import com.cinema.ticketing.mapper.UserMapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.stereotype.Service;
 
@@ -62,6 +63,14 @@ public class AuthService {
         if (!"ADMIN".equals(session.role())) {
             throw new BusinessException(403, "需要管理员权限");
         }
+    }
+
+    public long requireUserId(String token) {
+        return requireSession(token).userId();
+    }
+
+    public boolean isAdmin(String token) {
+        return "ADMIN".equals(requireSession(token).role());
     }
 
     private LoginSession requireSession(String token) {

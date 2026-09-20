@@ -11,5 +11,5 @@
     <logger name="com.cinema.ticketing" level="INFO"/>
     <root level="INFO">
         <appender-ref ref="CONSOLE"/>
-    </root>
+</root>
 </configuration>

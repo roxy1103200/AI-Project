@@ -100,3 +100,25 @@ CREATE TABLE IF NOT EXISTS order_item (
     CONSTRAINT fk_item_order FOREIGN KEY (order_id) REFERENCES ticket_order(id),
     CONSTRAINT fk_item_seat FOREIGN KEY (seat_id) REFERENCES seat(id)
 );
+
+CREATE TABLE IF NOT EXISTS order_idempotency (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    user_id BIGINT NOT NULL,
+    request_id VARCHAR(128) NOT NULL,
+    order_no VARCHAR(64) NOT NULL,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_order_request (user_id, request_id),
+    UNIQUE KEY uk_order_idempotency_order (order_no),
+    CONSTRAINT fk_order_idempotency_user FOREIGN KEY (user_id) REFERENCES users(id),
+    CONSTRAINT fk_order_idempotency_order FOREIGN KEY (order_no) REFERENCES ticket_order(order_no)
+);
+
+CREATE TABLE IF NOT EXISTS refund_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_id BIGINT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    reason VARCHAR(255),
+    status VARCHAR(32) NOT NULL DEFAULT 'REFUNDED',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    CONSTRAINT fk_refund_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
+);

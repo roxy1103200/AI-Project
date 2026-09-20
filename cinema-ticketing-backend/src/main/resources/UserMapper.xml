@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cinema.ticketing.mapper.UserMapper">
+    <resultMap id="userAccountMap" type="com.cinema.ticketing.auth.UserAccount">
+        <id property="id" column="id"/>
+        <result property="username" column="username"/>
+        <result property="passwordHash" column="password_hash"/>
+        <result property="phone" column="phone"/>
+        <result property="role" column="role"/>
+        <result property="status" column="status"/>
+    </resultMap>
+
+    <select id="findByUsername" resultMap="userAccountMap">
+        SELECT id, username, password_hash, phone, role, status
+        FROM users
+        WHERE username = #{username}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO users (username, password_hash, phone, role, status)
+        VALUES (#{username}, #{passwordHash}, #{phone}, #{role}, #{status})
+    </insert>
+</mapper>

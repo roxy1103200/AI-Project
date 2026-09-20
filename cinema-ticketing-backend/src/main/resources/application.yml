@@ -2,7 +2,7 @@ spring:
   application:
     name: cinema-ticketing-backend
   datasource:
-    url: ${DB_URL:jdbc:mysql://localhost:3306/cinema_ticketing?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai&createDatabaseIfNotExist=true}
+    url: ${DB_URL:jdbc:mysql://localhost:3306/cinema_ticketing?useUnicode=true&characterEncoding=UTF-8&serverTimezone=Asia/Shanghai&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
     username: ${DB_USERNAME:cinema}
     password: ${DB_PASSWORD:cinema}
     driver-class-name: com.mysql.cj.jdbc.Driver
@@ -11,7 +11,7 @@ server:
   port: ${SERVER_PORT:8080}
 
 mybatis:
-  mapper-locations: classpath:/mapper/**/*.xml
+  mapper-locations: classpath*:*Mapper.xml
   type-aliases-package: com.cinema.ticketing
   configuration:
     map-underscore-to-camel-case: true
