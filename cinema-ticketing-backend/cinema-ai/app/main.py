@@ -6,7 +6,7 @@ import os
 import re
 from collections import defaultdict
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
@@ -16,6 +16,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.retrievers import BaseRetriever
 from langchain_core.tools import BaseTool, tool
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langgraph.graph import END, START, StateGraph
 from pydantic import BaseModel, Field
 
 JAVA_API_URL = os.getenv("JAVA_API_URL", "http://localhost:8080").rstrip("/")
@@ -161,6 +162,24 @@ class ChatResponse(BaseModel):
     tool_calls: list[str] = Field(default_factory=list)
 
 
+class AgentState(TypedDict, total=False):
+    """State carried through the LangGraph assistant workflow."""
+
+    session_id: str
+    user_id: int
+    question: str
+    intent: str
+    slots: dict[str, Any]
+    messages: list[dict[str, str]]
+    tool_calls: list[str]
+    retrieved_docs: list[dict[str, Any]]
+    auth_scope: dict[str, Any]
+    result: Any
+    answer: str
+    error: str | None
+    needs_clarification: bool
+
+
 class Assistant:
     """Route questions to tools, RAG, optional model generation, and session memory."""
 
@@ -174,19 +193,94 @@ class Assistant:
             from langchain_openai import ChatOpenAI
 
             self.model = ChatOpenAI(model=OPENAI_MODEL, temperature=0, api_key=OPENAI_API_KEY)
+        self.graph = self._build_graph()
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
-        """Process one question with deterministic routing and optional model phrasing."""
+        """Run one request through the LangGraph state machine."""
+        history = self.sessions[request.session_id]
+        state: AgentState = {
+            "session_id": request.session_id,
+            "user_id": request.user_id,
+            "question": request.question,
+            "messages": history + [{"role": "user", "content": request.question}],
+            "auth_scope": {"user_id": request.user_id, "session_id": request.session_id},
+            "error": None,
+        }
+        result = await self.graph.ainvoke(state)
+        answer = result.get("answer", "暂时无法处理这个问题，请稍后重试。")
         self.sessions[request.session_id].append({"role": "user", "content": request.question})
-        intent, arguments = self._route(request.question, request.user_id)
-        tool_name = arguments.pop("_tool")
-        tool_calls = [tool_name]
-        data = await self.tools[tool_name].ainvoke(arguments)
-        sources = data.get("sources", []) if isinstance(data, dict) else []
-        answer = await self._answer(request.question, intent, data)
         self.sessions[request.session_id].append({"role": "assistant", "content": answer})
         self.sessions[request.session_id] = self.sessions[request.session_id][-10:]
-        return ChatResponse(answer=answer, intent=intent, data=data, sources=sources, tool_calls=tool_calls)
+        return ChatResponse(
+            answer=answer,
+            intent=result.get("intent", "fallback"),
+            data=result.get("result"),
+            sources=result.get("retrieved_docs", []),
+            tool_calls=result.get("tool_calls", []),
+        )
+
+    def _build_graph(self):
+        """Build the route, clarify, execute, validate, and response graph."""
+        graph = StateGraph(AgentState)
+        graph.add_node("intent", self._intent_node)
+        graph.add_node("clarify", self._clarify_node)
+        graph.add_node("execute", self._execute_node)
+        graph.add_node("validate", self._validate_node)
+        graph.add_node("respond", self._respond_node)
+        graph.add_edge(START, "intent")
+        graph.add_conditional_edges("intent", self._route_next, {"clarify": "clarify", "execute": "execute"})
+        graph.add_edge("clarify", "respond")
+        graph.add_edge("execute", "validate")
+        graph.add_edge("validate", "respond")
+        graph.add_edge("respond", END)
+        return graph.compile()
+
+    async def _intent_node(self, state: AgentState) -> AgentState:
+        question = state["question"]
+        history = state.get("messages", [])
+        previous_message = history[-2] if len(history) >= 2 else {}
+        if "订单号" in previous_message.get("content", "") and re.search(r"[Oo][A-Za-z0-9]{5,}", question):
+            question = f"订单 {question}"
+        intent, arguments = self._route(question, state["user_id"])
+        tool_name = arguments.pop("_tool", "")
+        return {
+            "intent": intent,
+            "slots": arguments,
+            "tool_calls": [tool_name] if tool_name else [],
+            "needs_clarification": intent == "clarify",
+        }
+
+    def _route_next(self, state: AgentState) -> str:
+        return "clarify" if state.get("needs_clarification") else "execute"
+
+    async def _clarify_node(self, state: AgentState) -> AgentState:
+        missing = state.get("slots", {}).get("missing", "必要参数")
+        return {"answer": f"为了继续查询，请提供{missing}。"}
+
+    async def _execute_node(self, state: AgentState) -> AgentState:
+        try:
+            tool_name = state["tool_calls"][0]
+            result = await self.tools[tool_name].ainvoke(state.get("slots", {}))
+            sources = result.get("sources", []) if isinstance(result, dict) else []
+            return {"result": result, "retrieved_docs": sources}
+        except Exception as exception:
+            return {"error": "工具调用失败，请稍后重试。", "result": {"detail": str(exception)}}
+
+    async def _validate_node(self, state: AgentState) -> AgentState:
+        if state.get("error"):
+            return state
+        result = state.get("result")
+        if result is None:
+            return {"error": "工具没有返回有效结果。"}
+        return state
+
+    async def _respond_node(self, state: AgentState) -> AgentState:
+        if state.get("answer"):
+            return state
+        if state.get("error"):
+            return {"answer": state["error"], "intent": "fallback"}
+        answer = await self._answer(state["question"], state["intent"], state.get("result"))
+        return {"answer": answer}
 
     async def _answer(self, question: str, intent: str, data: Any) -> str:
         if self.model:
@@ -215,6 +309,8 @@ class Assistant:
         order_match = re.search(r"[Oo][A-Za-z0-9]{5,}", question)
         if any(word in question for word in ("退票", "退款", "退改")) and order_match:
             return "refund", {"_tool": "check_refund_eligibility", "order_no": order_match.group(), "user_id": user_id}
+        if any(word in question for word in ("订单", "订单状态")) and not order_match:
+            return "clarify", {"missing": "订单号"}
         if any(word in question for word in ("规则", "须知", "优惠", "会员", "退票")):
             return "policy", {"_tool": "query_ticket_policy", "question": question}
         if any(word in question for word in ("订单", "订单状态")) and order_match:

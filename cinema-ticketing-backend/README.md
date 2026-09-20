@@ -80,4 +80,14 @@
 
 AI 服务支持 `OPENAI_API_KEY` 和 `OPENAI_MODEL`；未配置模型密钥时使用确定性意图路由和本地 RAG，仍可完成基础演示。
 
+## 第七阶段 LangGraph Agent
+
+AI 服务已使用 LangGraph 状态图组织完整流程：
+
+```text
+START -> intent -> clarify/execute -> validate -> respond -> END
+```
+
+状态图包含意图识别、订单号参数澄清、LangChain Tool/RAG 执行、结果校验、异常兜底和基于 `session_id` 的多轮会话记忆。AI 仍然不能直接访问数据库或执行支付、退票等写操作。
+
 数据库、服务端口和凭据均支持通过环境变量覆盖：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`SERVER_PORT`、`AI_SERVICE_URL`、`AI_INTERNAL_TOKEN`。
