@@ -5,6 +5,7 @@ import com.cinema.ticketing.common.BusinessException;
 import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
@@ -86,7 +87,7 @@ public class OrderService {
     }
 
     @Transactional
-    public OrderView pay(long userId, String owner, String orderNo) {
+    public OrderView pay(long userId, String owner, String orderNo, String paymentNo) {
         OrderSnapshot order = findOrderSnapshot(userId, orderNo);
         if ("ISSUED".equals(order.status()) || "PAID".equals(order.status())) {
             return findOrder(userId, orderNo);
@@ -94,13 +95,25 @@ public class OrderService {
         if (!"UNPAID".equals(order.status())) {
             throw new BusinessException(409, "当前订单状态不能支付: " + order.status());
         }
+        try {
+            jdbcTemplate.update("INSERT INTO payment_transaction (payment_no, order_id, amount, status, paid_at) "
+                            + "VALUES (?, ?, ?, 'SUCCESS', CURRENT_TIMESTAMP)",
+                    paymentNo, order.id(), order.totalAmount());
+        } catch (DuplicateKeyException exception) {
+            Map<String, Object> existing = jdbcTemplate.queryForMap(
+                    "SELECT order_id FROM payment_transaction WHERE payment_no = ?", paymentNo);
+            if (((Number) existing.get("order_id")).longValue() != order.id()) {
+                throw new BusinessException(409, "支付流水号已用于其他订单");
+            }
+        }
         int updated = jdbcTemplate.update(
-                "UPDATE ticket_order SET status = 'ISSUED', paid_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'UNPAID'",
+                "UPDATE ticket_order SET status = 'PAID', paid_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'UNPAID'",
                 order.id());
         if (updated != 1) {
             return findOrder(userId, orderNo);
         }
         jdbcTemplate.update("UPDATE order_item SET ticket_status = 'ISSUED' WHERE order_id = ?", order.id());
+        jdbcTemplate.update("UPDATE ticket_order SET status = 'ISSUED' WHERE id = ? AND status = 'PAID'", order.id());
         unlockSeats(order.screeningId(), order.seatIds(), order.lockOwner());
         return findOrder(userId, orderNo);
     }
@@ -114,14 +127,25 @@ public class OrderService {
         if (!"ISSUED".equals(order.status())) {
             throw new BusinessException(409, "只有已出票订单可以退票");
         }
-        if (!order.startTime().isAfter(LocalDateTime.now())) {
-            throw new BusinessException(400, "影片开始后不允许退票");
+        RefundPolicy policy = refundPolicy();
+        if (!order.startTime().isAfter(LocalDateTime.now().plusMinutes(policy.cutoffMinutes()))) {
+            throw new BusinessException(400, "已超过退票截止时间: " + policy.content());
         }
         jdbcTemplate.update("UPDATE ticket_order SET status = 'REFUNDED' WHERE id = ? AND status = 'ISSUED'", order.id());
         jdbcTemplate.update("UPDATE order_item SET ticket_status = 'REFUNDED' WHERE order_id = ?", order.id());
         jdbcTemplate.update("INSERT INTO refund_record (order_id, amount, reason, status) VALUES (?, ?, ?, 'REFUNDED')",
                 order.id(), order.totalAmount(), reason);
         return findOrder(userId, orderNo);
+    }
+
+    private RefundPolicy refundPolicy() {
+        try {
+            Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT cutoff_minutes, content FROM refund_policy WHERE enabled = TRUE ORDER BY id DESC LIMIT 1");
+            return new RefundPolicy(((Number) row.get("cutoff_minutes")).longValue(), String.valueOf(row.get("content")));
+        } catch (Exception exception) {
+            return new RefundPolicy(0, "影片开始后不可退票");
+        }
     }
 
     public List<Map<String, Object>> seats(long screeningId) {
@@ -294,6 +318,9 @@ public class OrderService {
     }
 
     private record Screening(long hallId, BigDecimal price, LocalDateTime startTime) {
+    }
+
+    private record RefundPolicy(long cutoffMinutes, String content) {
     }
 
     private record OrderSnapshot(long id, String orderNo, long userId, long screeningId, BigDecimal totalAmount,

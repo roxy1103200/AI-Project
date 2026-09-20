@@ -11,6 +11,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
 
 @RestController
 @RequestMapping("/api/ai")
@@ -29,17 +30,17 @@ public class AiGatewayController {
                                     @Valid @RequestBody ChatRequest request) {
         long userId = authService.requireUserId(token);
         return ApiResponse.success(aiGatewayService.chat(userId,
-                new AiGatewayService.ChatRequest(request.sessionId(), request.question()), false));
+                new AiGatewayService.ChatRequest(request.sessionId(), request.question())));
     }
 
     @PostMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public ResponseEntity<String> stream(@RequestHeader("X-Auth-Token") String token,
+    public ResponseEntity<StreamingResponseBody> stream(@RequestHeader("X-Auth-Token") String token,
                                          @Valid @RequestBody ChatRequest request) {
         long userId = authService.requireUserId(token);
         return ResponseEntity.ok()
                 .contentType(MediaType.TEXT_EVENT_STREAM)
-                .body(aiGatewayService.chat(userId,
-                        new AiGatewayService.ChatRequest(request.sessionId(), request.question()), true));
+                .body(aiGatewayService.stream(userId,
+                        new AiGatewayService.ChatRequest(request.sessionId(), request.question())));
     }
 
     public record ChatRequest(@NotBlank String sessionId, @NotBlank String question) {

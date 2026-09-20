@@ -3,10 +3,13 @@ package com.cinema.ticketing.auth;
 import com.cinema.ticketing.common.BusinessException;
 import com.cinema.ticketing.mapper.UserMapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
@@ -17,11 +20,18 @@ public class AuthService {
     private static final Duration TOKEN_TTL = Duration.ofHours(2);
 
     private final UserMapper userMapper;
+    private final StringRedisTemplate redisTemplate;
     private final BCryptPasswordEncoder passwordEncoder = new BCryptPasswordEncoder();
     private final Map<String, LoginSession> sessions = new ConcurrentHashMap<>();
 
     public AuthService(UserMapper userMapper) {
+        this(userMapper, null);
+    }
+
+    @Autowired
+    public AuthService(UserMapper userMapper, StringRedisTemplate redisTemplate) {
         this.userMapper = userMapper;
+        this.redisTemplate = redisTemplate;
     }
 
     public UserAccount register(String username, String password, String phone) {
@@ -48,13 +58,26 @@ public class AuthService {
             throw new BusinessException(403, "用户已被禁用");
         }
         String token = UUID.randomUUID().toString();
-        sessions.put(token, new LoginSession(account.getId(), account.getRole(), Instant.now().plus(TOKEN_TTL)));
+        LoginSession session = new LoginSession(account.getId(), account.getRole(), Instant.now().plus(TOKEN_TTL));
+        if (redisTemplate == null) {
+            sessions.put(token, session);
+        } else {
+            Map<String, String> values = new HashMap<>();
+            values.put("userId", String.valueOf(session.userId()));
+            values.put("role", session.role());
+            redisTemplate.opsForHash().putAll(sessionKey(token), values);
+            redisTemplate.expire(sessionKey(token), TOKEN_TTL);
+        }
         return new LoginResult(token, account.getId(), account.getUsername(), account.getRole(), TOKEN_TTL.toSeconds());
     }
 
     public void logout(String token) {
         if (token != null) {
-            sessions.remove(token);
+            if (redisTemplate == null) {
+                sessions.remove(token);
+            } else {
+                redisTemplate.delete(sessionKey(token));
+            }
         }
     }
 
@@ -74,12 +97,29 @@ public class AuthService {
     }
 
     private LoginSession requireSession(String token) {
-        LoginSession session = sessions.get(token);
-        if (session == null || session.expiresAt().isBefore(Instant.now())) {
-            sessions.remove(token);
+        if (token == null || token.isBlank()) {
             throw new BusinessException(401, "登录已失效，请重新登录");
         }
+        LoginSession session;
+        if (redisTemplate == null) {
+            session = sessions.get(token);
+            if (session == null || session.expiresAt().isBefore(Instant.now())) {
+                sessions.remove(token);
+                throw new BusinessException(401, "登录已失效，请重新登录");
+            }
+        } else {
+            Map<Object, Object> values = redisTemplate.opsForHash().entries(sessionKey(token));
+            if (values.isEmpty()) {
+                throw new BusinessException(401, "登录已失效，请重新登录");
+            }
+            session = new LoginSession(Long.parseLong(String.valueOf(values.get("userId"))),
+                    String.valueOf(values.get("role")), null);
+        }
         return session;
+    }
+
+    private String sessionKey(String token) {
+        return "auth:session:" + token;
     }
 
     private void validateCredentials(String username, String password) {

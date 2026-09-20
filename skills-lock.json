@@ -7,6 +7,12 @@
       "skillPath": "skills/clean-code/SKILL.md",
       "computedHash": "ecb074627f5814074396754dd684002fdd1b9635ce08e9d2bccb692ef829b78a"
     },
+    "design-taste-frontend": {
+      "source": "leonxlnx/taste-skill",
+      "sourceType": "github",
+      "skillPath": "skills/taste-skill/SKILL.md",
+      "computedHash": "899b84384f74f540ea5284d9b2e9234e050998b42eacc805410b518d4226c0b3"
+    },
     "python-code-style": {
       "source": "wshobson/agents",
       "sourceType": "github",

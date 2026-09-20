@@ -82,9 +82,20 @@ public class InternalAiController {
     }
 
     @GetMapping("/refund-policy")
-    public Map<String, String> refundPolicy(@RequestHeader("X-Internal-Token") String token) {
+    public Map<String, Object> refundPolicy(@RequestHeader("X-Internal-Token") String token) {
         verify(token);
-        return Map.of("version", "2026.01", "policy", "仅支持未开场且已出票订单退票，订单开始后不可退票。", "source", "refund_policy.md");
+        return jdbcTemplate.queryForMap("SELECT policy_version version, content policy, cutoff_minutes, "
+                + "'refund_policy' source FROM refund_policy WHERE enabled = TRUE ORDER BY id DESC LIMIT 1");
+    }
+
+    @GetMapping("/knowledge/search")
+    public List<Map<String, Object>> knowledgeSearch(@RequestHeader("X-Internal-Token") String token,
+                                                     @RequestParam String query) {
+        verify(token);
+        String keyword = "%" + query.trim() + "%";
+        return jdbcTemplate.queryForList("SELECT id, title, content, document_type, version "
+                + "FROM knowledge_document WHERE status = 'PUBLISHED' "
+                + "AND (title LIKE ? OR content LIKE ?) ORDER BY id DESC LIMIT 10", keyword, keyword);
     }
 
     @PostMapping("/recommendations")

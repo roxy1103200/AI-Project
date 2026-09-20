@@ -54,8 +54,10 @@ public class OrderController {
     @PostMapping("/orders/{orderNo}/pay")
     public ApiResponse<OrderService.OrderView> pay(
             @RequestHeader("X-Auth-Token") String token,
-            @PathVariable String orderNo) {
-        return ApiResponse.success(orderService.pay(authService.requireUserId(token), token, orderNo));
+            @PathVariable String orderNo,
+            @Valid @RequestBody PaymentRequest request) {
+        return ApiResponse.success(orderService.pay(authService.requireUserId(token), token, orderNo,
+                request.paymentNo()));
     }
 
     @PostMapping("/orders/{orderNo}/refund")
@@ -86,5 +88,8 @@ public class OrderController {
     }
 
     public record RefundRequest(String reason) {
+    }
+
+    public record PaymentRequest(@NotBlank String paymentNo) {
     }
 }

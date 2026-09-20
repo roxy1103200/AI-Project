@@ -33,7 +33,7 @@
 
 写接口已要求 `X-Auth-Token`，只有登录后的 `ADMIN` 用户可以操作；注册接口为 `POST /api/auth/register`，登录接口为 `POST /api/auth/login`，退出接口为 `POST /api/auth/logout`。
 
-用户列表和详情只返回脱敏字段，绝不返回 `password_hash`。密码使用 BCrypt 哈希保存。当前 token 存储在进程内存中，后续阶段会迁移到 Redis，并补充刷新、撤销和多实例共享能力。
+用户列表和详情只返回脱敏字段，绝不返回 `password_hash`。密码使用 BCrypt 哈希保存。登录 token 使用 Redis TTL（2 小时）保存，支持多实例共享；单元测试未启用 Redis 时才使用进程内存回退。
 
 持久化取舍：用户账户与鉴权查询已使用 MyBatis Mapper；通用后台资源 CRUD 暂时保留 JdbcTemplate 动态实现，以减少重复 Mapper 样板代码。后续若进入多条件查询和复杂事务，将按资源拆分为独立 Entity、Mapper、Service 层。
 
@@ -45,7 +45,8 @@
 - `POST /api/orders/{orderNo}/pay`：模拟支付并完成出票，订单状态变为 `ISSUED`
 - `GET /api/orders/{orderNo}`：查询当前登录用户的订单详情
 - `GET /api/orders`：查询当前用户订单，管理员可按 `userId` 查询
-- `POST /api/orders/{orderNo}/refund`：校验开场时间后执行退票，状态变为 `REFUNDED`
+- `POST /api/orders/{orderNo}/pay`：必须提交支付流水号 `paymentNo`，支付流水按订单和流水号幂等，订单状态按 `UNPAID -> PAID -> ISSUED` 流转
+- `POST /api/orders/{orderNo}/refund`：读取 `refund_policy` 数据库策略，校验退票截止时间后执行退票，状态变为 `REFUNDED`
 
 订单状态流转为 `UNPAID -> ISSUED -> REFUNDED`；Redis 负责短期座位锁，MySQL 负责订单最终状态。RabbitMQ 超时取消属于第四阶段。
 
@@ -76,7 +77,10 @@
 - `POST /ai/stream`：AI 服务流式问答
 - 内置 LangChain Tools：影片查询、场次查询、订单查询、退票规则、电影推荐、退票资格
 - 内置 RAG 知识库：购票须知、退票规则、影院 FAQ，回答携带来源和规则版本
+- Java 侧提供 `/internal/knowledge/search`，内容持久化在 `knowledge_document` 表；AI 同时合并数据库知识和本地 Markdown 知识检索结果
 - AI 只读调用 Java 内部接口，支付、退票等写操作仍由 Java 鉴权、事务和状态机负责
+
+`/api/ai/stream` 使用 Spring MVC `StreamingResponseBody` 直接透传 AI 服务的 SSE 响应，不再等待完整响应体后一次性返回。
 
 AI 服务支持 `OPENAI_API_KEY` 和 `OPENAI_MODEL`；未配置模型密钥时使用确定性意图路由和本地 RAG，仍可完成基础演示。
 

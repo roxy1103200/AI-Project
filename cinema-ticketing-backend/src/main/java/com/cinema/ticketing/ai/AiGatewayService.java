@@ -7,7 +7,10 @@ import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientException;
+import org.springframework.web.servlet.mvc.method.annotation.StreamingResponseBody;
+import org.springframework.util.StreamUtils;
 
+import java.io.IOException;
 import java.util.Map;
 
 @Service
@@ -25,10 +28,30 @@ public class AiGatewayService {
         this.internalToken = internalToken;
     }
 
-    public String chat(long userId, ChatRequest request, boolean stream) {
+    public StreamingResponseBody stream(long userId, ChatRequest request) {
+        return outputStream -> {
+            try {
+                restClient.post()
+                        .uri("/ai/stream")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .header("X-Internal-Token", internalToken)
+                        .body(Map.of("user_id", userId, "session_id", request.sessionId(),
+                                "question", request.question()))
+                        .exchange((clientRequest, clientResponse) -> {
+                            StreamUtils.copy(clientResponse.getBody(), outputStream);
+                            outputStream.flush();
+                            return null;
+                        });
+            } catch (RestClientException exception) {
+                throw new IOException("AI 流式服务暂时不可用", exception);
+            }
+        };
+    }
+
+    public String chat(long userId, ChatRequest request) {
         try {
             return restClient.post()
-                    .uri(stream ? "/ai/stream" : "/ai/chat")
+                    .uri("/ai/chat")
                     .contentType(MediaType.APPLICATION_JSON)
                     .header("X-Internal-Token", internalToken)
                     .body(Map.of("user_id", userId, "session_id", request.sessionId(),

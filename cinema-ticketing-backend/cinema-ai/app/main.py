@@ -113,9 +113,12 @@ def create_tools(client: JavaApiClient, retriever: KeywordRetriever) -> dict[str
         """Retrieve ticket policy passages with source and version metadata."""
         documents = await retriever.ainvoke(question)
         policy = await client.get("/internal/refund-policy")
+        business_documents = await client.get("/internal/knowledge/search", {"query": question})
         return {
-            "answer_context": [document.page_content for document in documents],
-            "sources": [document.metadata for document in documents],
+            "answer_context": [document.page_content for document in documents]
+            + [document["content"] for document in business_documents],
+            "sources": [document.metadata for document in documents]
+            + [{"source": "knowledge_document", **document} for document in business_documents],
             "policy": policy,
         }
 
@@ -222,13 +225,13 @@ class Assistant:
     def _build_graph(self):
         """Build the route, clarify, execute, validate, and response graph."""
         graph = StateGraph(AgentState)
-        graph.add_node("intent", self._intent_node)
+        graph.add_node("intent_node", self._intent_node)
         graph.add_node("clarify", self._clarify_node)
         graph.add_node("execute", self._execute_node)
         graph.add_node("validate", self._validate_node)
         graph.add_node("respond", self._respond_node)
-        graph.add_edge(START, "intent")
-        graph.add_conditional_edges("intent", self._route_next, {"clarify": "clarify", "execute": "execute"})
+        graph.add_edge(START, "intent_node")
+        graph.add_conditional_edges("intent_node", self._route_next, {"clarify": "clarify", "execute": "execute"})
         graph.add_edge("clarify", "respond")
         graph.add_edge("execute", "validate")
         graph.add_edge("validate", "respond")

@@ -105,6 +105,18 @@ CREATE TABLE IF NOT EXISTS order_item (
     CONSTRAINT fk_item_seat FOREIGN KEY (seat_id) REFERENCES seat(id)
 );
 
+CREATE TABLE IF NOT EXISTS payment_transaction (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    payment_no VARCHAR(128) NOT NULL UNIQUE,
+    order_id BIGINT NOT NULL,
+    amount DECIMAL(10, 2) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS',
+    paid_at DATETIME,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_payment_order (order_id),
+    CONSTRAINT fk_payment_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
+);
+
 CREATE TABLE IF NOT EXISTS order_idempotency (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     user_id BIGINT NOT NULL,
@@ -128,6 +140,19 @@ CREATE TABLE IF NOT EXISTS refund_record (
     CONSTRAINT fk_refund_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
 );
 
+CREATE TABLE IF NOT EXISTS refund_policy (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    policy_version VARCHAR(32) NOT NULL UNIQUE,
+    cutoff_minutes INT NOT NULL DEFAULT 0,
+    content VARCHAR(1000) NOT NULL,
+    enabled BOOLEAN NOT NULL DEFAULT TRUE,
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+INSERT INTO refund_policy (policy_version, cutoff_minutes, content, enabled)
+SELECT '2026.01', 30, '仅支持开场前 30 分钟完成退票，已出票订单可申请退票。', TRUE
+WHERE NOT EXISTS (SELECT 1 FROM refund_policy WHERE policy_version = '2026.01');
+
 CREATE TABLE IF NOT EXISTS message_consume_record (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     message_id VARCHAR(128) NOT NULL,
@@ -136,3 +161,28 @@ CREATE TABLE IF NOT EXISTS message_consume_record (
     UNIQUE KEY uk_message_consume_id (message_id),
     INDEX idx_message_processed_at (processed_at)
 );
+
+CREATE TABLE IF NOT EXISTS knowledge_document (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    title VARCHAR(255) NOT NULL,
+    content TEXT NOT NULL,
+    document_type VARCHAR(64) NOT NULL DEFAULT 'FAQ',
+    version VARCHAR(32) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'PUBLISHED',
+    created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_knowledge_status_type (status, document_type),
+    FULLTEXT KEY ft_knowledge_content (title, content)
+);
+
+INSERT INTO knowledge_document (title, content, document_type, version, status)
+SELECT '购票须知', '用户需要先登录，锁座成功后在订单有效期内完成支付；座位锁定、支付和出票状态以订单页面为准。', 'PURCHASE', '2026.01', 'PUBLISHED'
+WHERE NOT EXISTS (SELECT 1 FROM knowledge_document WHERE title = '购票须知' AND version = '2026.01');
+
+INSERT INTO knowledge_document (title, content, document_type, version, status)
+SELECT '退票规则', '仅支持已出票且距离开场超过 30 分钟的订单退票，影片开始后或进入截止时间后不可退票。', 'REFUND', '2026.01', 'PUBLISHED'
+WHERE NOT EXISTS (SELECT 1 FROM knowledge_document WHERE title = '退票规则' AND version = '2026.01');
+
+INSERT INTO knowledge_document (title, content, document_type, version, status)
+SELECT '影院 FAQ', '如遇支付成功但订单状态未更新，请保留支付流水号并联系影院客服，系统会按支付流水进行幂等核验。', 'FAQ', '2026.01', 'PUBLISHED'
+WHERE NOT EXISTS (SELECT 1 FROM knowledge_document WHERE title = '影院 FAQ' AND version = '2026.01');

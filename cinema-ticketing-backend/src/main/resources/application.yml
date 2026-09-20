@@ -36,6 +36,7 @@ logging:
 
 rate-limit:
   requests-per-minute: ${RATE_LIMIT_REQUESTS_PER_MINUTE:120}
+  trusted-proxy-header: ${RATE_LIMIT_TRUSTED_PROXY_HEADER:cinema-nginx}
 
 management:
   endpoints:

@@ -29,7 +29,7 @@ class SystemControllerTest {
     @Test
     void blankValueReturnsBadRequest() throws Exception {
         mockMvc.perform(get("/api/validation-demo").param("value", ""))
-                .andExpect(status().isOk())
+                .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.code").value(400));
     }
 }

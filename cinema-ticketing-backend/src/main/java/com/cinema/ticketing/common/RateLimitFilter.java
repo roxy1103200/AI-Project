@@ -21,12 +21,15 @@ public class RateLimitFilter extends OncePerRequestFilter {
     private final RateLimitService rateLimitService;
     private final ObjectMapper objectMapper;
     private final int requestLimit;
+    private final String trustedProxyHeader;
 
     public RateLimitFilter(RateLimitService rateLimitService, ObjectMapper objectMapper,
-                           @Value("${rate-limit.requests-per-minute:120}") int requestLimit) {
+                           @Value("${rate-limit.requests-per-minute:120}") int requestLimit,
+                           @Value("${rate-limit.trusted-proxy-header:cinema-nginx}") String trustedProxyHeader) {
         this.rateLimitService = rateLimitService;
         this.objectMapper = objectMapper;
         this.requestLimit = requestLimit;
+        this.trustedProxyHeader = trustedProxyHeader;
     }
 
     @Override
@@ -38,11 +41,12 @@ public class RateLimitFilter extends OncePerRequestFilter {
     @Override
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response,
                                     FilterChain filterChain) throws ServletException, IOException {
-        String clientKey = request.getHeader("X-Forwarded-For");
-        if (clientKey == null || clientKey.isBlank()) {
-            clientKey = request.getRemoteAddr();
-        } else {
-            clientKey = clientKey.split(",")[0].trim();
+        String clientKey = request.getRemoteAddr();
+        if (trustedProxyHeader.equals(request.getHeader("X-Trusted-Proxy"))) {
+            String realIp = request.getHeader("X-Real-IP");
+            if (realIp != null && !realIp.isBlank()) {
+                clientKey = realIp.trim();
+            }
         }
         try {
             if (!rateLimitService.allow(clientKey, requestLimit, 60)) {
