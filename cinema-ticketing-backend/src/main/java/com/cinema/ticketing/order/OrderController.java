@@ -38,8 +38,8 @@ public class OrderController {
     public ApiResponse<OrderService.SeatLockResult> lockSeats(
             @RequestHeader("X-Auth-Token") String token,
             @Valid @RequestBody LockSeatsRequest request) {
-        long userId = authService.requireUserId(token);
-        return ApiResponse.success(orderService.lockSeats(userId, token, request.screeningId(), request.seatIds()));
+        authService.requireUserId(token);
+        return ApiResponse.success(orderService.lockSeats(token, request.screeningId(), request.seatIds()));
     }
 
     @PostMapping("/orders")

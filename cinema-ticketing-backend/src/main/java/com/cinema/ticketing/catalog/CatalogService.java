@@ -4,6 +4,8 @@ import com.cinema.ticketing.common.BusinessException;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.cache.annotation.CacheEvict;
+import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 
 import java.sql.PreparedStatement;
@@ -20,16 +22,19 @@ public class CatalogService {
         this.jdbcTemplate = jdbcTemplate;
     }
 
+    @Cacheable(cacheNames = "catalogList", key = "#resource")
     public List<Map<String, Object>> list(String resource) {
         ResourceDefinition definition = definition(resource);
         return jdbcTemplate.queryForList(definition.listSql());
     }
 
+    @Cacheable(cacheNames = "catalogDetail", key = "#resource + ':' + #id")
     public Map<String, Object> find(String resource, long id) {
         ResourceDefinition definition = definition(resource);
         return jdbcTemplate.queryForMap(definition.findSql(), id);
     }
 
+    @CacheEvict(cacheNames = {"catalogList", "catalogDetail"}, allEntries = true)
     public long create(String resource, Map<String, Object> values) {
         ResourceDefinition definition = definition(resource);
         rejectUserMutation(resource);
@@ -50,6 +55,7 @@ public class CatalogService {
         return key.longValue();
     }
 
+    @CacheEvict(cacheNames = {"catalogList", "catalogDetail"}, allEntries = true)
     public void update(String resource, long id, Map<String, Object> values) {
         ResourceDefinition definition = definition(resource);
         rejectUserMutation(resource);
@@ -57,6 +63,7 @@ public class CatalogService {
         jdbcTemplate.update(definition.updateSql(), parameters);
     }
 
+    @CacheEvict(cacheNames = {"catalogList", "catalogDetail"}, allEntries = true)
     public void delete(String resource, long id) {
         ResourceDefinition definition = definition(resource);
         jdbcTemplate.update(definition.deleteSql(), id);

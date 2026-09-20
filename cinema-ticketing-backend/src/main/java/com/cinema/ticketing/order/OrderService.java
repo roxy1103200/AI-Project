@@ -16,7 +16,6 @@ import java.sql.Statement;
 import java.time.Duration;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
@@ -40,13 +39,16 @@ public class OrderService {
 
     private final JdbcTemplate jdbcTemplate;
     private final StringRedisTemplate redisTemplate;
+    private final OrderMessagePublisher orderMessagePublisher;
 
-    public OrderService(JdbcTemplate jdbcTemplate, StringRedisTemplate redisTemplate) {
+    public OrderService(JdbcTemplate jdbcTemplate, StringRedisTemplate redisTemplate,
+                        OrderMessagePublisher orderMessagePublisher) {
         this.jdbcTemplate = jdbcTemplate;
         this.redisTemplate = redisTemplate;
+        this.orderMessagePublisher = orderMessagePublisher;
     }
 
-    public SeatLockResult lockSeats(long userId, String owner, long screeningId, List<Long> requestedSeatIds) {
+    public SeatLockResult lockSeats(String owner, long screeningId, List<Long> requestedSeatIds) {
         List<Long> seatIds = distinctSeatIds(requestedSeatIds);
         Screening screening = screening(screeningId);
         validateSeats(screeningId, screening.hallId(), seatIds);
@@ -74,11 +76,13 @@ public class OrderService {
 
         String orderNo = "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 24).toUpperCase();
         BigDecimal totalAmount = screening.price().multiply(BigDecimal.valueOf(seatIds.size()));
-        long orderId = insertOrder(orderNo, userId, request.screeningId(), totalAmount);
+        long orderId = insertOrder(orderNo, userId, request.screeningId(), totalAmount, owner);
         insertOrderItems(orderId, seatIds, screening.price());
         jdbcTemplate.update("INSERT INTO order_idempotency (user_id, request_id, order_no) VALUES (?, ?, ?)",
                 userId, request.requestId(), orderNo);
-        return findOrder(userId, orderNo);
+        OrderView order = findOrder(userId, orderNo);
+        orderMessagePublisher.scheduleCancellation(orderNo, order.expireAt());
+        return order;
     }
 
     @Transactional
@@ -97,7 +101,7 @@ public class OrderService {
             return findOrder(userId, orderNo);
         }
         jdbcTemplate.update("UPDATE order_item SET ticket_status = 'ISSUED' WHERE order_id = ?", order.id());
-        unlockSeats(order.screeningId(), order.seatIds(), owner);
+        unlockSeats(order.screeningId(), order.seatIds(), order.lockOwner());
         return findOrder(userId, orderNo);
     }
 
@@ -141,6 +145,36 @@ public class OrderService {
                 order.expireAt(), order.paidAt(), order.startTime(), items);
     }
 
+    @Transactional
+    public void cancelIfUnpaid(String messageId, String orderNo) {
+        int inserted = jdbcTemplate.update(
+                "INSERT IGNORE INTO message_consume_record (message_id, message_type) VALUES (?, 'ORDER_CANCEL')",
+                messageId);
+        if (inserted == 0) {
+            return;
+        }
+        Map<String, Object> order;
+        try {
+            order = jdbcTemplate.queryForMap(
+                    "SELECT id, screening_id, status, expire_at, lock_owner FROM ticket_order WHERE order_no = ?",
+                    orderNo);
+        } catch (org.springframework.dao.EmptyResultDataAccessException exception) {
+            return;
+        }
+        if (!"UNPAID".equals(order.get("status"))) {
+            return;
+        }
+        LocalDateTime expireAt = ((java.sql.Timestamp) order.get("expire_at")).toLocalDateTime();
+        if (expireAt.isAfter(LocalDateTime.now())) {
+            throw new IllegalStateException("订单尚未到期: " + orderNo);
+        }
+        jdbcTemplate.update("UPDATE ticket_order SET status = 'CANCELLED' WHERE id = ? AND status = 'UNPAID'",
+                order.get("id"));
+        jdbcTemplate.update("UPDATE order_item SET ticket_status = 'CANCELLED' WHERE order_id = ?", order.get("id"));
+        List<Long> seatIds = orderSeatIds(((Number) order.get("id")).longValue());
+        unlockSeats(((Number) order.get("screening_id")).longValue(), seatIds, (String) order.get("lock_owner"));
+    }
+
     private Screening screening(long screeningId) {
         try {
             return jdbcTemplate.queryForObject(
@@ -178,17 +212,18 @@ public class OrderService {
                 List.of(lockKey(screeningId, seatId)), owner));
     }
 
-    private long insertOrder(String orderNo, long userId, long screeningId, BigDecimal totalAmount) {
+    private long insertOrder(String orderNo, long userId, long screeningId, BigDecimal totalAmount, String lockOwner) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement statement = connection.prepareStatement(
-                    "INSERT INTO ticket_order (order_no, user_id, screening_id, total_amount, status, expire_at) "
-                            + "VALUES (?, ?, ?, ?, 'UNPAID', DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE))",
+                    "INSERT INTO ticket_order (order_no, user_id, screening_id, total_amount, status, lock_owner, expire_at) "
+                            + "VALUES (?, ?, ?, ?, 'UNPAID', ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE))",
                     Statement.RETURN_GENERATED_KEYS);
             statement.setString(1, orderNo);
             statement.setLong(2, userId);
             statement.setLong(3, screeningId);
             statement.setBigDecimal(4, totalAmount);
+            statement.setString(5, lockOwner);
             return statement;
         }, keyHolder);
         Number key = keyHolder.getKey();
@@ -207,12 +242,12 @@ public class OrderService {
     private OrderSnapshot findOrderSnapshot(long userId, String orderNo) {
         try {
             return jdbcTemplate.queryForObject(
-                    "SELECT o.id, o.order_no, o.user_id, o.screening_id, o.total_amount, o.status, o.expire_at, "
+                    "SELECT o.id, o.order_no, o.user_id, o.screening_id, o.total_amount, o.status, o.lock_owner, o.expire_at, "
                             + "o.paid_at, s.start_time FROM ticket_order o JOIN screening s ON s.id = o.screening_id "
                             + "WHERE o.order_no = ? AND o.user_id = ?",
-                    (rs, rowNum) -> new OrderSnapshot(rs.getLong("id"), rs.getString("order_no"),
+                            (rs, rowNum) -> new OrderSnapshot(rs.getLong("id"), rs.getString("order_no"),
                             rs.getLong("user_id"), rs.getLong("screening_id"), rs.getBigDecimal("total_amount"),
-                            rs.getString("status"), rs.getTimestamp("expire_at").toLocalDateTime(),
+                            rs.getString("status"), rs.getString("lock_owner"), rs.getTimestamp("expire_at").toLocalDateTime(),
                             rs.getTimestamp("paid_at") == null ? null : rs.getTimestamp("paid_at").toLocalDateTime(),
                             rs.getTimestamp("start_time").toLocalDateTime(), orderSeatIds(rs.getLong("id"))),
                     orderNo, userId);
@@ -262,7 +297,7 @@ public class OrderService {
     }
 
     private record OrderSnapshot(long id, String orderNo, long userId, long screeningId, BigDecimal totalAmount,
-                                 String status, LocalDateTime expireAt, LocalDateTime paidAt,
+                                 String status, String lockOwner, LocalDateTime expireAt, LocalDateTime paidAt,
                                  LocalDateTime startTime, List<Long> seatIds) {
     }
 

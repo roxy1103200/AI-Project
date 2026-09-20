@@ -82,10 +82,13 @@ CREATE TABLE IF NOT EXISTS ticket_order (
     screening_id BIGINT NOT NULL,
     total_amount DECIMAL(10, 2) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'UNPAID',
+    lock_owner VARCHAR(128) NOT NULL,
     expire_at DATETIME,
     paid_at DATETIME,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_order_user_created (user_id, created_at),
+    INDEX idx_order_status_expire (status, expire_at),
+    INDEX idx_order_screening_status (screening_id, status),
     CONSTRAINT fk_order_user FOREIGN KEY (user_id) REFERENCES users(id),
     CONSTRAINT fk_order_screening FOREIGN KEY (screening_id) REFERENCES screening(id)
 );
@@ -97,6 +100,7 @@ CREATE TABLE IF NOT EXISTS order_item (
     price DECIMAL(10, 2) NOT NULL,
     ticket_status VARCHAR(32) NOT NULL DEFAULT 'VALID',
     UNIQUE KEY uk_order_seat (order_id, seat_id),
+    INDEX idx_order_item_seat (seat_id),
     CONSTRAINT fk_item_order FOREIGN KEY (order_id) REFERENCES ticket_order(id),
     CONSTRAINT fk_item_seat FOREIGN KEY (seat_id) REFERENCES seat(id)
 );
@@ -120,5 +124,15 @@ CREATE TABLE IF NOT EXISTS refund_record (
     reason VARCHAR(255),
     status VARCHAR(32) NOT NULL DEFAULT 'REFUNDED',
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    INDEX idx_refund_order_created (order_id, created_at),
     CONSTRAINT fk_refund_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
+);
+
+CREATE TABLE IF NOT EXISTS message_consume_record (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    message_id VARCHAR(128) NOT NULL,
+    message_type VARCHAR(64) NOT NULL,
+    processed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE KEY uk_message_consume_id (message_id),
+    INDEX idx_message_processed_at (processed_at)
 );

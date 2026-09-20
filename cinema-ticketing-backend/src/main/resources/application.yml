@@ -6,6 +6,12 @@ spring:
     username: ${DB_USERNAME:cinema}
     password: ${DB_PASSWORD:cinema}
     driver-class-name: com.mysql.cj.jdbc.Driver
+  cache:
+    type: redis
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
 
 server:
   port: ${SERVER_PORT:8080}
@@ -25,3 +31,24 @@ springdoc:
 logging:
   level:
     com.cinema.ticketing: INFO
+  file:
+    name: ${LOG_FILE:logs/cinema-ticketing.log}
+
+rate-limit:
+  requests-per-minute: ${RATE_LIMIT_REQUESTS_PER_MINUTE:120}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+ai:
+  service-url: ${AI_SERVICE_URL:http://localhost:8000}
+  internal-token: ${AI_INTERNAL_TOKEN:local-internal-token}
