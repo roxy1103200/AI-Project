@@ -1,0 +1,323 @@
+package com.cinema.ticketing.service;
+
+import com.cinema.ticketing.common.BusinessException;
+import com.cinema.ticketing.dto.CreateOrderRequest;
+import com.cinema.ticketing.dto.OrderView;
+import com.cinema.ticketing.dto.SeatLockResult;
+import com.cinema.ticketing.mq.OrderMessagePublisher;
+import org.springframework.data.redis.core.StringRedisTemplate;
+import org.springframework.data.redis.core.script.DefaultRedisScript;
+import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.dao.DuplicateKeyException;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
+import org.springframework.jdbc.support.KeyHolder;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.math.BigDecimal;
+import java.sql.PreparedStatement;
+import java.sql.Statement;
+import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.UUID;
+
+@Service
+public class OrderService {
+
+    private static final Duration SEAT_LOCK_TTL = Duration.ofMinutes(5);
+    private static final String LOCK_KEY_PREFIX = "seat:lock:";
+    private static final DefaultRedisScript<Long> LOCK_SCRIPT = new DefaultRedisScript<>(
+            "for i,key in ipairs(KEYS) do "
+                    + "if redis.call('get', key) then return 0 end "
+                    + "end "
+                    + "for i,key in ipairs(KEYS) do redis.call('set', key, ARGV[1], 'PX', ARGV[2]) end "
+                    + "return 1", Long.class);
+    private static final DefaultRedisScript<Long> UNLOCK_SCRIPT = new DefaultRedisScript<>(
+            "if redis.call('get', KEYS[1]) == ARGV[1] then "
+                    + "return redis.call('del', KEYS[1]) "
+                    + "end return 0", Long.class);
+
+    private final JdbcTemplate jdbcTemplate;
+    private final StringRedisTemplate redisTemplate;
+    private final OrderMessagePublisher orderMessagePublisher;
+
+    public OrderService(JdbcTemplate jdbcTemplate, StringRedisTemplate redisTemplate,
+                        OrderMessagePublisher orderMessagePublisher) {
+        this.jdbcTemplate = jdbcTemplate;
+        this.redisTemplate = redisTemplate;
+        this.orderMessagePublisher = orderMessagePublisher;
+    }
+
+    public SeatLockResult lockSeats(String owner, long screeningId, List<Long> requestedSeatIds) {
+        List<Long> seatIds = distinctSeatIds(requestedSeatIds);
+        Screening screening = screening(screeningId);
+        validateSeats(screeningId, screening.hallId(), seatIds);
+        List<String> keys = seatIds.stream()
+                .map(seatId -> lockKey(screeningId, seatId))
+                .toList();
+        Long locked = redisTemplate.execute(LOCK_SCRIPT, keys, owner, String.valueOf(SEAT_LOCK_TTL.toMillis()));
+        if (!Long.valueOf(1L).equals(locked)) {
+            throw new BusinessException(409, "部分座位已被其他用户锁定");
+        }
+        return new SeatLockResult(screeningId, seatIds, LocalDateTime.now().plus(SEAT_LOCK_TTL));
+    }
+
+    @Transactional
+    public OrderView createOrder(long userId, String owner, CreateOrderRequest request) {
+        String existingOrderNo = findOrderNoByRequest(userId, request.requestId());
+        if (existingOrderNo != null) {
+            return findOrder(userId, existingOrderNo);
+        }
+
+        List<Long> seatIds = distinctSeatIds(request.seatIds());
+        Screening screening = screening(request.screeningId());
+        validateSeats(request.screeningId(), screening.hallId(), seatIds);
+        validateLockOwnership(request.screeningId(), seatIds, owner);
+
+        String orderNo = "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 24).toUpperCase();
+        BigDecimal totalAmount = screening.price().multiply(BigDecimal.valueOf(seatIds.size()));
+        long orderId = insertOrder(orderNo, userId, request.screeningId(), totalAmount, owner);
+        insertOrderItems(orderId, seatIds, screening.price());
+        jdbcTemplate.update("INSERT INTO order_idempotency (user_id, request_id, order_no) VALUES (?, ?, ?)",
+                userId, request.requestId(), orderNo);
+        OrderView order = findOrder(userId, orderNo);
+        orderMessagePublisher.scheduleCancellation(orderNo, order.expireAt());
+        return order;
+    }
+
+    @Transactional
+    public OrderView pay(long userId, String owner, String orderNo, String paymentNo) {
+        OrderSnapshot order = findOrderSnapshot(userId, orderNo);
+        if ("ISSUED".equals(order.status()) || "PAID".equals(order.status())) {
+            return findOrder(userId, orderNo);
+        }
+        if (!"UNPAID".equals(order.status())) {
+            throw new BusinessException(409, "当前订单状态不能支付: " + order.status());
+        }
+        try {
+            jdbcTemplate.update("INSERT INTO payment_transaction (payment_no, order_id, amount, status, paid_at) "
+                            + "VALUES (?, ?, ?, 'SUCCESS', CURRENT_TIMESTAMP)",
+                    paymentNo, order.id(), order.totalAmount());
+        } catch (DuplicateKeyException exception) {
+            Map<String, Object> existing = jdbcTemplate.queryForMap(
+                    "SELECT order_id FROM payment_transaction WHERE payment_no = ?", paymentNo);
+            if (((Number) existing.get("order_id")).longValue() != order.id()) {
+                throw new BusinessException(409, "支付流水号已用于其他订单");
+            }
+        }
+        int updated = jdbcTemplate.update(
+                "UPDATE ticket_order SET status = 'PAID', paid_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'UNPAID'",
+                order.id());
+        if (updated != 1) {
+            return findOrder(userId, orderNo);
+        }
+        jdbcTemplate.update("UPDATE order_item SET ticket_status = 'ISSUED' WHERE order_id = ?", order.id());
+        jdbcTemplate.update("UPDATE ticket_order SET status = 'ISSUED' WHERE id = ? AND status = 'PAID'", order.id());
+        unlockSeats(order.screeningId(), order.seatIds(), order.lockOwner());
+        return findOrder(userId, orderNo);
+    }
+
+    @Transactional
+    public OrderView refund(long userId, String orderNo, String reason) {
+        OrderSnapshot order = findOrderSnapshot(userId, orderNo);
+        if ("REFUNDED".equals(order.status())) {
+            return findOrder(userId, orderNo);
+        }
+        if (!"ISSUED".equals(order.status())) {
+            throw new BusinessException(409, "只有已出票订单可以退票");
+        }
+        RefundPolicy policy = refundPolicy();
+        if (!order.startTime().isAfter(LocalDateTime.now().plusMinutes(policy.cutoffMinutes()))) {
+            throw new BusinessException(400, "已超过退票截止时间: " + policy.content());
+        }
+        jdbcTemplate.update("UPDATE ticket_order SET status = 'REFUNDED' WHERE id = ? AND status = 'ISSUED'", order.id());
+        jdbcTemplate.update("UPDATE order_item SET ticket_status = 'REFUNDED' WHERE order_id = ?", order.id());
+        jdbcTemplate.update("INSERT INTO refund_record (order_id, amount, reason, status) VALUES (?, ?, ?, 'REFUNDED')",
+                order.id(), order.totalAmount(), reason);
+        return findOrder(userId, orderNo);
+    }
+
+    private RefundPolicy refundPolicy() {
+        try {
+            Map<String, Object> row = jdbcTemplate.queryForMap(
+                    "SELECT cutoff_minutes, content FROM refund_policy WHERE enabled = TRUE ORDER BY id DESC LIMIT 1");
+            return new RefundPolicy(((Number) row.get("cutoff_minutes")).longValue(), String.valueOf(row.get("content")));
+        } catch (Exception exception) {
+            return new RefundPolicy(0, "影片开始后不可退票");
+        }
+    }
+
+    public List<Map<String, Object>> seats(long screeningId) {
+        Screening screening = screening(screeningId);
+        return jdbcTemplate.queryForList(
+                "SELECT s.id, s.hall_id, s.row_no, s.column_no, s.seat_code, s.seat_type, s.status, "
+                        + "CASE WHEN EXISTS (SELECT 1 FROM ticket_order o JOIN order_item oi ON oi.order_id = o.id "
+                        + "WHERE o.screening_id = ? AND oi.seat_id = s.id AND o.status IN ('UNPAID', 'ISSUED')) "
+                        + "THEN 'SOLD' ELSE s.status END AS booking_status "
+                        + "FROM seat s WHERE s.hall_id = ? ORDER BY s.row_no, s.column_no",
+                screeningId, screening.hallId());
+    }
+
+    public OrderView findOrder(long userId, String orderNo) {
+        OrderSnapshot order = findOrderSnapshot(userId, orderNo);
+        List<Map<String, Object>> items = jdbcTemplate.queryForList(
+                "SELECT oi.id, oi.seat_id, s.seat_code, oi.price, oi.ticket_status "
+                        + "FROM order_item oi JOIN seat s ON s.id = oi.seat_id WHERE oi.order_id = ? ORDER BY oi.id",
+                order.id());
+        return new OrderView(order.orderNo(), order.userId(), order.screeningId(), order.totalAmount(), order.status(),
+                order.expireAt(), order.paidAt(), order.startTime(), items);
+    }
+
+    @Transactional
+    public void cancelIfUnpaid(String messageId, String orderNo) {
+        int inserted = jdbcTemplate.update(
+                "INSERT IGNORE INTO message_consume_record (message_id, message_type) VALUES (?, 'ORDER_CANCEL')",
+                messageId);
+        if (inserted == 0) {
+            return;
+        }
+        Map<String, Object> order;
+        try {
+            order = jdbcTemplate.queryForMap(
+                    "SELECT id, screening_id, status, expire_at, lock_owner FROM ticket_order WHERE order_no = ?",
+                    orderNo);
+        } catch (org.springframework.dao.EmptyResultDataAccessException exception) {
+            return;
+        }
+        if (!"UNPAID".equals(order.get("status"))) {
+            return;
+        }
+        LocalDateTime expireAt = ((java.sql.Timestamp) order.get("expire_at")).toLocalDateTime();
+        if (expireAt.isAfter(LocalDateTime.now())) {
+            throw new IllegalStateException("订单尚未到期: " + orderNo);
+        }
+        jdbcTemplate.update("UPDATE ticket_order SET status = 'CANCELLED' WHERE id = ? AND status = 'UNPAID'",
+                order.get("id"));
+        jdbcTemplate.update("UPDATE order_item SET ticket_status = 'CANCELLED' WHERE order_id = ?", order.get("id"));
+        List<Long> seatIds = orderSeatIds(((Number) order.get("id")).longValue());
+        unlockSeats(((Number) order.get("screening_id")).longValue(), seatIds, (String) order.get("lock_owner"));
+    }
+
+    private Screening screening(long screeningId) {
+        try {
+            return jdbcTemplate.queryForObject(
+                    "SELECT hall_id, price, start_time FROM screening WHERE id = ? AND status = 'SCHEDULED'",
+                    (rs, rowNum) -> new Screening(rs.getLong("hall_id"), rs.getBigDecimal("price"),
+                            rs.getTimestamp("start_time").toLocalDateTime()), screeningId);
+        } catch (Exception exception) {
+            throw new BusinessException(404, "场次不存在或不可售");
+        }
+    }
+
+    private void validateSeats(long screeningId, long hallId, List<Long> seatIds) {
+        String placeholders = String.join(",", seatIds.stream().map(id -> "?").toList());
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(hallId);
+        parameters.addAll(seatIds);
+        Integer count = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM seat WHERE hall_id = ? AND status = 'AVAILABLE' AND id IN (" + placeholders + ")",
+                Integer.class, parameters.toArray());
+        if (count == null || count != seatIds.size()) {
+            throw new BusinessException(400, "座位不存在、不可用或不属于当前场次");
+        }
+    }
+
+    private void validateLockOwnership(long screeningId, List<Long> seatIds, String owner) {
+        boolean allOwned = seatIds.stream().allMatch(seatId -> owner.equals(
+                redisTemplate.opsForValue().get(lockKey(screeningId, seatId))));
+        if (!allOwned) {
+            throw new BusinessException(409, "座位锁已失效，请重新锁座");
+        }
+    }
+
+    private void unlockSeats(long screeningId, List<Long> seatIds, String owner) {
+        seatIds.forEach(seatId -> redisTemplate.execute(UNLOCK_SCRIPT,
+                List.of(lockKey(screeningId, seatId)), owner));
+    }
+
+    private long insertOrder(String orderNo, long userId, long screeningId, BigDecimal totalAmount, String lockOwner) {
+        KeyHolder keyHolder = new GeneratedKeyHolder();
+        jdbcTemplate.update(connection -> {
+            PreparedStatement statement = connection.prepareStatement(
+                    "INSERT INTO ticket_order (order_no, user_id, screening_id, total_amount, status, lock_owner, expire_at) "
+                            + "VALUES (?, ?, ?, ?, 'UNPAID', ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE))",
+                    Statement.RETURN_GENERATED_KEYS);
+            statement.setString(1, orderNo);
+            statement.setLong(2, userId);
+            statement.setLong(3, screeningId);
+            statement.setBigDecimal(4, totalAmount);
+            statement.setString(5, lockOwner);
+            return statement;
+        }, keyHolder);
+        Number key = keyHolder.getKey();
+        if (key == null) {
+            throw new BusinessException(500, "创建订单失败");
+        }
+        return key.longValue();
+    }
+
+    private void insertOrderItems(long orderId, List<Long> seatIds, BigDecimal price) {
+        seatIds.forEach(seatId -> jdbcTemplate.update(
+                "INSERT INTO order_item (order_id, seat_id, price, ticket_status) VALUES (?, ?, ?, 'VALID')",
+                orderId, seatId, price));
+    }
+
+    private OrderSnapshot findOrderSnapshot(long userId, String orderNo) {
+        try {
+            return jdbcTemplate.queryForObject(
+                    "SELECT o.id, o.order_no, o.user_id, o.screening_id, o.total_amount, o.status, o.lock_owner, o.expire_at, "
+                            + "o.paid_at, s.start_time FROM ticket_order o JOIN screening s ON s.id = o.screening_id "
+                            + "WHERE o.order_no = ? AND o.user_id = ?",
+                            (rs, rowNum) -> new OrderSnapshot(rs.getLong("id"), rs.getString("order_no"),
+                            rs.getLong("user_id"), rs.getLong("screening_id"), rs.getBigDecimal("total_amount"),
+                            rs.getString("status"), rs.getString("lock_owner"), rs.getTimestamp("expire_at").toLocalDateTime(),
+                            rs.getTimestamp("paid_at") == null ? null : rs.getTimestamp("paid_at").toLocalDateTime(),
+                            rs.getTimestamp("start_time").toLocalDateTime(), orderSeatIds(rs.getLong("id"))),
+                    orderNo, userId);
+        } catch (Exception exception) {
+            throw new BusinessException(404, "订单不存在");
+        }
+    }
+
+    private List<Long> orderSeatIds(long orderId) {
+        return jdbcTemplate.queryForList("SELECT seat_id FROM order_item WHERE order_id = ?", Long.class, orderId);
+    }
+
+    private String findOrderNoByRequest(long userId, String requestId) {
+        List<String> orderNos = jdbcTemplate.queryForList(
+                "SELECT order_no FROM order_idempotency WHERE user_id = ? AND request_id = ?",
+                String.class, userId, requestId);
+        return orderNos.isEmpty() ? null : orderNos.getFirst();
+    }
+
+    private List<Long> distinctSeatIds(List<Long> seatIds) {
+        if (seatIds == null || seatIds.isEmpty()) {
+            throw new BusinessException(400, "至少选择一个座位");
+        }
+        List<Long> distinctIds = new ArrayList<>(new LinkedHashSet<>(seatIds));
+        if (distinctIds.size() != seatIds.size()) {
+            throw new BusinessException(400, "座位不能重复选择");
+        }
+        return distinctIds;
+    }
+
+    private String lockKey(long screeningId, long seatId) {
+        return LOCK_KEY_PREFIX + screeningId + ":" + seatId;
+    }
+
+    private record Screening(long hallId, BigDecimal price, LocalDateTime startTime) {
+    }
+
+    private record RefundPolicy(long cutoffMinutes, String content) {
+    }
+
+    private record OrderSnapshot(long id, String orderNo, long userId, long screeningId, BigDecimal totalAmount,
+                                 String status, String lockOwner, LocalDateTime expireAt, LocalDateTime paidAt,
+                                 LocalDateTime startTime, List<Long> seatIds) {
+    }
+
+}

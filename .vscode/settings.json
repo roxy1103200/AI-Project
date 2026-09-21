@@ -1,0 +1,19 @@
+{
+  // 让 VSCode 的 Java 扩展使用与命令行 mvn 完全相同的 JDK / Maven / 本地仓库。
+  // 默认情况下扩展会走 C:\Users\Administrator\.m2\repository，而 conf\settings.xml
+  // 里配的是 D:\...\mvn_repo，两套仓库不一致会导致 IDE 里所有 import 标红。
+  "java.jdt.ls.java.home": "D:\\java\\jdk21",
+  "java.configuration.runtimes": [
+    {
+      "name": "JavaSE-21",
+      "path": "D:\\java\\jdk21",
+      "default": true
+    }
+  ],
+  "java.configuration.maven.userSettings": "D:\\downlod\\code\\maven\\em\\apache-maven-3.9.4\\conf\\settings.xml",
+  "java.configuration.maven.globalSettings": "D:\\downlod\\code\\maven\\em\\apache-maven-3.9.4\\conf\\settings.xml",
+  "maven.executable.path": "D:\\downlod\\code\\maven\\em\\apache-maven-3.9.4\\bin\\mvn.cmd",
+  "maven.terminal.useJavaHome": true,
+  "java.import.maven.enabled": true,
+  "java.maven.downloadSources": false
+}

@@ -1,5 +1,6 @@
 package com.cinema.ticketing.common;
 
+import com.cinema.ticketing.service.RateLimitService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.springframework.mock.web.MockFilterChain;

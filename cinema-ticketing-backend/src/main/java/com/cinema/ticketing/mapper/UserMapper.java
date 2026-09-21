@@ -1,6 +1,6 @@
 package com.cinema.ticketing.mapper;
 
-import com.cinema.ticketing.auth.UserAccount;
+import com.cinema.ticketing.entity.UserAccount;
 
 public interface UserMapper {
 

@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(tasklist)",
+      "Bash(mkdir -p C:/Users/Administrator/AppData/Local/Temp/idea-backup-__CMDSUB_OUTPUT__)",
+      "Bash(cp /e/development/AI-Project/.idea/misc.xml /e/development/AI-Project/.idea/encodings.xml /e/development/AI-Project/.idea/compiler.xml C:/Users/Administrator/AppData/Local/Temp/idea-backup-__CMDSUB_OUTPUT__/)",
+      "Read(//c/Users/Administrator/AppData/Local/Temp/**)"
+    ]
+  }
+}

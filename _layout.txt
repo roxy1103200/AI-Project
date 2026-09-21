@@ -1,0 +1,63 @@
+pages=1  metadata={'format': 'PDF 1.7', 'title': '直聘简历', 'author': '', 'subject': '', 'keywords': 'cid_05a3240e2f4fa8051HZ_2ty9EVJVw4m3UP-f tid_732ae861ed8b3b241Xc~', 'creator': 'BOSS直聘', 'producer': '直聘简历', 'creationDate': "D:20260920140402+00'00'", 'modDate': 'D:20260920140402Z', 'trapped': '', 'encryption': None}
+has_links=0
+
+=== PAGE 0  size=595.9 x 841.9 pt (210 x 297 mm) ===
+  IMAGE #0 xref=8 64x64 ext=png bytes=1017
+  IMAGE #1 xref=11 64x64 ext=png bytes=694
+  IMAGE #2 xref=13 720x720 ext=png bytes=422597
+  b0.l0.s0 bbox=(   24.0,  338.4,  392.6,  354.9) size=12.00 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | 基于 LangChain + LangGraph 的智能影院售票与 AI Agent 助手系统
+  b0.l2.s0 bbox=(  489.4,  340.0,  565.5,  353.4) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#666666 | 2025.12-2026.01
+  b1.l0.s0 bbox=(   24.0,  575.4,   70.5,  591.9) size=12.00 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | LiliShop
+  b1.l2.s0 bbox=(  488.0,  577.0,  565.5,  590.4) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#666666 | 2026.03-2026.04
+  b2.l0.s0 bbox=(   24.0,  809.4,  142.1,  825.9) size=12.00 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | 南昌应用技术师范学院
+  b2.l1.s1 bbox=(  159.8,  811.8,  179.0,  825.1) size= 9.75 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | 本科
+  b2.l2.s1 bbox=(  196.7,  811.8,  235.1,  825.1) size= 9.75 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | 软件工程
+  b2.l3.s0 bbox=(  516.4,  811.0,  565.5,  824.4) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#666666 | 2022-2027
+  b3.l0.s0 bbox=(  220.7,   23.6,  287.1,   54.5) size=22.50 font=AlibabaPuHuiTi-Bold          flags=20  color=#000000 | 肖如涵
+  b4.l0.s0 bbox=(  110.2,   64.0,  183.0,   77.4) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 男 | 年龄：23岁 | 
+  [block 5] type=1 bbox=183.0,65.2,195.0,77.2
+  b6.l0.s0 bbox=(  198.0,   64.0,  266.4,   77.4) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 13177744002 | 
+  [block 7] type=1 bbox=266.2,65.2,278.2,77.2
+  b8.l0.s0 bbox=(  281.4,   64.0,  397.5,   77.4) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | roxy1103200@gmail.com
+  b9.l0.s0 bbox=(  155.4,   82.0,  352.4,   95.4) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 求职意向：agent开发工程师 | 期望城市：广州
+  [block 10] type=1 bbox=498.8,24.0,571.5,96.7
+  b11.l0.s0 bbox=(   30.0,  117.0,   89.0,  137.6) size=15.00 font=AlibabaPuHuiTi-Bold          flags=20  color=#000000 | 个人优势
+  b12.l0.s0 bbox=(   24.0,  146.5,   32.2,  159.9) size= 9.75 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | 1.
+  b12.l0.s1 bbox=(   32.2,  146.5,  213.4,  159.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 熟练使用langchain、dify、coze等框架。
+  b13.l0.s0 bbox=(   24.0,  164.5,  423.3,  177.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 2. 框架应用： 熟悉 Spring Boot、Spring MVC、MyBatis-Plus，能够独立构建 RESTful API。
+  b14.l0.s0 bbox=(   24.0,  182.5,  470.4,  195.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 3.数据库/缓存： 熟悉 MySQL 索引优化与事务机制；了解 Redis 常用数据结构及其在缓存场景下的应用。
+  b15.l0.s0 bbox=(   24.0,  200.5,  558.3,  213.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 4.中间件/工具：  熟悉 RabbitMQ 消息队列实现系统解耦与削峰填谷；熟练使用 Docker 容器化部署、Git 版本管理及 Linux 常
+  b16.l0.s0 bbox=(   24.0,  218.5,   72.0,  231.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 用操作命令
+  b17.l0.s0 bbox=(   24.0,  236.5,  557.0,  249.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 5. 综合能力： 具备前后端协同开发能力（熟悉 Vue.js），能够快速定位问题并给出解决方案，具有良好的代码规范和文档编写
+  b18.l0.s0 bbox=(   24.0,  254.5,   52.8,  267.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 习惯。
+  b19.l0.s0 bbox=(   24.0,  272.5,   32.6,  285.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 6.
+  b20.l0.s0 bbox=(   30.0,  310.5,   89.0,  331.1) size=15.00 font=AlibabaPuHuiTi-Bold          flags=20  color=#000000 | 项目经历
+  b21.l0.s0 bbox=(   24.0,  362.5,   62.4,  375.9) size= 9.75 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | 技术栈：
+  b21.l0.s1 bbox=(   62.4,  362.5,  331.6,  375.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 |  Spring Boot, Spring Security, Redis, JWT, AOP, MyBatis-Plus
+  b22.l0.s0 bbox=(   24.0,  380.5,  559.4,  393.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 权限架构设计： 基于 Spring Security 搭建企业级权限控制中台，设计并实现了多租户模式下的 RBAC（基于角色的访问控制）
+  b23.l0.s0 bbox=(   24.0,  398.5,  196.7,  411.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 模型，支持细粒度的组织架构权限管理。
+  b24.l0.s0 bbox=(   24.0,  416.5,  560.6,  429.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 性能优化： 针对权限校验高频访问的痛点，引入 Redis 缓存用户权限信息，通过减少数据库 IO 交互，将权限校验接口的响应耗
+  b25.l0.s0 bbox=(   24.0,  434.5,  266.0,  447.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 时从 80ms 降低至 10ms 以内，显著减轻了数据库压力。
+  b26.l0.s0 bbox=(   24.0,  452.5,  558.4,  465.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 动态数据隔离： 为实现不同部门间的数据权限隔离，通过 AOP + MyBatis-Plus 拦截器 实现了动态 SQL 注入机制，在执行查询
+  b27.l0.s0 bbox=(   24.0,  470.5,  302.2,  483.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 前自动过滤部门维度数据，确保了企业级数据的安全性与隔离性。
+  b28.l0.s0 bbox=(   24.0,  488.5,   62.4,  501.9) size= 9.75 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | 灵活校验
+  b28.l0.s1 bbox=(   62.4,  488.5,   93.7,  501.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | ：定制 
+  b28.l0.s2 bbox=(   93.7,  488.5,  206.3,  501.9) size= 9.75 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | Spring Security 鉴权逻辑
+  b28.l0.s3 bbox=(  206.3,  488.5,  352.7,  501.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | ，实现动态鉴权与访问控制；利用 
+  b28.l0.s4 bbox=(  352.8,  488.5,  445.8,  501.9) size= 9.75 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | AOP + MyBatis-Plus
+  b28.l0.s5 bbox=(  445.8,  488.5,  563.5,  501.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 |  拦截机制，实现基于部门维
+  b29.l0.s0 bbox=(   24.0,  506.5,  206.3,  519.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 度的数据权限过滤，确保业务数据安全性。
+  b30.l0.s0 bbox=(   24.0,  524.5,  551.4,  537.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 认证体系构建： 基于 JWT 实现无状态认证，并结合 Redis 构建 Token 有效期管理与强制失效机制，在保证系统高可用性的同
+  b31.l0.s0 bbox=(   24.0,  542.5,  206.3,  555.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 时，解决了分布式环境下的会话同步问题。
+  b32.l0.s0 bbox=(   24.0,  599.5,   62.4,  612.9) size= 9.75 font=AlibabaPuHuiTi-Bold          flags=20  color=#333333 | 技术栈：
+  b32.l0.s1 bbox=(   62.4,  599.5,  297.6,  612.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 |  Spring Boot, Redis, Lua, RabbitMQ, Sentinel, Nginx
+  b33.l0.s0 bbox=(   24.0,  617.5,  558.8,  630.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 高并发库存处理： 针对秒杀场景下的超卖与数据库压力问题，设计并实现了 “Redis 预减库存 + Lua 脚本” 方案，将库存扣减
+  b34.l0.s0 bbox=(   24.0,  635.5,  392.9,  648.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 逻辑原子化，确保了在高并发环境下库存扣减的绝对准确性,Qps由3000提升至80000。
+  b35.l0.s0 bbox=(   24.0,  653.5,  556.8,  666.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 异步削峰填谷： 引入 RabbitMQ 构建异步下单链路，将订单创建、支付确认等耗时操作异步化，有效解决了瞬时流量冲击导致
+  b36.l0.s0 bbox=(   24.0,  671.5,  244.7,  684.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 的系统崩溃，显著提升了系统的吞吐量与响应速度。
+  b37.l0.s0 bbox=(   24.0,  689.5,  560.0,  702.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 数据一致性保障： 采用 “缓存预热 + 数据库二次校验” 的双重验证机制，通过在异步消费端进行最终库存核验，解决了缓存与
+  b38.l0.s0 bbox=(   24.0,  707.5,  215.9,  720.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 数据库在极端并发情况下的数据一致性问题。
+  b39.l0.s0 bbox=(   24.0,  725.5,  564.8,  738.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 系统稳定性增强： 利用 Sentinel 实现细粒度流量控制策略（基于用户 ID + 接口），有效拦截恶意刷单请求；配置 Nginx 负载均
+  b40.l0.s0 bbox=(   24.0,  743.5,  235.1,  756.9) size= 9.75 font=AlibabaPuHuiTi-Regular       flags=4   color=#333333 | 衡实现动静分离，降低了后端服务器的并发压力。
+  b41.l0.s0 bbox=(   30.0,  781.5,   89.0,  802.1) size=15.00 font=AlibabaPuHuiTi-Bold          flags=20  color=#000000 | 教育经历
+  rendered -> 1192x1684 px

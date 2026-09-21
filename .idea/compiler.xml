@@ -6,74 +6,138 @@
         <sourceOutputDir name="target/generated-sources/annotations" />
         <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
         <outputRelativeToContentRoot value="true" />
-        <module name="jakarta.annotation-api" />
-        <module name="spring-test" />
-        <module name="assertj-core" />
-        <module name="awaitility" />
-        <module name="classmate" />
-        <module name="spring-jcl" />
-        <module name="commons-io" />
-        <module name="spring-web" />
-        <module name="jul-to-slf4j.module-compile" />
-        <module name="slf4j-api" />
-        <module name="springdoc-openapi-starter-webmvc-ui" />
-        <module name="byte-buddy-agent" />
-        <module name="spring-core" />
-        <module name="spring-webmvc" />
-        <module name="opentest4j" />
-        <module name="mockito-junit-jupiter" />
-        <module name="spring-expression" />
-        <module name="spring-aop" />
-        <module name="accessors-smart" />
-        <module name="mybatis-spring" />
-        <module name="micrometer-commons" />
-        <module name="webjars-locator-lite" />
-        <module name="spring-beans" />
-        <module name="xmlunit-core" />
-        <module name="jakarta.activation-api" />
-        <module name="jsonassert" />
-        <module name="jakarta.validation-api" />
-        <module name="micrometer-observation" />
-        <module name="slf4j-api (1).module-compile" />
-        <module name="json-smart" />
-        <module name="springdoc-openapi-starter-common" />
         <module name="cinema-ticketing-backend" />
-        <module name="springdoc-openapi-starter-webmvc-api" />
-        <module name="spring-context" />
-        <module name="jspecify" />
-        <module name="objenesis" />
-        <module name="mysql-connector-j" />
-        <module name="spring-jdbc" />
-        <module name="spring-tx" />
-        <module name="byte-buddy" />
-        <module name="apiguardian-api" />
-        <module name="hamcrest" />
-        <module name="mockito-core" />
-        <module name="HikariCP" />
-        <module name="swagger-ui" />
-        <module name="javax.inject" />
-      </profile>
-      <profile name="Annotation profile for mybatis" enabled="true">
-        <sourceOutputDir name="target/generated-sources/annotations" />
-        <sourceTestOutputDir name="target/generated-test-sources/test-annotations" />
-        <outputRelativeToContentRoot value="true" />
-        <processorPath useClasspath="false">
-          <entry name="D:/downlod/code/maven/em/apache-maven-3.9.4/mvn_repo/net/bytebuddy/byte-buddy-agent/1.15.10/byte-buddy-agent-1.15.10.jar" />
-        </processorPath>
-        <module name="mybatis" />
-      </profile>
-      <profile name="Annotation profile for SnakeYAML" enabled="true">
-        <sourceOutputDir name="../generated-sources/annotations" />
-        <sourceTestOutputDir name="../generated-test-sources/test-annotations" />
-        <module name="slf4j-api (1).test" />
-        <module name="snakeyaml.test" />
-        <module name="slf4j-api (1).main" />
-        <module name="jul-to-slf4j.test" />
-        <module name="snakeyaml.main" />
-        <module name="jul-to-slf4j.main" />
       </profile>
     </annotationProcessing>
-    <bytecodeTargetLevel target="21" />
+    <bytecodeTargetLevel target="21">
+      <module name="accessors-smart" target="1.8" />
+      <module name="apache" target="1.5" />
+      <module name="apache (1)" target="1.7" />
+      <module name="apache (2)" target="1.7" />
+      <module name="apache (3)" target="1.7" />
+      <module name="apache (4)" target="1.7" />
+      <module name="apache (5)" target="1.7" />
+      <module name="apache (6)" target="1.7" />
+      <module name="apache (7)" target="1.8" />
+      <module name="apiguardian-api" target="1.8" />
+      <module name="assertj-bom" target="1.5" />
+      <module name="assertj-core" target="1.8" />
+      <module name="awaitility" target="1.8" />
+      <module name="awaitility-parent" target="1.8" />
+      <module name="byte-buddy" target="1.8" />
+      <module name="byte-buddy-agent" target="1.8" />
+      <module name="byte-buddy-parent" target="1.5" />
+      <module name="classmate" target="1.8" />
+      <module name="client_java" target="1.8" />
+      <module name="client_java (1)" target="1.8" />
+      <module name="commons-io" target="1.8" />
+      <module name="hamcrest" target="1.8" />
+      <module name="HikariCP" target="11" />
+      <module name="infinispan-bom" target="17" />
+      <module name="infinispan-bom (1)" target="17" />
+      <module name="infinispan-build-configuration-parent" target="17" />
+      <module name="infinispan-build-configuration-parent (1)" target="17" />
+      <module name="jakarta.activation-api" target="9" />
+      <module name="jakarta.annotation-api" target="9" />
+      <module name="jakarta.jakartaee-bom" target="1.8" />
+      <module name="jakarta.validation-api" target="9" />
+      <module name="jakartaee-api-parent" target="1.8" />
+      <module name="javax.inject" target="1.8" />
+      <module name="jboss-parent" target="11" />
+      <module name="jboss-parent (1)" target="11" />
+      <module name="json-smart" target="1.8" />
+      <module name="jsonassert" target="1.8" />
+      <module name="jspecify" target="1.8" />
+      <module name="jul-to-slf4j" target="1.8" />
+      <module name="jul-to-slf4j.main" target="1.8" />
+      <module name="jul-to-slf4j.module-compile" target="9" />
+      <module name="jul-to-slf4j.test" target="1.8" />
+      <module name="junit-bom" target="1.5" />
+      <module name="junit-bom (1)" target="1.5" />
+      <module name="junit-bom (2)" target="1.5" />
+      <module name="junit-bom (3)" target="1.5" />
+      <module name="junit-bom (4)" target="1.5" />
+      <module name="junit-bom (5)" target="1.5" />
+      <module name="junit-bom (6)" target="1.5" />
+      <module name="junit-bom (7)" target="1.5" />
+      <module name="junit-bom (8)" target="1.5" />
+      <module name="junit-bom (9)" target="1.5" />
+      <module name="micrometer-bom" target="1.5" />
+      <module name="micrometer-bom (1)" target="1.5" />
+      <module name="micrometer-bom (2)" target="1.5" />
+      <module name="micrometer-bom (3)" target="1.5" />
+      <module name="micrometer-commons" target="1.8" />
+      <module name="micrometer-observation" target="1.8" />
+      <module name="micrometer-tracing-bom" target="1.5" />
+      <module name="micrometer-tracing-bom (1)" target="1.5" />
+      <module name="micrometer-tracing-bom (2)" target="1.5" />
+      <module name="mockito-bom" target="1.5" />
+      <module name="mockito-bom (1)" target="1.5" />
+      <module name="mockito-core" target="1.8" />
+      <module name="mockito-junit-jupiter" target="1.8" />
+      <module name="mybatis" target="16" />
+      <module name="mybatis-parent" target="11" />
+      <module name="mybatis-spring" target="17" />
+      <module name="mysql-connector-j" target="1.8" />
+      <module name="netty-bom" target="1.5" />
+      <module name="netty-bom (1)" target="1.5" />
+      <module name="objenesis" target="1.8" />
+      <module name="objenesis-parent" target="1.8" />
+      <module name="opentelemetry-bom" target="1.5" />
+      <module name="opentest4j" target="1.8" />
+      <module name="oss-parent" target="1.6" />
+      <module name="oss-parent (1)" target="1.6" />
+      <module name="oss-parent (2)" target="1.6" />
+      <module name="ow2" target="1.5" />
+      <module name="parent" target="1.6" />
+      <module name="prometheus-metrics-bom" target="1.8" />
+      <module name="prometheus-metrics-bom (1)" target="1.8" />
+      <module name="querydsl-bom" target="1.5" />
+      <module name="reactor-bom" target="1.5" />
+      <module name="reactor-bom (1)" target="1.5" />
+      <module name="reactor-bom (2)" target="1.5" />
+      <module name="rest-assured-bom" target="1.5" />
+      <module name="rest-assured-bom (1)" target="1.5" />
+      <module name="rsocket-bom" target="1.5" />
+      <module name="rsocket-bom (1)" target="1.5" />
+      <module name="simpleclient_bom" target="1.6" />
+      <module name="slf4j-api" target="1.5" />
+      <module name="slf4j-api (1)" target="1.8" />
+      <module name="slf4j-api (1).main" target="1.8" />
+      <module name="slf4j-api (1).module-compile" target="9" />
+      <module name="slf4j-api (1).test" target="1.8" />
+      <module name="slf4j-bom" target="1.5" />
+      <module name="slf4j-parent" target="1.5" />
+      <module name="slf4j-parent (1)" target="1.8" />
+      <module name="snakeyaml" target="9" />
+      <module name="snakeyaml.main" target="9" />
+      <module name="snakeyaml.test" target="1.7" />
+      <module name="spring-aop" target="1.8" />
+      <module name="spring-beans" target="1.8" />
+      <module name="spring-context" target="1.8" />
+      <module name="spring-core" target="1.8" />
+      <module name="spring-expression" target="1.8" />
+      <module name="spring-framework-bom" target="1.5" />
+      <module name="spring-framework-bom (1)" target="1.5" />
+      <module name="spring-framework-bom (2)" target="1.5" />
+      <module name="spring-framework-bom (3)" target="1.5" />
+      <module name="spring-jcl" target="1.8" />
+      <module name="spring-jdbc" target="1.8" />
+      <module name="spring-test" target="1.8" />
+      <module name="spring-tx" target="1.8" />
+      <module name="spring-web" target="1.8" />
+      <module name="spring-webmvc" target="1.8" />
+      <module name="springdoc-openapi" target="1.5" />
+      <module name="springdoc-openapi-starter-common" target="17" />
+      <module name="springdoc-openapi-starter-webmvc-api" target="17" />
+      <module name="springdoc-openapi-starter-webmvc-ui" target="17" />
+      <module name="swagger-ui" target="1.8" />
+      <module name="testcontainers-bom" target="1.5" />
+      <module name="testcontainers-bom (1)" target="1.5" />
+      <module name="webjars-locator-lite" target="1.8" />
+      <module name="xmlunit-core" target="1.7" />
+      <module name="xmlunit-parent" target="1.5" />
+    </bytecodeTargetLevel>
   </component>
   <component name="JavacSettings">
     <option name="ADDITIONAL_OPTIONS_OVERRIDE">

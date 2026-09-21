@@ -1,21 +1,21 @@
 package com.cinema.ticketing.common;
 
+import com.cinema.ticketing.service.RateLimitService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.http.MediaType;
-import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
 import java.util.Map;
 
-@Component
-@ConditionalOnBean(RateLimitService.class)
+/**
+ * 注册方式见 {@link com.cinema.ticketing.config.WebFilterConfiguration}，不再用 {@code @Component} 扫描。
+ */
 public class RateLimitFilter extends OncePerRequestFilter {
 
     private final RateLimitService rateLimitService;

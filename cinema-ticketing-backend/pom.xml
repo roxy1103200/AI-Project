@@ -23,6 +23,7 @@
         <mysql-connector.version>8.0.33</mysql-connector.version>
         <mybatis-spring-boot.version>3.0.4</mybatis-spring-boot.version>
         <springdoc.version>2.8.6</springdoc.version>
+        <embedded-redis.version>1.4.3</embedded-redis.version>
     </properties>
 
     <dependencies>
@@ -77,6 +78,26 @@
         <dependency>
             <groupId>org.springframework.boot</groupId>
             <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+            <exclusions>
+                <!-- awaitility 4.2.2 的 POM 声明了 awaitility-test-support，但该 artifact
+                     从未发布到 Maven Central（repo1 返回 404）。Maven 本身不会传递 test
+                     scope 的依赖，所以命令行构建不受影响；IntelliJ 导入时却会去下载它，
+                     404 之后把失败写进 .lastUpdated 并拒绝重试，模块 classpath 建不起来，
+                     表现为全项目 import 标红。本项目源码未使用 awaitility，直接排除。 -->
+                <exclusion>
+                    <groupId>org.awaitility</groupId>
+                    <artifactId>awaitility</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+        <!-- Ships a real redis-server binary. The existing unit tests stub the Lua
+             result with thenReturn(1L), so the seat-lock script is never actually
+             executed; this lets concurrency tests run the script for real. -->
+        <dependency>
+            <groupId>com.github.codemonstur</groupId>
+            <artifactId>embedded-redis</artifactId>
+            <version>${embedded-redis.version}</version>
             <scope>test</scope>
         </dependency>
     </dependencies>
