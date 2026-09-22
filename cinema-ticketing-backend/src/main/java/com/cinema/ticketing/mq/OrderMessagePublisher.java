@@ -7,10 +7,11 @@ import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
 
 import java.time.Duration;
-import java.time.LocalDateTime;
 
 @Component
 public class OrderMessagePublisher {
+
+    private static final long MIN_EXPIRATION_MILLIS = 1000L;
 
     private final RabbitTemplate rabbitTemplate;
 
@@ -18,9 +19,16 @@ public class OrderMessagePublisher {
         this.rabbitTemplate = rabbitTemplate;
     }
 
-    public void scheduleCancellation(String orderNo, LocalDateTime expireAt) {
+    /**
+     * 投递一条延迟取消消息。
+     *
+     * <p>参数是「还有多久到期」这个时长本身，不是到期时刻 —— 调用方算 expireAt 时已经读过一次
+     * 时钟，这里若再读一次来求差，得到的 TTL 会比真实剩余时间短几毫秒，消息就会在 expire_at
+     * 之前几毫秒落地，被 cancelIfUnpaid 的到期判断打回，白白烧掉一次重试。
+     */
+    public void scheduleCancellation(String orderNo, Duration delay) {
         OrderCancelMessage message = new OrderCancelMessage("order-cancel:" + orderNo, orderNo, 0);
-        String expiration = expirationFrom(expireAt);
+        String expiration = expirationFrom(delay);
         Runnable publish = () -> rabbitTemplate.convertAndSend(
                 RabbitMqConfiguration.ORDER_EXCHANGE,
                 RabbitMqConfiguration.CANCEL_DELAY_KEY,
@@ -41,8 +49,11 @@ public class OrderMessagePublisher {
         }
     }
 
-    private String expirationFrom(LocalDateTime expireAt) {
-        long millis = Math.max(1000, Duration.between(LocalDateTime.now(), expireAt).toMillis());
-        return String.valueOf(millis);
+    /**
+     * RabbitMQ 的 per-message TTL 必须是正数，0 会被当成「立即过期」。这里兜一个下限，
+     * 免得调用方传进 0 或负数时消息在队列里瞬间过期、把订单直接取消掉。
+     */
+    private String expirationFrom(Duration delay) {
+        return String.valueOf(Math.max(MIN_EXPIRATION_MILLIS, delay.toMillis()));
     }
 }

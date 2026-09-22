@@ -44,11 +44,16 @@ services:
       timeout: 5s
       retries: 10
 
+  # 应用层三个服务都归到 app profile：不激活时 `docker compose up -d` 只起中间件，
+  # 想全起用 `docker compose up -d --profile app`。加 profile 的直接原因是本项目的
+  # Dockerfile 只 COPY 预构建的 jar，服务器上没有 target/，裸 up -d 会卡在构建阶段。
   cinema-api:
+    profiles: ["app"]
     build: .
     container_name: cinema-api
     environment:
-      DB_URL: jdbc:mysql://mysql:3306/cinema_ticketing?useUnicode=true&characterEncoding=utf8&serverTimezone=Asia/Shanghai
+      # mysql 容器跑在 UTC，这里就写 UTC。业务时间由应用侧生成后显式写库，不依赖这个声明。
+      DB_URL: jdbc:mysql://mysql:3306/cinema_ticketing?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
       DB_USERNAME: cinema
       DB_PASSWORD: cinema
       SPRING_DATA_REDIS_HOST: redis
@@ -68,6 +73,7 @@ services:
         condition: service_healthy
 
   cinema-ai:
+    profiles: ["app"]
     build: ./cinema-ai
     container_name: cinema-ai
     environment:
@@ -78,6 +84,7 @@ services:
         condition: service_started
 
   nginx:
+    profiles: ["app"]
     image: nginx:1.27-alpine
     container_name: cinema-nginx
     ports:

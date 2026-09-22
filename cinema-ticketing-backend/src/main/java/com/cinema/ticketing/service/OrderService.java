@@ -1,6 +1,7 @@
 package com.cinema.ticketing.service;
 
 import com.cinema.ticketing.common.BusinessException;
+import com.cinema.ticketing.common.JdbcTimes;
 import com.cinema.ticketing.dto.CreateOrderRequest;
 import com.cinema.ticketing.dto.OrderView;
 import com.cinema.ticketing.dto.SeatLockResult;
@@ -29,6 +30,9 @@ import java.util.UUID;
 public class OrderService {
 
     private static final Duration SEAT_LOCK_TTL = Duration.ofMinutes(5);
+    private static final Duration ORDER_TTL = Duration.ofMinutes(5);
+    /** 延迟消息允许比 expire_at 早到多久仍算「已到期」。 */
+    private static final Duration CANCEL_GRACE = Duration.ofSeconds(2);
     private static final String LOCK_KEY_PREFIX = "seat:lock:";
     private static final DefaultRedisScript<Long> LOCK_SCRIPT = new DefaultRedisScript<>(
             "for i,key in ipairs(KEYS) do "
@@ -80,13 +84,20 @@ public class OrderService {
 
         String orderNo = "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 24).toUpperCase();
         BigDecimal totalAmount = screening.price().multiply(BigDecimal.valueOf(seatIds.size()));
-        long orderId = insertOrder(orderNo, userId, request.screeningId(), totalAmount, owner);
+        // expire_at 由应用算好显式写库，不用 DATE_ADD(CURRENT_TIMESTAMP, ...)。数据库和应用未必在同一
+        // 时区（本机开发就是 JVM=UTC+8、MySQL 容器=UTC），而延迟消息的投递时刻和 cancelIfUnpaid
+        // 的到期判断都基于 JVM 时钟 —— 三处必须同源，否则延迟会被算成负数、到期判断恒为假。
+        //
+        // 延迟直接传 ORDER_TTL，而不是拿 expireAt 减第二个 now()：多读一次时钟会让 TTL 比真实
+        // 剩余时间短几毫秒，消息落在 expire_at 之前几毫秒，到期判断把它当「尚未到期」打回，
+        // 每次自动取消都白烧一次重试（实测触发过一次）。
+        LocalDateTime expireAt = LocalDateTime.now().plus(ORDER_TTL);
+        long orderId = insertOrder(orderNo, userId, request.screeningId(), totalAmount, owner, expireAt);
         insertOrderItems(orderId, seatIds, screening.price());
         jdbcTemplate.update("INSERT INTO order_idempotency (user_id, request_id, order_no) VALUES (?, ?, ?)",
                 userId, request.requestId(), orderNo);
-        OrderView order = findOrder(userId, orderNo);
-        orderMessagePublisher.scheduleCancellation(orderNo, order.expireAt());
-        return order;
+        orderMessagePublisher.scheduleCancellation(orderNo, ORDER_TTL);
+        return findOrder(userId, orderNo);
     }
 
     @Transactional
@@ -98,10 +109,12 @@ public class OrderService {
         if (!"UNPAID".equals(order.status())) {
             throw new BusinessException(409, "当前订单状态不能支付: " + order.status());
         }
+        // paid_at 同理：库生成的 CURRENT_TIMESTAMP 走的是数据库时区，返回给前端会差几个小时
+        LocalDateTime paidAt = LocalDateTime.now();
         try {
             jdbcTemplate.update("INSERT INTO payment_transaction (payment_no, order_id, amount, status, paid_at) "
-                            + "VALUES (?, ?, ?, 'SUCCESS', CURRENT_TIMESTAMP)",
-                    paymentNo, order.id(), order.totalAmount());
+                            + "VALUES (?, ?, ?, 'SUCCESS', ?)",
+                    paymentNo, order.id(), order.totalAmount(), paidAt);
         } catch (DuplicateKeyException exception) {
             Map<String, Object> existing = jdbcTemplate.queryForMap(
                     "SELECT order_id FROM payment_transaction WHERE payment_no = ?", paymentNo);
@@ -110,8 +123,8 @@ public class OrderService {
             }
         }
         int updated = jdbcTemplate.update(
-                "UPDATE ticket_order SET status = 'PAID', paid_at = CURRENT_TIMESTAMP WHERE id = ? AND status = 'UNPAID'",
-                order.id());
+                "UPDATE ticket_order SET status = 'PAID', paid_at = ? WHERE id = ? AND status = 'UNPAID'",
+                paidAt, order.id());
         if (updated != 1) {
             return findOrder(userId, orderNo);
         }
@@ -172,6 +185,12 @@ public class OrderService {
                 order.expireAt(), order.paidAt(), order.startTime(), items);
     }
 
+    /**
+     * MQ 消费入口：先落幂等记录，再走 {@link #cancelOverdueOrder}。
+     *
+     * <p>幂等记录和取消在同一个事务里 —— 取消抛异常时事务回滚，幂等记录一并撤销，
+     * 重试才能重新处理（否则失败一次就再也补不上了）。
+     */
     @Transactional
     public void cancelIfUnpaid(String messageId, String orderNo) {
         int inserted = jdbcTemplate.update(
@@ -180,26 +199,46 @@ public class OrderService {
         if (inserted == 0) {
             return;
         }
+        cancelOverdueOrder(orderNo);
+    }
+
+    /**
+     * 取消一条到期未支付的订单：改状态、改明细、释放座位锁。
+     *
+     * <p>MQ 消费和定时对账共用这一条路径，所以这里不碰 message_consume_record（对账没有消息 id）。
+     * 订单不存在、或已经不是 UNPAID，都当作无事发生返回 false。
+     *
+     * @return 真正执行了取消返回 true
+     */
+    @Transactional
+    public boolean cancelOverdueOrder(String orderNo) {
         Map<String, Object> order;
         try {
             order = jdbcTemplate.queryForMap(
                     "SELECT id, screening_id, status, expire_at, lock_owner FROM ticket_order WHERE order_no = ?",
                     orderNo);
         } catch (org.springframework.dao.EmptyResultDataAccessException exception) {
-            return;
+            return false;
         }
         if (!"UNPAID".equals(order.get("status"))) {
-            return;
+            return false;
         }
-        LocalDateTime expireAt = ((java.sql.Timestamp) order.get("expire_at")).toLocalDateTime();
-        if (expireAt.isAfter(LocalDateTime.now())) {
+        LocalDateTime expireAt = JdbcTimes.asLocalDateTime(order.get("expire_at"));
+        // 留 CANCEL_GRACE 的余量：延迟消息的 TTL 有毫秒级抖动，可能恰好比 expire_at 早一点点落地，
+        // 那是正常现象而不是错误。只有确实还差得远（重试路径上提前送达的消息）才拒绝。
+        if (expireAt.isAfter(LocalDateTime.now().plus(CANCEL_GRACE))) {
             throw new IllegalStateException("订单尚未到期: " + orderNo);
         }
-        jdbcTemplate.update("UPDATE ticket_order SET status = 'CANCELLED' WHERE id = ? AND status = 'UNPAID'",
-                order.get("id"));
+        int updated = jdbcTemplate.update(
+                "UPDATE ticket_order SET status = 'CANCELLED' WHERE id = ? AND status = 'UNPAID'", order.get("id"));
+        if (updated != 1) {
+            // MQ 消费和定时对账可能同时盯上同一笔订单，被对方抢先取消时这里拿到 0 行。
+            return false;
+        }
         jdbcTemplate.update("UPDATE order_item SET ticket_status = 'CANCELLED' WHERE order_id = ?", order.get("id"));
         List<Long> seatIds = orderSeatIds(((Number) order.get("id")).longValue());
         unlockSeats(((Number) order.get("screening_id")).longValue(), seatIds, (String) order.get("lock_owner"));
+        return true;
     }
 
     private Screening screening(long screeningId) {
@@ -207,7 +246,7 @@ public class OrderService {
             return jdbcTemplate.queryForObject(
                     "SELECT hall_id, price, start_time FROM screening WHERE id = ? AND status = 'SCHEDULED'",
                     (rs, rowNum) -> new Screening(rs.getLong("hall_id"), rs.getBigDecimal("price"),
-                            rs.getTimestamp("start_time").toLocalDateTime()), screeningId);
+                            rs.getObject("start_time", LocalDateTime.class)), screeningId);
         } catch (Exception exception) {
             throw new BusinessException(404, "场次不存在或不可售");
         }
@@ -239,18 +278,20 @@ public class OrderService {
                 List.of(lockKey(screeningId, seatId)), owner));
     }
 
-    private long insertOrder(String orderNo, long userId, long screeningId, BigDecimal totalAmount, String lockOwner) {
+    private long insertOrder(String orderNo, long userId, long screeningId, BigDecimal totalAmount, String lockOwner,
+                             LocalDateTime expireAt) {
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
             PreparedStatement statement = connection.prepareStatement(
                     "INSERT INTO ticket_order (order_no, user_id, screening_id, total_amount, status, lock_owner, expire_at) "
-                            + "VALUES (?, ?, ?, ?, 'UNPAID', ?, DATE_ADD(CURRENT_TIMESTAMP, INTERVAL 5 MINUTE))",
+                            + "VALUES (?, ?, ?, ?, 'UNPAID', ?, ?)",
                     Statement.RETURN_GENERATED_KEYS);
             statement.setString(1, orderNo);
             statement.setLong(2, userId);
             statement.setLong(3, screeningId);
             statement.setBigDecimal(4, totalAmount);
             statement.setString(5, lockOwner);
+            statement.setObject(6, expireAt);
             return statement;
         }, keyHolder);
         Number key = keyHolder.getKey();
@@ -274,9 +315,10 @@ public class OrderService {
                             + "WHERE o.order_no = ? AND o.user_id = ?",
                             (rs, rowNum) -> new OrderSnapshot(rs.getLong("id"), rs.getString("order_no"),
                             rs.getLong("user_id"), rs.getLong("screening_id"), rs.getBigDecimal("total_amount"),
-                            rs.getString("status"), rs.getString("lock_owner"), rs.getTimestamp("expire_at").toLocalDateTime(),
-                            rs.getTimestamp("paid_at") == null ? null : rs.getTimestamp("paid_at").toLocalDateTime(),
-                            rs.getTimestamp("start_time").toLocalDateTime(), orderSeatIds(rs.getLong("id"))),
+                            rs.getString("status"), rs.getString("lock_owner"),
+                            rs.getObject("expire_at", LocalDateTime.class),
+                            rs.getObject("paid_at", LocalDateTime.class),
+                            rs.getObject("start_time", LocalDateTime.class), orderSeatIds(rs.getLong("id"))),
                     orderNo, userId);
         } catch (Exception exception) {
             throw new BusinessException(404, "订单不存在");

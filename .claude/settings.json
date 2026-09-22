@@ -4,7 +4,11 @@
       "Bash(tasklist)",
       "Bash(mkdir -p C:/Users/Administrator/AppData/Local/Temp/idea-backup-__CMDSUB_OUTPUT__)",
       "Bash(cp /e/development/AI-Project/.idea/misc.xml /e/development/AI-Project/.idea/encodings.xml /e/development/AI-Project/.idea/compiler.xml C:/Users/Administrator/AppData/Local/Temp/idea-backup-__CMDSUB_OUTPUT__/)",
-      "Read(//c/Users/Administrator/AppData/Local/Temp/**)"
+      "Read(//c/Users/Administrator/AppData/Local/Temp/**)",
+      "Bash(./rsh.sh 'for i in $\\(seq 1 50\\); do *)",
+      "Bash(./rsh.sh 'S\\(\\) { echo 123 | sudo -S -p \"\" \"$@\"; } *)",
+      "Bash(grep -oiE \"CREATE TABLE\\( IF NOT EXISTS\\)? +[\\\\`a-z_]+\" src/main/resources/schema.sql)",
+      "Bash(curl -s -o /dev/null -w \"15672 管理台 HTTP 状态: %{http_code}\\\\n\" --max-time 10 -u cinema:cinema http://192.168.100.133:15672/api/overview)"
     ]
   }
 }

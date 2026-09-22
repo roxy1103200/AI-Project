@@ -1,3 +1,9 @@
+-- 这个文件由容器的 /docker-entrypoint-initdb.d 执行。容器里 mysql 客户端没有 LANG，
+-- 默认按 latin1 解释文件内容，下面 refund_policy / knowledge_document 里的中文会被
+-- 双重编码存坏（购票须知 → è´­ç¥¨é¡»çŸ¥，存进去就再也改不回来）。
+-- 显式声明 UTF-8，不依赖客户端默认字符集。
+SET NAMES utf8mb4;
+
 CREATE TABLE IF NOT EXISTS users (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     username VARCHAR(64) NOT NULL UNIQUE,

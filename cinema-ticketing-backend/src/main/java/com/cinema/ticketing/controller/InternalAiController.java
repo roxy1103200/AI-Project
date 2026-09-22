@@ -1,6 +1,7 @@
 package com.cinema.ticketing.controller;
 
 import com.cinema.ticketing.common.BusinessException;
+import com.cinema.ticketing.common.JdbcTimes;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -71,9 +72,11 @@ public class InternalAiController {
                                      @PathVariable String orderNo,
                                      @RequestParam long userId) {
         verify(token);
-        Map<String, Object> order = jdbcTemplate.queryForMap(
+        // created_at 是 TIMESTAMP 列（JSON 里带 +00:00 偏移），expire_at / paid_at 是 DATETIME
+        // （无时区的本地字面量）。统一成 LocalDateTime 再返回，见 JdbcTimes。
+        Map<String, Object> order = JdbcTimes.asLocalDateTimes(jdbcTemplate.queryForMap(
                 "SELECT id, order_no, user_id, screening_id, total_amount, status, expire_at, paid_at, created_at "
-                        + "FROM ticket_order WHERE order_no = ? AND user_id = ?", orderNo, userId);
+                        + "FROM ticket_order WHERE order_no = ? AND user_id = ?", orderNo, userId));
         Map<String, Object> result = new HashMap<>(order);
         result.put("items", jdbcTemplate.queryForList(
                 "SELECT oi.seat_id, s.seat_code, oi.price, oi.ticket_status FROM order_item oi "
