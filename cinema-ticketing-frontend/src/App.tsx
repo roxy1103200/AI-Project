@@ -13,8 +13,56 @@ type Movie = {
 
 type ApiResponse<T> = {
   code: number;
+  message?: string;
   data: T;
 };
+
+type AuthMode = "login" | "register";
+
+type LoginPayload = {
+  token: string;
+  userId: number;
+  username: string;
+  role: string;
+  expiresInSeconds: number;
+};
+
+type StoredSession = LoginPayload & { expiresAt: number };
+
+const AUTH_STORAGE_KEY = "cinema-auth";
+const LEGACY_TOKEN_KEY = "cinema-auth-token";
+
+function readSession(): StoredSession | null {
+  // 旧版本只往 localStorage 存了 token，而且存完再没被读过。顺手清掉，
+  // 别让一个没人管的凭据一直躺在那儿。
+  localStorage.removeItem(LEGACY_TOKEN_KEY);
+  try {
+    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+    if (!raw) {
+      return null;
+    }
+    const parsed = JSON.parse(raw) as StoredSession;
+    // 服务端会话 TTL 是 2 小时，过期后本地这份就是废纸，直接丢掉而不是继续显示"已登录"。
+    if (!parsed.token || !parsed.expiresAt || parsed.expiresAt <= Date.now()) {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      return null;
+    }
+    return parsed;
+  } catch {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    return null;
+  }
+}
+
+function saveSession(payload: LoginPayload): StoredSession {
+  const stored: StoredSession = { ...payload, expiresAt: Date.now() + payload.expiresInSeconds * 1000 };
+  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(stored));
+  return stored;
+}
+
+function clearSession() {
+  localStorage.removeItem(AUTH_STORAGE_KEY);
+}
 
 const fallbackMovies: Movie[] = [
   {
@@ -72,34 +120,104 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [isLoginOpen, setIsLoginOpen] = useState(false);
+  const [session, setSession] = useState<StoredSession | null>(() => readSession());
+  const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
-  const [loginMessage, setLoginMessage] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [phone, setPhone] = useState("");
+  const [authMessage, setAuthMessage] = useState("");
+  const [authFailed, setAuthFailed] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [bookingMessage, setBookingMessage] = useState("");
+
+  function openAuth(mode: AuthMode) {
+    setAuthMode(mode);
+    setAuthMessage("");
+    setAuthFailed(false);
+    setLoginPassword("");
+    setConfirmPassword("");
+    setIsAuthOpen(true);
+  }
+
+  function switchAuthMode(mode: AuthMode) {
+    setAuthMode(mode);
+    setAuthMessage("");
+    setAuthFailed(false);
+    setLoginPassword("");
+    setConfirmPassword("");
+  }
 
   async function handleLogin(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsSubmitting(true);
-    setLoginMessage("");
+    setAuthMessage("");
     try {
       const response = await fetch("/api/auth/login", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ username: loginName, password: loginPassword }),
       });
-      const payload = (await response.json()) as ApiResponse<{ token: string; username: string }>;
+      const payload = (await response.json()) as ApiResponse<LoginPayload>;
       if (!response.ok || payload.code !== 0) {
-        throw new Error((payload as ApiResponse<unknown> & { message?: string }).message ?? "登录失败，请检查账号信息");
+        throw new Error(payload.message ?? "登录失败，请检查账号信息");
       }
-      localStorage.setItem("cinema-auth-token", payload.data.token);
-      setLoginMessage(`欢迎回来，${payload.data.username}`);
-      window.setTimeout(() => setIsLoginOpen(false), 700);
+      setSession(saveSession(payload.data));
+      setAuthFailed(false);
+      setAuthMessage(`欢迎回来，${payload.data.username}`);
+      window.setTimeout(() => setIsAuthOpen(false), 700);
     } catch (error) {
-      setLoginMessage(error instanceof Error ? error.message : "登录失败，请稍后再试");
+      setAuthFailed(true);
+      setAuthMessage(error instanceof Error ? error.message : "登录失败，请稍后再试");
     } finally {
       setIsSubmitting(false);
+    }
+  }
+
+  async function handleRegister(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (loginPassword !== confirmPassword) {
+      setAuthFailed(true);
+      setAuthMessage("两次输入的密码不一致");
+      return;
+    }
+    setIsSubmitting(true);
+    setAuthMessage("");
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ username: loginName, password: loginPassword, phone: phone || null }),
+      });
+      const payload = (await response.json()) as ApiResponse<{ id: number; username: string }>;
+      if (!response.ok || payload.code !== 0) {
+        throw new Error(payload.message ?? "注册失败，请稍后再试");
+      }
+      setAuthMode("login");
+      setLoginPassword("");
+      setConfirmPassword("");
+      setAuthFailed(false);
+      setAuthMessage(`账号 ${payload.data.username} 注册成功，请登录`);
+    } catch (error) {
+      setAuthFailed(true);
+      setAuthMessage(error instanceof Error ? error.message : "注册失败，请稍后再试");
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
+  async function handleLogout() {
+    const token = session?.token;
+    clearSession();
+    setSession(null);
+    if (!token) {
+      return;
+    }
+    try {
+      await fetch("/api/auth/logout", { method: "POST", headers: { "X-Auth-Token": token } });
+    } catch {
+      // 本地已经登出了。就算这次请求没打通，服务端会话也会在 TTL（2 小时）到期后自己消失。
     }
   }
 
@@ -126,7 +244,17 @@ function App() {
           <a href="#cinemas">影院</a>
           <a href="#orders">我的订单</a>
         </nav>
-        <button className="account-button" type="button" onClick={() => setIsLoginOpen(true)}>登录 / 注册</button>
+        {session ? (
+          <div className="account-area">
+            <span className="account-name" title={`已登录：${session.username}（${session.role}）`}>
+              <span className="account-dot" aria-hidden="true" />
+              {session.username}
+            </span>
+            <button className="account-button" type="button" onClick={handleLogout}>退出登录</button>
+          </div>
+        ) : (
+          <button className="account-button" type="button" onClick={() => openAuth("login")}>登录 / 注册</button>
+        )}
       </header>
 
       <section className="hero content-width" id="top">
@@ -204,18 +332,35 @@ function App() {
         </div>
       )}
 
-      {isLoginOpen && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setIsLoginOpen(false)}>
-          <section className="login-modal" role="dialog" aria-modal="true" aria-labelledby="login-title" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close" type="button" aria-label="关闭登录" onClick={() => setIsLoginOpen(false)}>×</button>
-            <p className="eyebrow">WELCOME BACK</p>
-            <h2 id="login-title">登录 CINEMA</h2>
-            <form className="login-form" onSubmit={handleLogin}>
-              <label>用户名<input value={loginName} onChange={(event) => setLoginName(event.target.value)} required /></label>
-              <label>密码<input type="password" minLength={8} value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} required /></label>
-              <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? "登录中" : "登录"}</button>
-            </form>
-            {loginMessage && <p className="modal-feedback">{loginMessage}</p>}
+      {isAuthOpen && (
+        <div className="modal-backdrop" role="presentation" onClick={() => setIsAuthOpen(false)}>
+          <section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" onClick={(event) => event.stopPropagation()}>
+            <button className="modal-close" type="button" aria-label="关闭" onClick={() => setIsAuthOpen(false)}>×</button>
+            <p className="eyebrow">{authMode === "login" ? "WELCOME BACK" : "JOIN CINEMA"}</p>
+            <h2 id="auth-title">{authMode === "login" ? "登录 CINEMA" : "注册新账号"}</h2>
+
+            <div className="auth-tabs" role="tablist" aria-label="登录或注册">
+              <button type="button" role="tab" aria-selected={authMode === "login"} className={authMode === "login" ? "auth-tab active" : "auth-tab"} onClick={() => switchAuthMode("login")}>登录</button>
+              <button type="button" role="tab" aria-selected={authMode === "register"} className={authMode === "register" ? "auth-tab active" : "auth-tab"} onClick={() => switchAuthMode("register")}>注册</button>
+            </div>
+
+            {authMode === "login" ? (
+              <form className="auth-form" onSubmit={handleLogin}>
+                <label>用户名<input value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="username" required /></label>
+                <label>密码<input type="password" minLength={8} value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} autoComplete="current-password" required /></label>
+                <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? "登录中" : "登录"}</button>
+              </form>
+            ) : (
+              <form className="auth-form" onSubmit={handleRegister}>
+                <label>用户名<input value={loginName} onChange={(event) => setLoginName(event.target.value)} autoComplete="username" required /></label>
+                <label>密码（至少 8 位）<input type="password" minLength={8} maxLength={72} value={loginPassword} onChange={(event) => setLoginPassword(event.target.value)} autoComplete="new-password" required /></label>
+                <label>确认密码<input type="password" minLength={8} maxLength={72} value={confirmPassword} onChange={(event) => setConfirmPassword(event.target.value)} autoComplete="new-password" required /></label>
+                <label>手机号（选填）<input value={phone} onChange={(event) => setPhone(event.target.value)} autoComplete="tel" /></label>
+                <button className="primary-button" type="submit" disabled={isSubmitting}>{isSubmitting ? "注册中" : "注册"}</button>
+              </form>
+            )}
+
+            {authMessage && <p className={authFailed ? "modal-feedback error" : "modal-feedback"}>{authMessage}</p>}
           </section>
         </div>
       )}
