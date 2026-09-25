@@ -31,6 +31,7 @@ public class OrderService {
 
     private static final Duration SEAT_LOCK_TTL = Duration.ofMinutes(5);
     private static final Duration ORDER_TTL = Duration.ofMinutes(5);
+    private static final int MAX_SEATS_PER_ORDER = 6;
     /** 延迟消息允许比 expire_at 早到多久仍算「已到期」。 */
     private static final Duration CANCEL_GRACE = Duration.ofSeconds(2);
     private static final String LOCK_KEY_PREFIX = "seat:lock:";
@@ -72,6 +73,7 @@ public class OrderService {
 
     @Transactional
     public OrderView createOrder(long userId, String owner, CreateOrderRequest request) {
+        lockUser(userId);
         String existingOrderNo = findOrderNoByRequest(userId, request.requestId());
         if (existingOrderNo != null) {
             return findOrder(userId, existingOrderNo);
@@ -79,7 +81,8 @@ public class OrderService {
 
         List<Long> seatIds = distinctSeatIds(request.seatIds());
         Screening screening = screening(request.screeningId());
-        validateSeats(request.screeningId(), screening.hallId(), seatIds);
+        lockAvailableSeats(screening.hallId(), seatIds);
+        validateNoActiveOrder(request.screeningId(), seatIds);
         validateLockOwnership(request.screeningId(), seatIds, owner);
 
         String orderNo = "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 24).toUpperCase();
@@ -102,12 +105,19 @@ public class OrderService {
 
     @Transactional
     public OrderView pay(long userId, String owner, String orderNo, String paymentNo) {
-        OrderSnapshot order = findOrderSnapshot(userId, orderNo);
-        if ("ISSUED".equals(order.status()) || "PAID".equals(order.status())) {
-            return findOrder(userId, orderNo);
+        OrderSnapshot order = lockOrderSnapshot(userId, orderNo);
+        if ("ISSUED".equals(order.status())) {
+            String existingPaymentNo = paymentNoForOrder(order.id());
+            if (paymentNo.equals(existingPaymentNo)) {
+                return findOrder(userId, orderNo);
+            }
+            throw new BusinessException(409, "订单已通过其他支付流水完成支付");
         }
         if (!"UNPAID".equals(order.status())) {
             throw new BusinessException(409, "当前订单状态不能支付: " + order.status());
+        }
+        if (order.expireAt() == null || !order.expireAt().isAfter(LocalDateTime.now())) {
+            throw new BusinessException(409, "订单已超时，请重新选座下单");
         }
         // paid_at 同理：库生成的 CURRENT_TIMESTAMP 走的是数据库时区，返回给前端会差几个小时
         LocalDateTime paidAt = LocalDateTime.now();
@@ -116,11 +126,7 @@ public class OrderService {
                             + "VALUES (?, ?, ?, 'SUCCESS', ?)",
                     paymentNo, order.id(), order.totalAmount(), paidAt);
         } catch (DuplicateKeyException exception) {
-            Map<String, Object> existing = jdbcTemplate.queryForMap(
-                    "SELECT order_id FROM payment_transaction WHERE payment_no = ?", paymentNo);
-            if (((Number) existing.get("order_id")).longValue() != order.id()) {
-                throw new BusinessException(409, "支付流水号已用于其他订单");
-            }
+            throw new BusinessException(409, "支付流水号已用于其他订单");
         }
         int updated = jdbcTemplate.update(
                 "UPDATE ticket_order SET status = 'PAID', paid_at = ? WHERE id = ? AND status = 'UNPAID'",
@@ -136,7 +142,7 @@ public class OrderService {
 
     @Transactional
     public OrderView refund(long userId, String orderNo, String reason) {
-        OrderSnapshot order = findOrderSnapshot(userId, orderNo);
+        OrderSnapshot order = lockOrderSnapshot(userId, orderNo);
         if ("REFUNDED".equals(order.status())) {
             return findOrder(userId, orderNo);
         }
@@ -147,7 +153,11 @@ public class OrderService {
         if (!order.startTime().isAfter(LocalDateTime.now().plusMinutes(policy.cutoffMinutes()))) {
             throw new BusinessException(400, "已超过退票截止时间: " + policy.content());
         }
-        jdbcTemplate.update("UPDATE ticket_order SET status = 'REFUNDED' WHERE id = ? AND status = 'ISSUED'", order.id());
+        int updated = jdbcTemplate.update(
+                "UPDATE ticket_order SET status = 'REFUNDED' WHERE id = ? AND status = 'ISSUED'", order.id());
+        if (updated != 1) {
+            throw new BusinessException(409, "订单状态已变化，请刷新后重试");
+        }
         jdbcTemplate.update("UPDATE order_item SET ticket_status = 'REFUNDED' WHERE order_id = ?", order.id());
         jdbcTemplate.update("INSERT INTO refund_record (order_id, amount, reason, status) VALUES (?, ?, ?, 'REFUNDED')",
                 order.id(), order.totalAmount(), reason);
@@ -159,20 +169,32 @@ public class OrderService {
             Map<String, Object> row = jdbcTemplate.queryForMap(
                     "SELECT cutoff_minutes, content FROM refund_policy WHERE enabled = TRUE ORDER BY id DESC LIMIT 1");
             return new RefundPolicy(((Number) row.get("cutoff_minutes")).longValue(), String.valueOf(row.get("content")));
-        } catch (Exception exception) {
-            return new RefundPolicy(0, "影片开始后不可退票");
+        } catch (org.springframework.dao.EmptyResultDataAccessException exception) {
+            throw new BusinessException(503, "退票规则暂不可用，请稍后重试");
         }
     }
 
     public List<Map<String, Object>> seats(long screeningId) {
         Screening screening = screening(screeningId);
-        return jdbcTemplate.queryForList(
+        List<Map<String, Object>> seats = jdbcTemplate.queryForList(
                 "SELECT s.id, s.hall_id, s.row_no, s.column_no, s.seat_code, s.seat_type, s.status, "
                         + "CASE WHEN EXISTS (SELECT 1 FROM ticket_order o JOIN order_item oi ON oi.order_id = o.id "
-                        + "WHERE o.screening_id = ? AND oi.seat_id = s.id AND o.status IN ('UNPAID', 'ISSUED')) "
+                        + "WHERE o.screening_id = ? AND oi.seat_id = s.id AND o.status IN ('UNPAID', 'PAID', 'ISSUED')) "
                         + "THEN 'SOLD' ELSE s.status END AS booking_status "
                         + "FROM seat s WHERE s.hall_id = ? ORDER BY s.row_no, s.column_no",
                 screeningId, screening.hallId());
+        List<String> keys = seats.stream()
+                .map(seat -> lockKey(screeningId, ((Number) seat.get("id")).longValue()))
+                .toList();
+        List<String> lockOwners = keys.isEmpty() ? List.of() : redisTemplate.opsForValue().multiGet(keys);
+        for (int index = 0; index < seats.size(); index++) {
+            Map<String, Object> seat = seats.get(index);
+            if ("AVAILABLE".equals(seat.get("booking_status"))
+                    && lockOwners != null && lockOwners.get(index) != null) {
+                seat.put("booking_status", "LOCKED");
+            }
+        }
+        return seats;
     }
 
     public OrderView findOrder(long userId, String orderNo) {
@@ -215,7 +237,7 @@ public class OrderService {
         Map<String, Object> order;
         try {
             order = jdbcTemplate.queryForMap(
-                    "SELECT id, screening_id, status, expire_at, lock_owner FROM ticket_order WHERE order_no = ?",
+                    "SELECT id, screening_id, status, expire_at, lock_owner FROM ticket_order WHERE order_no = ? FOR UPDATE",
                     orderNo);
         } catch (org.springframework.dao.EmptyResultDataAccessException exception) {
             return false;
@@ -241,12 +263,37 @@ public class OrderService {
         return true;
     }
 
+    @Transactional
+    public OrderView cancel(long userId, String orderNo) {
+        OrderSnapshot order = lockOrderSnapshot(userId, orderNo);
+        if ("CANCELLED".equals(order.status())) {
+            return findOrder(userId, orderNo);
+        }
+        if (!"UNPAID".equals(order.status())) {
+            throw new BusinessException(409, "只有待支付订单可以取消");
+        }
+        int updated = jdbcTemplate.update(
+                "UPDATE ticket_order SET status = 'CANCELLED' WHERE id = ? AND status = 'UNPAID'", order.id());
+        if (updated != 1) {
+            throw new BusinessException(409, "订单状态已变化，请刷新后重试");
+        }
+        jdbcTemplate.update("UPDATE order_item SET ticket_status = 'CANCELLED' WHERE order_id = ?", order.id());
+        unlockSeats(order.screeningId(), order.seatIds(), order.lockOwner());
+        return findOrder(userId, orderNo);
+    }
+
     private Screening screening(long screeningId) {
         try {
-            return jdbcTemplate.queryForObject(
+            Screening screening = jdbcTemplate.queryForObject(
                     "SELECT hall_id, price, start_time FROM screening WHERE id = ? AND status = 'SCHEDULED'",
                     (rs, rowNum) -> new Screening(rs.getLong("hall_id"), rs.getBigDecimal("price"),
                             rs.getObject("start_time", LocalDateTime.class)), screeningId);
+            if (screening.startTime() == null || !screening.startTime().isAfter(LocalDateTime.now())) {
+                throw new BusinessException(409, "场次已停止售票");
+            }
+            return screening;
+        } catch (BusinessException exception) {
+            throw exception;
         } catch (Exception exception) {
             throw new BusinessException(404, "场次不存在或不可售");
         }
@@ -257,17 +304,57 @@ public class OrderService {
         List<Object> parameters = new ArrayList<>();
         parameters.add(hallId);
         parameters.addAll(seatIds);
+        parameters.add(screeningId);
         Integer count = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM seat WHERE hall_id = ? AND status = 'AVAILABLE' AND id IN (" + placeholders + ")",
+                "SELECT COUNT(*) FROM seat s WHERE s.hall_id = ? AND s.status = 'AVAILABLE' AND s.id IN (" + placeholders + ") "
+                        + "AND NOT EXISTS (SELECT 1 FROM ticket_order o JOIN order_item oi ON oi.order_id = o.id "
+                        + "WHERE o.screening_id = ? AND oi.seat_id = s.id AND o.status IN ('UNPAID', 'PAID', 'ISSUED'))",
                 Integer.class, parameters.toArray());
         if (count == null || count != seatIds.size()) {
-            throw new BusinessException(400, "座位不存在、不可用或不属于当前场次");
+            throw new BusinessException(409, "座位不存在、已被占用或不属于当前场次");
+        }
+    }
+
+    private void lockUser(long userId) {
+        List<Long> ids = jdbcTemplate.queryForList("SELECT id FROM users WHERE id = ? FOR UPDATE", Long.class, userId);
+        if (ids.isEmpty()) {
+            throw new BusinessException(401, "登录状态无效，请重新登录");
+        }
+    }
+
+    private void lockAvailableSeats(long hallId, List<Long> seatIds) {
+        String placeholders = String.join(",", seatIds.stream().map(id -> "?").toList());
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(hallId);
+        parameters.addAll(seatIds);
+        List<Long> lockedSeatIds = jdbcTemplate.queryForList(
+                "SELECT id FROM seat WHERE hall_id = ? AND status = 'AVAILABLE' AND id IN (" + placeholders + ") "
+                        + "ORDER BY id FOR UPDATE", Long.class, parameters.toArray());
+        if (lockedSeatIds.size() != seatIds.size()) {
+            throw new BusinessException(409, "座位不存在、已停用或不属于当前场次");
+        }
+    }
+
+    private void validateNoActiveOrder(long screeningId, List<Long> seatIds) {
+        String placeholders = String.join(",", seatIds.stream().map(id -> "?").toList());
+        List<Object> parameters = new ArrayList<>();
+        parameters.add(screeningId);
+        parameters.addAll(seatIds);
+        List<Long> occupied = jdbcTemplate.queryForList(
+                "SELECT oi.seat_id FROM order_item oi JOIN ticket_order o ON o.id = oi.order_id "
+                        + "WHERE o.screening_id = ? AND oi.seat_id IN (" + placeholders + ") "
+                        + "AND o.status IN ('UNPAID', 'PAID', 'ISSUED') FOR UPDATE",
+                Long.class, parameters.toArray());
+        if (!occupied.isEmpty()) {
+            throw new BusinessException(409, "所选座位已被其他订单占用，请刷新座位图");
         }
     }
 
     private void validateLockOwnership(long screeningId, List<Long> seatIds, String owner) {
-        boolean allOwned = seatIds.stream().allMatch(seatId -> owner.equals(
-                redisTemplate.opsForValue().get(lockKey(screeningId, seatId))));
+        List<String> keys = seatIds.stream().map(seatId -> lockKey(screeningId, seatId)).toList();
+        List<String> owners = redisTemplate.opsForValue().multiGet(keys);
+        boolean allOwned = owners != null && owners.size() == seatIds.size()
+                && owners.stream().allMatch(owner::equals);
         if (!allOwned) {
             throw new BusinessException(409, "座位锁已失效，请重新锁座");
         }
@@ -308,11 +395,19 @@ public class OrderService {
     }
 
     private OrderSnapshot findOrderSnapshot(long userId, String orderNo) {
+        return loadOrderSnapshot(userId, orderNo, false);
+    }
+
+    private OrderSnapshot lockOrderSnapshot(long userId, String orderNo) {
+        return loadOrderSnapshot(userId, orderNo, true);
+    }
+
+    private OrderSnapshot loadOrderSnapshot(long userId, String orderNo, boolean forUpdate) {
         try {
             return jdbcTemplate.queryForObject(
                     "SELECT o.id, o.order_no, o.user_id, o.screening_id, o.total_amount, o.status, o.lock_owner, o.expire_at, "
                             + "o.paid_at, s.start_time FROM ticket_order o JOIN screening s ON s.id = o.screening_id "
-                            + "WHERE o.order_no = ? AND o.user_id = ?",
+                            + "WHERE o.order_no = ? AND o.user_id = ?" + (forUpdate ? " FOR UPDATE" : ""),
                             (rs, rowNum) -> new OrderSnapshot(rs.getLong("id"), rs.getString("order_no"),
                             rs.getLong("user_id"), rs.getLong("screening_id"), rs.getBigDecimal("total_amount"),
                             rs.getString("status"), rs.getString("lock_owner"),
@@ -323,6 +418,12 @@ public class OrderService {
         } catch (Exception exception) {
             throw new BusinessException(404, "订单不存在");
         }
+    }
+
+    private String paymentNoForOrder(long orderId) {
+        List<String> paymentNos = jdbcTemplate.queryForList(
+                "SELECT payment_no FROM payment_transaction WHERE order_id = ? FOR UPDATE", String.class, orderId);
+        return paymentNos.isEmpty() ? null : paymentNos.getFirst();
     }
 
     private List<Long> orderSeatIds(long orderId) {
@@ -343,6 +444,9 @@ public class OrderService {
         List<Long> distinctIds = new ArrayList<>(new LinkedHashSet<>(seatIds));
         if (distinctIds.size() != seatIds.size()) {
             throw new BusinessException(400, "座位不能重复选择");
+        }
+        if (distinctIds.size() > MAX_SEATS_PER_ORDER) {
+            throw new BusinessException(400, "每笔订单最多选择 " + MAX_SEATS_PER_ORDER + " 个座位");
         }
         return distinctIds;
     }

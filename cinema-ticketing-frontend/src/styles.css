@@ -13,6 +13,9 @@ a { color: inherit; text-decoration: none; }
 .main-nav { display: flex; gap: 32px; color: #9298a0; font-size: 13px; }
 .main-nav a { padding-block: 30px; border-bottom: 2px solid transparent; transition: color .2s ease, border-color .2s ease; }
 .main-nav a:hover, .main-nav .active { color: #f5f3ef; border-color: #ec5c52; }
+.main-nav-control { border: 0; border-bottom: 2px solid transparent; padding: 30px 0; color: #9298a0; background: transparent; font-size: 13px; transition: color .2s ease, border-color .2s ease; }
+.main-nav-control:hover, .main-nav-control.active { color: #f5f3ef; border-color: #ec5c52; }
+.admin-mobile-shortcut { display: none; }
 .account-button { border: 1px solid #4a4e55; border-radius: 999px; padding: 10px 17px; color: #f5f3ef; background: transparent; font-size: 12px; transition: background .2s ease, transform .2s ease; }
 .account-button:hover { background: #252a30; }
 .account-button:active, .primary-button:active { transform: translateY(1px) scale(.98); }
@@ -83,10 +86,107 @@ h2 { margin-bottom: 0; font-size: clamp(30px, 4vw, 48px); letter-spacing: -.06em
 .auth-form button:disabled { cursor: wait; opacity: .65; }
 .modal-close { position: absolute; top: 14px; right: 14px; display: grid; place-items: center; width: 34px; height: 34px; border: 0; border-radius: 50%; color: #9298a0; background: transparent; font-size: 22px; line-height: 1; transition: color .2s ease, background .2s ease; }
 .modal-close:hover { color: #f5f3ef; background: #2b3138; }
+.text-button { border: 0; padding: 8px 0; color: #d5d2cb; background: transparent; font-size: 12px; }
+.text-button:hover { color: #ec5c52; }
+.text-button:disabled { cursor: wait; opacity: .55; }
+.empty-state { display: flex; align-items: center; justify-content: space-between; gap: 18px; border: 1px solid #30343a; padding: 24px; color: #9298a0; font-size: 13px; }
+.orders-section { padding-block: 18px 88px; }
+.orders-section .section-heading { margin-bottom: 24px; }
+.orders-section .section-heading .text-button { margin-bottom: 4px; }
+.order-login .primary-button { flex-shrink: 0; }
+.order-list { display: grid; gap: 12px; }
+.order-card { border: 1px solid #30343a; background: #171b20; }
+.order-card-main { display: flex; align-items: center; justify-content: space-between; gap: 22px; padding: 20px 22px; }
+.order-card-title { min-width: 0; }
+.order-card-title h3 { margin: 10px 0 7px; font-size: 18px; }
+.order-card-title p { margin-bottom: 0; color: #9298a0; font-size: 12px; }
+.order-status { display: inline-flex; align-items: center; border: 1px solid #4a4e55; border-radius: 999px; padding: 5px 10px; color: #c7c9c8; font-size: 11px; }
+.status-unpaid { border-color: rgb(236 190 82 / .35); color: #ecc45b; }
+.status-issued { border-color: rgb(125 211 160 / .3); color: #7dd3a0; }
+.status-refunded, .status-cancelled { color: #9298a0; }
+.order-card-side { display: grid; flex-shrink: 0; gap: 8px; justify-items: end; }
+.order-card-side strong { color: #f5f3ef; font-size: 18px; }
+.order-card-side span { color: #727981; font-size: 10px; }
+.order-expand { width: 100%; border: 0; border-top: 1px solid #30343a; padding: 12px 22px; color: #a7adb4; background: transparent; text-align: left; font-size: 11px; }
+.order-expand:hover { color: #f5f3ef; background: #1d2228; }
+.order-card-detail { display: flex; align-items: center; justify-content: space-between; gap: 18px; border-top: 1px solid #30343a; padding: 16px 22px; }
+.order-seat-list { display: flex; flex-wrap: wrap; gap: 8px; }
+.order-seat-list span { border: 1px solid #434850; border-radius: 999px; padding: 6px 10px; color: #d7d4ce; font-size: 11px; }
+.order-card-actions { display: flex; align-items: center; justify-content: end; gap: 12px; }
+.order-card-actions button, .secondary-button { border: 1px solid #4a4e55; border-radius: 999px; padding: 10px 16px; color: #d5d2cb; background: transparent; font-size: 12px; }
+.order-card-actions button:hover, .secondary-button:hover { border-color: #ec5c52; color: #f5f3ef; }
+.order-card-actions button:disabled, .secondary-button:disabled { cursor: wait; opacity: .55; }
+.refund-note { color: #727981; font-size: 10px; }
+.order-feedback { margin: 0 0 18px; color: #ecc45b; font-size: 12px; }
+.booking-backdrop { z-index: 12; }
+.auth-backdrop { z-index: 15; }
+.booking-modal { position: relative; width: min(760px, 100%); max-height: min(88vh, 900px); overflow: auto; border: 1px solid #3c4148; padding: 36px 40px 30px; background: #1a1e24; box-shadow: 0 24px 80px rgb(0 0 0 / .4); }
+.booking-modal h2 { margin-bottom: 12px; font-size: clamp(26px, 4vw, 38px); }
+.booking-intro { margin: 0 0 20px; color: #9298a0; font-size: 13px; }
+.screening-list { display: grid; gap: 10px; margin-top: 24px; }
+.screening-option { display: grid; grid-template-columns: minmax(155px, .75fr) minmax(130px, 1fr) auto; align-items: center; gap: 18px; border: 1px solid #353a42; padding: 17px 19px; color: #f5f3ef; background: #15191e; text-align: left; transition: border-color .2s ease, background .2s ease; }
+.screening-option:hover { border-color: #ec5c52; background: #20242a; }
+.screening-option:disabled { cursor: wait; opacity: .6; }
+.screening-time { font-size: 14px; font-weight: 700; }
+.screening-venue { color: #9298a0; font-size: 12px; }
+.screening-option strong { color: #ec5c52; font-size: 15px; }
+.seat-step-heading { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-top: 18px; border-block: 1px solid #30343a; padding-block: 10px; }
+.seat-step-heading span { color: #a7adb4; font-size: 11px; text-align: right; }
+.seat-legend { display: flex; align-items: center; justify-content: center; gap: 18px; margin: 20px 0; color: #a7adb4; font-size: 11px; }
+.seat-legend > span { display: inline-flex; align-items: center; gap: 7px; }
+.seat-legend .text-button { margin-left: auto; }
+.legend-seat { width: 13px; height: 13px; border: 1px solid #5b626c; border-radius: 4px; background: #252a30; }
+.legend-seat.available { border-color: #69717c; background: #30363e; }
+.legend-seat.selected { border-color: #ec5c52; background: #ec5c52; }
+.legend-seat.locked { border-color: #30343a; background: #181b20; }
+.screen-label { width: min(420px, 85%); margin: 0 auto 24px; border-top: 3px solid #606873; border-radius: 50% 50% 0 0 / 100% 100% 0 0; padding-top: 10px; color: #9298a0; text-align: center; font-size: 10px; letter-spacing: .2em; }
+.seat-map { display: grid; gap: 8px; width: 100%; overflow-x: auto; padding: 4px 0 18px; }
+.seat-row { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 8px; }
+.row-label { color: #727981; text-align: center; font-size: 10px; }
+.seat-row-grid { display: grid; gap: clamp(4px, 1vw, 9px); min-width: 340px; }
+.seat-button { aspect-ratio: 1; min-width: 25px; max-width: 40px; border: 1px solid #69717c; border-radius: 7px 7px 4px 4px; color: #c8cbd0; background: #30363e; font-size: 10px; transition: transform .15s ease, background .15s ease, border-color .15s ease; }
+.seat-button.available:hover { transform: translateY(-2px); border-color: #ec5c52; }
+.seat-button.selected { border-color: #ec5c52; color: #12151a; background: #ec5c52; }
+.seat-button.unavailable { cursor: not-allowed; border-color: #2d3239; color: #5b616a; background: #20242a; }
+.seat-gap { display: block; aspect-ratio: 1; min-width: 25px; }
+.booking-summary { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #30343a; padding-top: 18px; }
+.booking-summary > div { display: grid; gap: 7px; }
+.booking-summary span { color: #a7adb4; font-size: 11px; }
+.booking-summary strong, .checkout-summary strong { color: #ec5c52; font-size: 19px; }
+.checkout-panel { margin-top: 22px; border: 1px solid #343a42; padding: 20px; background: #15191e; }
+.checkout-status, .checkout-summary { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+.checkout-status > span:last-child { color: #727981; font-size: 10px; }
+.checkout-summary { margin-top: 22px; border-top: 1px solid #30343a; padding-top: 18px; color: #e2dfd8; font-size: 13px; }
+.checkout-hint, .ticket-success { margin: 17px 0 0; color: #a7adb4; font-size: 11px; line-height: 1.6; }
+.ticket-success { color: #7dd3a0; }
+.checkout-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 20px; }
+.close-checkout { margin-top: 18px; }
+@media (max-width: 760px) {
+  .orders-section { padding-block: 8px 64px; }
+  .order-card-main { align-items: start; padding: 17px 14px; }
+  .order-card-title h3 { font-size: 16px; }
+  .order-card-side span { max-width: 120px; overflow-wrap: anywhere; text-align: right; }
+  .order-card-detail { display: grid; padding: 14px; }
+  .order-card-actions { flex-wrap: wrap; justify-content: start; }
+  .booking-modal { max-height: 92vh; padding: 34px 18px 22px; }
+  .screening-option { grid-template-columns: 1fr auto; gap: 8px 12px; padding: 14px; }
+  .screening-time { grid-column: 1; }
+  .screening-venue { grid-column: 1; grid-row: 2; }
+  .screening-option strong { grid-column: 2; grid-row: 1 / span 2; }
+  .seat-legend { flex-wrap: wrap; justify-content: start; gap: 11px; }
+  .seat-legend .text-button { margin-left: 0; }
+  .seat-step-heading { align-items: start; flex-direction: column; gap: 3px; }
+  .seat-step-heading span { text-align: left; }
+  .booking-summary { align-items: stretch; flex-direction: column; }
+  .booking-summary .primary-button { width: 100%; }
+  .empty-state { align-items: start; flex-direction: column; }
+}
 @media (max-width: 760px) {
   .content-width { width: min(100% - 32px, 560px); }
   .site-header { height: auto; padding-block: 20px; }
   .main-nav { display: none; }
+  .admin-mobile-shortcut { display: inline-flex; align-items: center; justify-content: center; min-height: 32px; border: 1px solid #4a4e55; border-radius: 999px; padding: 0 10px; color: #d5d2cb; background: transparent; font-size: 11px; }
+  .admin-account .account-name { display: none; }
   .account-name { max-width: 96px; }
   .hero { grid-template-columns: 1fr; gap: 38px; min-height: auto; padding-block: 64px 72px; }
   .hero-visual { min-height: 320px; }

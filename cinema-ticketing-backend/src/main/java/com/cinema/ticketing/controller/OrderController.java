@@ -70,6 +70,13 @@ public class OrderController {
         return ApiResponse.success(orderService.refund(authService.requireUserId(token), orderNo, reason));
     }
 
+    @PostMapping("/orders/{orderNo}/cancel")
+    public ApiResponse<OrderView> cancel(
+            @RequestHeader("X-Auth-Token") String token,
+            @PathVariable String orderNo) {
+        return ApiResponse.success(orderService.cancel(authService.requireUserId(token), orderNo));
+    }
+
     @GetMapping("/orders/{orderNo}")
     public ApiResponse<OrderView> find(
             @RequestHeader("X-Auth-Token") String token,

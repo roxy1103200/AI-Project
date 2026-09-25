@@ -58,6 +58,7 @@ class OrderServiceCoreFlowTest {
 
     @Test
     void duplicateRequestIdReturnsExistingOrderWithoutCreatingAnother() throws Exception {
+        stubLockedUser();
         when(jdbcTemplate.queryForList(startsWith("SELECT order_no"), eq(String.class), anyLong(), anyString()))
                 .thenReturn(List.of("OEXISTING"));
         stubOrderSnapshot("OEXISTING", "UNPAID", LocalDateTime.now().plusHours(2));
@@ -135,14 +136,19 @@ class OrderServiceCoreFlowTest {
      */
     @Test
     void createOrderSchedulesCancellationForTheFullOrderTtl() throws Exception {
+        stubLockedUser();
         when(jdbcTemplate.queryForList(startsWith("SELECT order_no"), eq(String.class), anyLong(), anyString()))
                 .thenReturn(List.of());
         stubScreening(1L, 7L, new BigDecimal("42.00"), LocalDateTime.now().plusHours(2));
+        when(jdbcTemplate.queryForList(startsWith("SELECT id FROM seat"), eq(Long.class), any(Object[].class)))
+                .thenReturn(List.of(11L));
+        when(jdbcTemplate.queryForList(startsWith("SELECT oi.seat_id"), eq(Long.class), any(Object[].class)))
+                .thenReturn(List.of());
         when(jdbcTemplate.queryForObject(startsWith("SELECT COUNT(*)"), eq(Integer.class), any(Object[].class)))
                 .thenReturn(1);
         ValueOperations<String, String> valueOperations = mock(ValueOperations.class);
         when(redisTemplate.opsForValue()).thenReturn(valueOperations);
-        when(valueOperations.get(anyString())).thenReturn("owner");
+        when(valueOperations.multiGet(any(List.class))).thenReturn(List.of("owner"));
         when(jdbcTemplate.update(any(PreparedStatementCreator.class), any(KeyHolder.class))).thenAnswer(invocation -> {
             invocation.<KeyHolder>getArgument(1).getKeyList().add(Map.of("GENERATED_KEY", 20L));
             return 1;
@@ -164,6 +170,11 @@ class OrderServiceCoreFlowTest {
                 .thenReturn(1);
         when(jdbcTemplate.queryForList(startsWith("SELECT seat_id"), eq(Long.class), anyLong()))
                 .thenReturn(List.of(11L));
+    }
+
+    private void stubLockedUser() {
+        when(jdbcTemplate.queryForList(eq("SELECT id FROM users WHERE id = ? FOR UPDATE"), eq(Long.class), eq(9L)))
+                .thenReturn(List.of(9L));
     }
 
     private void stubScreening(long screeningId, long hallId, BigDecimal price, LocalDateTime startTime)

@@ -13,9 +13,11 @@
 
 ## Docker 启动
 
-1. 先构建 JAR：`mvn clean package -DskipTests`
-2. 启动完整入口：`docker compose up -d --build`
-3. 通过 Nginx 访问：`GET http://localhost/api/health`
+1. 在 `cinema-ticketing-backend` 目录构建 JAR：`mvn clean package -DskipTests`
+2. 启动完整应用：`docker compose --profile app up -d --build`
+3. 前端入口为 `http://localhost/`，健康检查为 `http://localhost/api/health`
+
+首次创建 MySQL 数据卷时，Compose 会依次执行 `schema.sql` 和演示数据脚本 `seed-local-data.sql`。已有数据卷不会重放初始化脚本；需要演示数据时可手动执行该 SQL 文件。
 
 基础设施账号仅用于本地开发，生产环境必须通过环境变量替换。
 
@@ -41,14 +43,15 @@
 
 - `GET /api/screenings/{screeningId}/seats`：查询场次座位和实时占用状态
 - `POST /api/orders/lock-seats`：使用 Redis Lua 脚本原子锁座，锁定时间为 5 分钟
-- `POST /api/orders`：创建待支付订单，`requestId` 用于请求幂等
-- `POST /api/orders/{orderNo}/pay`：模拟支付并完成出票，订单状态变为 `ISSUED`
+- `POST /api/orders`：每单最多 6 个座位，创建 5 分钟有效的待支付订单，`requestId` 用于请求幂等
+- `POST /api/orders/{orderNo}/pay`：模拟支付并完成出票，订单按 `UNPAID -> PAID -> ISSUED` 流转
+- `POST /api/orders/{orderNo}/cancel`：用户主动取消待支付订单并释放座位
 - `GET /api/orders/{orderNo}`：查询当前登录用户的订单详情
-- `GET /api/orders`：查询当前用户订单，管理员可按 `userId` 查询
-- `POST /api/orders/{orderNo}/pay`：必须提交支付流水号 `paymentNo`，支付流水按订单和流水号幂等，订单状态按 `UNPAID -> PAID -> ISSUED` 流转
+- `GET /api/orders`：查询当前用户的订单列表
+- 支付必须提交支付流水号 `paymentNo`；重复提交同一订单和流水号具备幂等性
 - `POST /api/orders/{orderNo}/refund`：读取 `refund_policy` 数据库策略，校验退票截止时间后执行退票，状态变为 `REFUNDED`
 
-订单状态流转为 `UNPAID -> ISSUED -> REFUNDED`；Redis 负责短期座位锁，MySQL 负责订单最终状态。RabbitMQ 超时取消属于第四阶段。
+Redis 负责短期座位锁，MySQL 的订单状态和明细负责最终占座判断；订单过期后由 RabbitMQ 与定时对账任务取消。
 
 ## 第四阶段消息与并发
 
