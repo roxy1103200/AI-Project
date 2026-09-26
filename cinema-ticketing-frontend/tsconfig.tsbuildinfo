@@ -1,1 +1,1 @@
-{"root":["./src/app.tsx","./src/main.tsx"],"version":"5.6.3"}
+{"root":["./src/app.tsx","./src/main.tsx","./src/admin/cinemaadmin.tsx","./src/admin/hallschedulecalendar.tsx","./src/admin/movieadmin.tsx","./src/admin/movieschedulefields.tsx","./src/admin/movie-save.ts","./src/admin/schedule-time.ts","./src/home/moviecarousel.tsx","./src/home/moviedetaildialog.tsx","./src/home/movieposter.tsx","./src/home/moviereviews.tsx","./src/home/twoweekschedule.tsx","./src/orders/refundcontrol.tsx","./src/orders/ticketdialog.tsx"],"version":"5.6.3"}

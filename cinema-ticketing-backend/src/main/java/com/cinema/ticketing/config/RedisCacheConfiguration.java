@@ -11,7 +11,9 @@ public class RedisCacheConfiguration {
     @Bean
     public RedisCacheManagerBuilderCustomizer redisCacheDefaults() {
         return builder -> builder.withCacheConfiguration("catalogList", cacheConfiguration())
-                .withCacheConfiguration("catalogDetail", cacheConfiguration());
+                .withCacheConfiguration("catalogDetail", cacheConfiguration())
+                .withCacheConfiguration("cinemaList", cacheConfiguration())
+                .withCacheConfiguration("cinemaDetail", cacheConfiguration());
     }
 
     private org.springframework.data.redis.cache.RedisCacheConfiguration cacheConfiguration() {

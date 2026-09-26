@@ -9,11 +9,12 @@
 --   * screening.status 必须是 'SCHEDULED' —— screening() 查询带这个条件，否则抛 404
 --   * seat.status 必须是 'AVAILABLE'     —— validateSeats() 带这个条件，否则抛 400
 --   * 退票要求 screening.start_time > 当前时间 + refund_policy.cutoff_minutes(30)，
---     所以场次时间统一用 CURDATE() 相对偏移，任何一天重跑都还有效
---   * movie.status 在代码里没有任何地方被读取，取值纯属约定
+--     所以场次时间按北京时间当天偏移 2~3 天；重跑补充新场次，保留旧场次
+--   * movie.status 必须是 UPCOMING / ON_SHELF / ON_SHOW，影院和影厅必须 ACTIVE
 --   * seat.seat_type 同样无人读取
 --
--- 幂等：全部 INSERT ... WHERE NOT EXISTS，可重复执行，不会产生重复数据
+-- 幂等：基础数据按 ID 跳过；场次按影厅及开场时间去重，同一天重跑不重复。
+-- 不更新或删除旧场次，避免改变历史订单、座位占用及退票依据。
 --
 -- 字符集：本文件是 UTF-8。下面的 SET NAMES 让服务端按 UTF-8 解释后续语句，
 --         不依赖客户端默认字符集 —— 容器里的 mysql 客户端默认是 latin1，
@@ -73,35 +74,66 @@ SELECT 3, '长安夜行', '长安城一夜之间发生的十二件事。', 95,
 WHERE NOT EXISTS (SELECT 1 FROM movie WHERE id = 3);
 
 -- ---------- 场次 ----------
--- end_time = start_time + 影片时长；改影片时长时记得同步这里
--- 全部安排在 2~3 天后，远离 30 分钟退票截止线
-INSERT INTO screening (id, movie_id, hall_id, start_time, end_time, price, status)
-SELECT 1, 1, 1,
-       TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '19:30:00'),
-       TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '21:38:00'),
-       59.00, 'SCHEDULED'
-WHERE NOT EXISTS (SELECT 1 FROM screening WHERE id = 1);
+-- MySQL 可能运行在 UTC；DATETIME 与应用统一保存北京时间字面量。
+-- 使用自动生成的 ID，旧场次（包括关联订单的场次）保持原样。
+-- 只给演示店及原始演示影片补场；影厅已有重叠排期时跳过。
+SET @seed_date = DATE(DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR));
 
-INSERT INTO screening (id, movie_id, hall_id, start_time, end_time, price, status)
-SELECT 2, 2, 1,
-       TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '22:00:00'),
-       TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '23:46:00'),
-       45.00, 'SCHEDULED'
-WHERE NOT EXISTS (SELECT 1 FROM screening WHERE id = 2);
+INSERT INTO screening (movie_id, hall_id, start_time, end_time, price, status)
+SELECT m.id, h.id, TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '19:30:00'),
+       DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '19:30:00'), INTERVAL (m.duration+20) MINUTE), 59.00, 'SCHEDULED'
+FROM movie m JOIN hall h ON h.id = 1 JOIN cinema c ON c.id = h.cinema_id
+WHERE m.id = 1 AND m.title = '流浪地球 3'
+  AND c.id = 1 AND c.name = '星轶影城（演示店）'
+  AND m.status IN ('UPCOMING', 'ON_SHELF', 'ON_SHOW') AND h.status = 'ACTIVE' AND c.status = 'ACTIVE'
+  AND (m.sale_start_time IS NULL OR TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '19:30:00') >= m.sale_start_time)
+  AND (m.sale_end_time IS NULL OR DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '19:30:00'), INTERVAL (m.duration+20) MINUTE) <= m.sale_end_time)
+  AND NOT EXISTS (SELECT 1 FROM screening s JOIN movie existing_movie ON existing_movie.id=s.movie_id WHERE s.hall_id = h.id
+      AND (s.start_time = TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '19:30:00')
+           OR (s.status = 'SCHEDULED' AND s.start_time < DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '19:30:00'), INTERVAL (m.duration+20) MINUTE)
+               AND GREATEST(s.end_time, DATE_ADD(s.start_time, INTERVAL (existing_movie.duration+20) MINUTE)) > TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '19:30:00'))));
 
-INSERT INTO screening (id, movie_id, hall_id, start_time, end_time, price, status)
-SELECT 3, 3, 2,
-       TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '14:00:00'),
-       TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '15:35:00'),
-       39.00, 'SCHEDULED'
-WHERE NOT EXISTS (SELECT 1 FROM screening WHERE id = 3);
+INSERT INTO screening (movie_id, hall_id, start_time, end_time, price, status)
+SELECT m.id, h.id, TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '22:00:00'),
+       DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '22:00:00'), INTERVAL (m.duration+20) MINUTE), 45.00, 'SCHEDULED'
+FROM movie m JOIN hall h ON h.id = 1 JOIN cinema c ON c.id = h.cinema_id
+WHERE m.id = 2 AND m.title = '深海回响'
+  AND c.id = 1 AND c.name = '星轶影城（演示店）'
+  AND m.status IN ('UPCOMING', 'ON_SHELF', 'ON_SHOW') AND h.status = 'ACTIVE' AND c.status = 'ACTIVE'
+  AND (m.sale_start_time IS NULL OR TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '22:00:00') >= m.sale_start_time)
+  AND (m.sale_end_time IS NULL OR DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '22:00:00'), INTERVAL (m.duration+20) MINUTE) <= m.sale_end_time)
+  AND NOT EXISTS (SELECT 1 FROM screening s JOIN movie existing_movie ON existing_movie.id=s.movie_id WHERE s.hall_id = h.id
+      AND (s.start_time = TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '22:00:00')
+           OR (s.status = 'SCHEDULED' AND s.start_time < DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '22:00:00'), INTERVAL (m.duration+20) MINUTE)
+               AND GREATEST(s.end_time, DATE_ADD(s.start_time, INTERVAL (existing_movie.duration+20) MINUTE)) > TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 2 DAY), '22:00:00'))));
 
-INSERT INTO screening (id, movie_id, hall_id, start_time, end_time, price, status)
-SELECT 4, 1, 2,
-       TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '20:00:00'),
-       TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '22:08:00'),
-       39.00, 'SCHEDULED'
-WHERE NOT EXISTS (SELECT 1 FROM screening WHERE id = 4);
+INSERT INTO screening (movie_id, hall_id, start_time, end_time, price, status)
+SELECT m.id, h.id, TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '14:00:00'),
+       DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '14:00:00'), INTERVAL (m.duration+20) MINUTE), 39.00, 'SCHEDULED'
+FROM movie m JOIN hall h ON h.id = 2 JOIN cinema c ON c.id = h.cinema_id
+WHERE m.id = 3 AND m.title = '长安夜行'
+  AND c.id = 1 AND c.name = '星轶影城（演示店）'
+  AND m.status IN ('UPCOMING', 'ON_SHELF', 'ON_SHOW') AND h.status = 'ACTIVE' AND c.status = 'ACTIVE'
+  AND (m.sale_start_time IS NULL OR TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '14:00:00') >= m.sale_start_time)
+  AND (m.sale_end_time IS NULL OR DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '14:00:00'), INTERVAL (m.duration+20) MINUTE) <= m.sale_end_time)
+  AND NOT EXISTS (SELECT 1 FROM screening s JOIN movie existing_movie ON existing_movie.id=s.movie_id WHERE s.hall_id = h.id
+      AND (s.start_time = TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '14:00:00')
+           OR (s.status = 'SCHEDULED' AND s.start_time < DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '14:00:00'), INTERVAL (m.duration+20) MINUTE)
+               AND GREATEST(s.end_time, DATE_ADD(s.start_time, INTERVAL (existing_movie.duration+20) MINUTE)) > TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '14:00:00'))));
+
+INSERT INTO screening (movie_id, hall_id, start_time, end_time, price, status)
+SELECT m.id, h.id, TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '20:00:00'),
+       DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '20:00:00'), INTERVAL (m.duration+20) MINUTE), 39.00, 'SCHEDULED'
+FROM movie m JOIN hall h ON h.id = 2 JOIN cinema c ON c.id = h.cinema_id
+WHERE m.id = 1 AND m.title = '流浪地球 3'
+  AND c.id = 1 AND c.name = '星轶影城（演示店）'
+  AND m.status IN ('UPCOMING', 'ON_SHELF', 'ON_SHOW') AND h.status = 'ACTIVE' AND c.status = 'ACTIVE'
+  AND (m.sale_start_time IS NULL OR TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '20:00:00') >= m.sale_start_time)
+  AND (m.sale_end_time IS NULL OR DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '20:00:00'), INTERVAL (m.duration+20) MINUTE) <= m.sale_end_time)
+  AND NOT EXISTS (SELECT 1 FROM screening s JOIN movie existing_movie ON existing_movie.id=s.movie_id WHERE s.hall_id = h.id
+      AND (s.start_time = TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '20:00:00')
+           OR (s.status = 'SCHEDULED' AND s.start_time < DATE_ADD(TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '20:00:00'), INTERVAL (m.duration+20) MINUTE)
+               AND GREATEST(s.end_time, DATE_ADD(s.start_time, INTERVAL (existing_movie.duration+20) MINUTE)) > TIMESTAMP(DATE_ADD(@seed_date, INTERVAL 3 DAY), '20:00:00'))));
 
 -- ---------- 自检 ----------
 -- 别名用 ASCII：某些客户端（如容器里默认 latin1 的 mysql）遇到非 ASCII 标识符会解析失败

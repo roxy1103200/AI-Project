@@ -14,8 +14,8 @@ import java.util.Map;
 public class SystemController {
 
     @GetMapping("/api/health")
-    public ApiResponse<Map<String, String>> health() {
-        return ApiResponse.success(Map.of("status", "UP"));
+    public ApiResponse<Map<String, Object>> health() {
+        return ApiResponse.success(Map.of("status", "UP", "features", Map.of("moviePosters", true)));
     }
 
     @GetMapping("/api/validation-demo")

@@ -1,5 +1,12 @@
 import { useEffect, useState, type FormEvent } from "react";
 import MovieAdmin from "./admin/MovieAdmin";
+import CinemaAdmin from "./admin/CinemaAdmin";
+import RefundControl from "./orders/RefundControl";
+import TicketDialog from "./orders/TicketDialog";
+import MovieCarousel from "./home/MovieCarousel";
+import TwoWeekSchedule from "./home/TwoWeekSchedule";
+import MovieReviews from "./home/MovieReviews";
+import MovieDetailDialog from "./home/MovieDetailDialog";
 
 type Movie = {
   id: number;
@@ -7,6 +14,12 @@ type Movie = {
   description?: string | null;
   duration?: number | null;
   release_date?: string | null;
+  sale_start_time?: string | null;
+  sale_end_time?: string | null;
+  sales_status?: string;
+  future_screening_count?: number;
+  rating_average?: number | string | null;
+  rating_count?: number;
   genre?: string | null;
   director?: string | null;
   actors?: string | null;
@@ -23,8 +36,8 @@ type Screening = {
   status: string;
 };
 
-type Cinema = { id: number; name: string; address: string };
-type Hall = { id: number; cinema_id: number; name: string; hall_type?: string };
+type Cinema = { id: number; name: string; address: string; phone?: string | null; status?: string | null };
+type Hall = { id: number; cinema_id: number; name: string; hall_type?: string; status?: string };
 type Seat = {
   id: number;
   row_no: number;
@@ -38,6 +51,15 @@ type Seat = {
 type OrderSummary = {
   order_no: string;
   screening_id: number;
+  movie_title?: string;
+  start_time?: string;
+  hall_name?: string;
+  cinema_name?: string;
+  refund_deadline?: string | null;
+  can_refund?: boolean;
+  refund_reason?: string;
+  server_time?: string;
+  received_at?: number;
   total_amount: number | string;
   status: string;
   expire_at?: string;
@@ -82,9 +104,19 @@ const AUTH_STORAGE_KEY = "cinema-auth";
 const LEGACY_TOKEN_KEY = "cinema-auth-token";
 const MAX_SEATS_PER_ORDER = 6;
 
+function movieSalesLabel(movie: Movie): string {
+  const now = Date.now();
+  if (movie.status === "OFFLINE") return "已下线";
+  if (movie.sales_status === "NOT_STARTED" || (movie.sale_start_time && new Date(`${movie.sale_start_time}+08:00`).getTime() > now)) return Number(movie.future_screening_count) > 0 ? "已排期，待上架" : "待上架";
+  if (movie.sale_end_time && new Date(`${movie.sale_end_time}+08:00`).getTime() <= now) return "上架已截止";
+  if (movie.sales_status === "AVAILABLE") return "可订购";
+  if (movie.sales_status === "NO_SCREENINGS") return "待排期";
+  return movie.status === "UPCOMING" ? "即将上映" : "正在上映";
+}
+
 async function apiRequest<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
   const headers = new Headers(init.headers);
-  if (init.body && !headers.has("Content-Type")) {
+  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   if (token) {
@@ -154,16 +186,29 @@ function getMovieImage(movieId: number): string {
   return images[(Math.max(movieId, 1) - 1) % images.length];
 }
 
+function moviePosterBackground(movieId: number, version: number): string {
+  return `url("${moviePosterUrl(movieId, version)}"), url("${getMovieImage(movieId)}")`;
+}
+
+function moviePosterUrl(movieId: number, version: number): string {
+  return `/api/movies/${movieId}/poster?v=${version}`;
+}
+
 function App() {
   const [movies, setMovies] = useState<Movie[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
+  const [isScreeningsLoading, setIsScreeningsLoading] = useState(false);
+  const [screeningsError, setScreeningsError] = useState("");
   const [cinemas, setCinemas] = useState<Cinema[]>([]);
+  const [isCinemaLoading, setIsCinemaLoading] = useState(true);
+  const [cinemaError, setCinemaError] = useState("");
+  const [imageVersion, setImageVersion] = useState(0);
   const [halls, setHalls] = useState<Hall[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
   const [session, setSession] = useState<StoredSession | null>(() => readSession());
-  const [activeView, setActiveView] = useState<"catalog" | "admin">("catalog");
+  const [activeView, setActiveView] = useState<"catalog" | "movies" | "cinemas">("catalog");
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [loginName, setLoginName] = useState("");
@@ -189,9 +234,22 @@ function App() {
   const [ordersMessage, setOrdersMessage] = useState("");
   const [isOrdersLoading, setIsOrdersLoading] = useState(false);
   const [activeOrderAction, setActiveOrderAction] = useState<string | null>(null);
+  const [movieCategory, setMovieCategory] = useState("showing");
+  const [ticketOrderNo, setTicketOrderNo] = useState<string | null>(null);
 
   const movieById = new Map(movies.map((movie) => [movie.id, movie]));
   const publicMovies = movies.filter((movie) => movie.status !== "OFFLINE");
+  function movieGroup(movie: Movie): string {
+    const label = movieSalesLabel(movie);
+    if (label === "上架已截止") return "ended";
+    if (movie.sales_status === "NOT_STARTED" || label === "待上架" || label === "已排期，待上架" || movie.status === "UPCOMING") return "upcoming";
+    return label === "待排期" ? "pending" : "showing";
+  }
+  const movieCategories = [
+    { id: "showing", label: "正在上映" }, { id: "pending", label: "待排期" },
+    { id: "upcoming", label: "即将上映" }, { id: "ended", label: "已截止" },
+  ];
+  const displayedMovies = publicMovies.filter((movie) => movieGroup(movie) === movieCategory);
   const hallById = new Map(halls.map((hall) => [hall.id, hall]));
   const cinemaById = new Map(cinemas.map((cinema) => [cinema.id, cinema]));
 
@@ -284,7 +342,7 @@ function App() {
     setOrdersMessage("");
     try {
       const result = await apiRequest<OrderSummary[]>("/api/orders", {}, token);
-      setOrders(result ?? []);
+      setOrders((result ?? []).map((order) => ({ ...order, received_at: Date.now() })));
     } catch (error) {
       setOrdersMessage(error instanceof Error ? error.message : "订单读取失败");
     } finally {
@@ -292,11 +350,36 @@ function App() {
     }
   }
 
-  async function refreshMovies() {
-    const result = await apiRequest<Movie[]>("/api/movies");
+  async function refreshMovies(refreshPoster = true) {
+    const [result, slots] = await Promise.all([apiRequest<Movie[]>("/api/movies"), apiRequest<Screening[]>("/api/screenings")]);
     setMovies(result ?? []);
+    setScreenings(slots ?? []);
     setErrorMessage("");
+    if (refreshPoster) setImageVersion((current) => current + 1);
   }
+
+  async function refreshCinemas() {
+    setIsCinemaLoading(true);
+    try {
+      const result = await apiRequest<Cinema[]>("/api/cinemas");
+      setCinemas(result ?? []);
+      setCinemaError("");
+    } catch (error) {
+      setCinemaError(error instanceof Error ? error.message : "影院读取失败");
+      throw error;
+    } finally {
+      setIsCinemaLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (activeView !== "catalog") return;
+    const refresh = () => { if (!document.hidden) void refreshMovies(false).catch(() => {}); };
+    refresh();
+    const timer = window.setInterval(refresh, 60000);
+    window.addEventListener("focus", refresh);
+    return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
+  }, [activeView]);
 
   useEffect(() => {
     let mounted = true;
@@ -312,6 +395,8 @@ function App() {
       else setErrorMessage(movieResult.reason instanceof Error ? movieResult.reason.message : "电影服务暂时不可用");
       if (screeningResult.status === "fulfilled") setScreenings(screeningResult.value ?? []);
       if (cinemaResult.status === "fulfilled") setCinemas(cinemaResult.value ?? []);
+      else setCinemaError(cinemaResult.reason instanceof Error ? cinemaResult.reason.message : "影院服务暂时不可用");
+      setIsCinemaLoading(false);
       if (hallResult.status === "fulfilled") setHalls(hallResult.value ?? []);
       setIsLoading(false);
     };
@@ -320,10 +405,27 @@ function App() {
   }, []);
 
   useEffect(() => {
+    setTicketOrderNo(null);
     void refreshOrders();
+    const timer = window.setInterval(() => { if (session?.token) void refreshOrders(session.token); }, 30000);
     // Session changes only when logging in or out; refreshOrders is intentionally not an effect dependency.
     // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => window.clearInterval(timer);
   }, [session?.token]);
+
+  useEffect(() => {
+    if (!isBookingOpen || !bookingMovie) return;
+    let mounted = true;
+    setIsScreeningsLoading(true);
+    setScreeningsError("");
+    apiRequest<Screening[]>("/api/screenings")
+      .then((result) => { if (mounted) setScreenings(result ?? []); })
+      .catch((error: unknown) => {
+        if (mounted) setScreeningsError(error instanceof Error ? error.message : "场次读取失败，请重新打开重试。");
+      })
+      .finally(() => { if (mounted) setIsScreeningsLoading(false); });
+    return () => { mounted = false; };
+  }, [isBookingOpen, bookingMovie]);
 
   function openBooking(movie: Movie) {
     setSelectedMovie(null);
@@ -335,6 +437,8 @@ function App() {
     setActiveOrder(null);
     setBookingMessage("");
     setBookingFailed(false);
+    setIsScreeningsLoading(true);
+    setScreeningsError("");
     setIsBookingOpen(true);
   }
 
@@ -488,19 +592,22 @@ function App() {
     }
   }
 
-  async function runOrderAction(orderNo: string, action: "cancel" | "refund") {
+  async function runOrderAction(orderNo: string, action: "cancel" | "refund" | "pay") {
     if (!session) return;
     setActiveOrderAction(orderNo);
     setOrdersMessage("");
     try {
-      const path = action === "cancel" ? `/api/orders/${orderNo}/cancel` : `/api/orders/${orderNo}/refund`;
+      const path = `/api/orders/${orderNo}/${action}`;
       const init: RequestInit = action === "cancel"
         ? { method: "POST" }
-        : { method: "POST", body: JSON.stringify({ reason: "用户申请退票" }) };
+        : { method: "POST", body: JSON.stringify(action === "pay"
+          ? { paymentNo: `DEMO-${orderNo}` } : { reason: "用户申请退票" }) };
       const detail = await apiRequest<OrderView>(path, init, session.token);
       setOrderDetails((current) => ({ ...current, [orderNo]: detail }));
+      setActiveOrder((current) => current?.orderNo === orderNo ? detail : current);
       await refreshOrders(session.token);
-      setOrdersMessage(action === "cancel" ? "待支付订单已取消，座位已释放" : "退票已完成");
+      setOrdersMessage(action === "cancel" ? "待支付订单已取消，座位已释放"
+        : action === "pay" ? "支付成功，电子票已出票" : "退票已完成");
     } catch (error) {
       setOrdersMessage(error instanceof Error ? error.message : "操作失败，请刷新后重试");
     } finally {
@@ -510,7 +617,9 @@ function App() {
 
   const availableScreenings = bookingMovie
     ? screenings.filter((screening) => screening.movie_id === bookingMovie.id
-      && screening.status === "SCHEDULED" && new Date(screening.start_time).getTime() > Date.now())
+      && screening.status === "SCHEDULED" && new Date(screening.start_time).getTime() > Date.now()
+      && hallById.get(screening.hall_id)?.status === "ACTIVE"
+      && cinemaById.get(hallById.get(screening.hall_id)?.cinema_id ?? -1)?.status === "ACTIVE")
       .sort((left, right) => left.start_time.localeCompare(right.start_time))
     : [];
   const maxColumn = Math.max(0, ...seats.map((seat) => seat.column_no));
@@ -525,18 +634,19 @@ function App() {
   return (
     <main className="app-shell">
       <header className="site-header content-width">
-        <a className="brand" href="#top" aria-label="Cinema 首页">
+        <a className="brand" href="#top" aria-label="Cinema 首页" onClick={() => setActiveView("catalog")}>
           <span className="brand-mark">C</span><span>CINEMA</span>
         </a>
         <nav className="main-nav" aria-label="主导航">
-          <a className={activeView === "catalog" ? "active" : ""} href="#movies" onClick={() => setActiveView("catalog")}>正在上映</a>
+          <a className={activeView === "catalog" ? "active" : ""} href="#movies" onClick={() => { setMovieCategory("showing"); setActiveView("catalog"); }}>正在上映</a>
           <a href="#cinemas" onClick={() => setActiveView("catalog")}>影院</a>
           <a href="#orders" onClick={() => setActiveView("catalog")}>我的订单</a>
-          {session?.role === "ADMIN" && <button className={`main-nav-control ${activeView === "admin" ? "active" : ""}`} type="button" onClick={() => { setSelectedMovie(null); setActiveView((current) => current === "admin" ? "catalog" : "admin"); }}>{activeView === "admin" ? "返回首页" : "影片管理"}</button>}
+          {session?.role === "ADMIN" && <button className={`main-nav-control ${activeView === "movies" ? "active" : ""}`} type="button" onClick={() => { setSelectedMovie(null); setActiveView("movies"); }}>影片管理</button>}
+          {session?.role === "ADMIN" && <button className={`main-nav-control ${activeView === "cinemas" ? "active" : ""}`} type="button" onClick={() => { setSelectedMovie(null); setActiveView("cinemas"); }}>影院管理</button>}
         </nav>
         {session ? (
           <div className={`account-area ${session.role === "ADMIN" ? "admin-account" : ""}`}>
-            {session.role === "ADMIN" && <button className="admin-mobile-shortcut" type="button" onClick={() => { setSelectedMovie(null); setActiveView((current) => current === "admin" ? "catalog" : "admin"); }}>{activeView === "admin" ? "首页" : "管理"}</button>}
+            {session.role === "ADMIN" && <><button className="admin-mobile-shortcut" type="button" onClick={() => { setSelectedMovie(null); setActiveView("movies"); }}>影片</button><button className="admin-mobile-shortcut" type="button" onClick={() => { setSelectedMovie(null); setActiveView("cinemas"); }}>影院</button></>}
             <span className="account-name" title={`已登录：${session.username}（${session.role}）`}>
               <span className="account-dot" aria-hidden="true" />{session.username}
             </span>
@@ -547,39 +657,34 @@ function App() {
         )}
       </header>
 
-      {session?.role === "ADMIN" && activeView === "admin" ? (
-        <MovieAdmin movies={movies} isLoading={isLoading} errorMessage={errorMessage} token={session.token} request={apiRequest} onRefresh={refreshMovies} />
+      {session?.role === "ADMIN" && activeView === "movies" ? (
+        <MovieAdmin movies={movies} isLoading={isLoading} errorMessage={errorMessage} imageVersion={imageVersion} token={session.token} request={apiRequest} onRefresh={refreshMovies} />
+      ) : session?.role === "ADMIN" && activeView === "cinemas" ? (
+        <CinemaAdmin cinemas={cinemas} halls={halls} isLoading={isCinemaLoading} errorMessage={cinemaError} token={session.token} request={apiRequest} onRefresh={refreshCinemas} />
       ) : (
       <>
-      <section className="hero content-width" id="top">
-        <div className="hero-copy">
-          <p className="eyebrow">YOUR NEXT SCENE</p>
-          <h1>今晚，<br /><em>走进</em> 一部好电影。</h1>
-          <p className="hero-description">从选片到入场，把时间留给真正值得看的故事。</p>
-          <a className="primary-button" href="#movies">查看正在上映</a>
-        </div>
-        <div className="hero-visual" role="img" aria-label="电影院放映厅的座椅">
-          <div className="hero-visual-caption"><span>SCREEN 01</span><span>NOW PLAYING</span></div>
-        </div>
-      </section>
+      <div id="top"><MovieCarousel movies={publicMovies.filter((movie) => movieGroup(movie) === "showing" && movie.sales_status === "AVAILABLE")} poster={(id) => moviePosterUrl(id, imageVersion)} fallback={getMovieImage} onSelect={(id) => setSelectedMovie(movieById.get(id) ?? null)} /></div>
 
       <section className="movie-section content-width" id="movies">
         <div className="section-heading">
-          <div><p className="eyebrow">ON THE BIG SCREEN</p><h2>正在上映</h2></div>
+          <div><p className="eyebrow">ON THE BIG SCREEN</p><h2>{movieCategories.find((category) => category.id === movieCategory)?.label}</h2></div>
           <p className="section-note">挑一部今晚想看的电影</p>
         </div>
+        <div className="movie-category-tabs" role="group" aria-label="影片分类">{movieCategories.map((category) => <button key={category.id} type="button" aria-pressed={movieCategory === category.id} className={movieCategory === category.id ? "active" : ""} onClick={() => setMovieCategory(category.id)}>{category.label}<span>{publicMovies.filter((movie) => movieGroup(movie) === category.id).length}</span></button>)}</div>
+        {movieCategory === "pending" && <p className="section-note">这些影片尚无可售场次，影院完成排期后会进入可订购片单。</p>}
         {isLoading && <div className="state-message">正在同步影院片单</div>}
         {errorMessage && <div className="state-message muted">{errorMessage}</div>}
-        {!isLoading && publicMovies.length === 0 && <div className="empty-state">暂时没有可展示的影片，请稍后刷新。</div>}
+        {!isLoading && displayedMovies.length === 0 && <div className="empty-state">当前分类暂无影片。</div>}
         <div className="movie-grid">
-          {publicMovies.map((movie) => (
+          {displayedMovies.map((movie) => (
             <article className="movie-card" key={movie.id}>
-              <div className="poster" style={{ backgroundImage: `url(${getMovieImage(movie.id)})` }}>
+              <div className="poster" style={{ backgroundImage: moviePosterBackground(movie.id, imageVersion) }}>
                 <span className="poster-index">{String(movie.id).padStart(2, "0")}</span>
                 <span className="poster-duration">{movie.duration ?? "--"} MIN</span>
+                <span className="poster-sales-status">{movieSalesLabel(movie)}</span>
               </div>
               <div className="movie-info">
-                <div><p className="movie-genre">{movie.genre ?? "FEATURE"}</p><h3>{movie.title}</h3></div>
+                <div><p className="movie-genre">{movie.genre ?? "FEATURE"}</p><h3>{movie.title}</h3><p className="movie-rating">{Number(movie.rating_count) > 0 ? "★ " + Number(movie.rating_average).toFixed(1) + " / 5 · " + movie.rating_count + " 条评价" : "暂无评分"}</p></div>
                 <button type="button" onClick={() => setSelectedMovie(movie)}>查看详情 <span aria-hidden="true">↗</span></button>
               </div>
             </article>
@@ -587,7 +692,29 @@ function App() {
         </div>
       </section>
 
-      <section className="service-strip content-width" id="cinemas">
+      <TwoWeekSchedule movies={movies} halls={halls} cinemas={cinemas} request={apiRequest} onSelect={(screening) => { const movie = movieById.get(screening.movie_id); if (movie) { openBooking(movie); void chooseScreening(screening); } }} />
+
+      <section className="cinema-section content-width" id="cinemas">
+        <div className="section-heading">
+          <div><p className="eyebrow">NEAR YOUR NEXT SCENE</p><h2>选择影院</h2></div>
+          <button className="text-button" type="button" disabled={isCinemaLoading} onClick={() => { void refreshCinemas().catch(() => {}); }}>刷新影院 ↻</button>
+        </div>
+        {isCinemaLoading && <div className="state-message">正在读取影院信息</div>}
+        {cinemaError && <div className="state-message muted">{cinemaError}</div>}
+        {!isCinemaLoading && !cinemaError && !cinemas.some((cinema) => cinema.status === "ACTIVE") && <div className="empty-state">暂时没有营业中的影院。</div>}
+        <div className="cinema-grid">
+          {cinemas.filter((cinema) => cinema.status === "ACTIVE").map((cinema) => (
+            <article className="cinema-card" key={cinema.id}>
+              <span className="cinema-open">正常营业 · {halls.filter((hall) => hall.cinema_id === cinema.id && hall.status === "ACTIVE").length} 个开放影厅</span>
+              <h3>{cinema.name}</h3>
+              <p>{cinema.address}</p>
+              {cinema.phone && <p>联系电话：{cinema.phone}</p>}
+            </article>
+          ))}
+        </div>
+      </section>
+
+      <section className="service-strip content-width">
         <div><span className="service-number">01</span><strong>先选电影</strong><span>按你的心情找到下一场放映</span></div>
         <div><span className="service-number">02</span><strong>再选座位</strong><span>实时查看每一个可用座位</span></div>
         <div><span className="service-number">03</span><strong>准时入场</strong><span>电子票随时在你的订单里</span></div>
@@ -615,12 +742,15 @@ function App() {
                     <div className="order-card-main">
                       <div className="order-card-title">
                         <span className={`order-status status-${order.status.toLowerCase()}`}>{orderStatusLabel(order.status)}</span>
-                        <h3>{movie?.title ?? `场次 ${order.screening_id}`}</h3>
-                        <p>{screening ? `${formatDateTime(screening.start_time)} · ${screeningVenue(screening)}` : "场次信息"}</p>
+                        <h3>{order.movie_title ?? movie?.title ?? `场次 ${order.screening_id}`}</h3>
+                        <p>{order.start_time
+                          ? `${formatDateTime(order.start_time)} · ${order.cinema_name ?? ""} · ${order.hall_name ?? ""}`
+                          : screening ? `${formatDateTime(screening.start_time)} · ${screeningVenue(screening)}` : "场次信息"}</p>
                       </div>
                       <div className="order-card-side">
                         <strong>¥{amount(order.total_amount)}</strong>
                         <span>订单号 {order.order_no}</span>
+                        <button className="order-ticket-button" type="button" onClick={() => setTicketOrderNo(order.order_no)}>{order.status === "ISSUED" ? "查看电影票" : "查看座位"}</button>
                       </div>
                     </div>
                     {expandedOrder === order.order_no && (
@@ -631,9 +761,9 @@ function App() {
                             : <span>{detail ? "暂无座位明细" : "正在读取座位明细…"}</span>}
                         </div>
                         <div className="order-card-actions">
+                          {order.status === "UNPAID" && <button type="button" disabled={activeOrderAction !== null} onClick={() => void runOrderAction(order.order_no, "pay")}>继续支付</button>}
                           {order.status === "UNPAID" && <button type="button" disabled={activeOrderAction === order.order_no} onClick={() => void runOrderAction(order.order_no, "cancel")}>取消订单</button>}
-                          {order.status === "ISSUED" && <button type="button" disabled={activeOrderAction === order.order_no} onClick={() => void runOrderAction(order.order_no, "refund")}>申请退票</button>}
-                          {order.status === "ISSUED" && <span className="refund-note">退票时间以当前影院规则校验为准</span>}
+                          {order.status === "ISSUED" && <RefundControl deadline={order.refund_deadline} canRefund={order.can_refund} reason={order.refund_reason} serverTime={order.server_time} receivedAt={order.received_at} busy={activeOrderAction !== null} onRefund={() => void runOrderAction(order.order_no, "refund")} />}
                           {activeOrderAction === order.order_no && <span>处理中…</span>}
                         </div>
                       </div>
@@ -656,20 +786,12 @@ function App() {
       )}
 
       {activeView === "catalog" && selectedMovie && (
-        <div className="modal-backdrop" role="presentation" onClick={() => setSelectedMovie(null)}>
-          <section className="movie-modal" role="dialog" aria-modal="true" aria-labelledby="movie-title" onClick={(event) => event.stopPropagation()}>
-            <button className="modal-close" type="button" aria-label="关闭详情" onClick={() => setSelectedMovie(null)}>×</button>
-            <p className="eyebrow">MOVIE DETAIL</p>
-            <h2 id="movie-title">{selectedMovie.title}</h2>
-            <p>{selectedMovie.description ?? "暂无简介"}</p>
-            <dl>
-              <div><dt>导演</dt><dd>{selectedMovie.director ?? "待公布"}</dd></div>
-              <div><dt>主演</dt><dd>{selectedMovie.actors ?? "待公布"}</dd></div>
-              <div><dt>类型</dt><dd>{selectedMovie.genre ?? "待公布"}</dd></div>
-            </dl>
-            <button className="primary-button" type="button" onClick={() => openBooking(selectedMovie)}>选择场次</button>
-          </section>
-        </div>
+        <MovieDetailDialog key={selectedMovie.id} movie={selectedMovie} poster={moviePosterUrl(selectedMovie.id, imageVersion)} fallback={getMovieImage(selectedMovie.id)}
+          saleWindow={selectedMovie.sale_start_time && selectedMovie.sale_end_time ? `${formatDateTime(selectedMovie.sale_start_time)} 至 ${formatDateTime(selectedMovie.sale_end_time)}` : "未设置时间限制"}
+          salesLabel={`${movieSalesLabel(selectedMovie)}${selectedMovie.sales_status === "NO_SCREENINGS" ? "，影院安排场次后可订购" : ""}`}
+          onClose={() => setSelectedMovie(null)} onBook={() => openBooking(selectedMovie)}>
+          <MovieReviews movieId={selectedMovie.id} token={session?.token} request={apiRequest} onLogin={() => openAuth("login")} onChanged={refreshMovies} />
+        </MovieDetailDialog>
       )}
 
       {isBookingOpen && bookingMovie && (
@@ -698,7 +820,11 @@ function App() {
             ) : bookingStep === "screenings" ? (
               <>
                 <p className="booking-intro">选择影院和开场时间</p>
-                {availableScreenings.length === 0 ? (
+                {isScreeningsLoading ? (
+                  <div className="state-message">正在读取最新场次…</div>
+                ) : screeningsError ? (
+                  <div className="empty-state">{screeningsError}</div>
+                ) : availableScreenings.length === 0 ? (
                   <div className="empty-state">当前没有可售场次，请稍后再来。</div>
                 ) : (
                   <div className="screening-list">
@@ -760,6 +886,8 @@ function App() {
           </section>
         </div>
       )}
+
+      {ticketOrderNo && session && <TicketDialog orderNo={ticketOrderNo} token={session.token} request={apiRequest} onClose={() => setTicketOrderNo(null)} />}
 
       {isAuthOpen && (
         <div className="modal-backdrop auth-backdrop" role="presentation" onClick={() => setIsAuthOpen(false)}>

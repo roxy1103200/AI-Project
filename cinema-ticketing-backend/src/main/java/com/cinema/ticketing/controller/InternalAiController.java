@@ -2,6 +2,7 @@ package com.cinema.ticketing.controller;
 
 import com.cinema.ticketing.common.BusinessException;
 import com.cinema.ticketing.common.JdbcTimes;
+import com.cinema.ticketing.common.SellableScreenings;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -14,6 +15,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.ArrayList;
+import java.time.LocalDateTime;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -53,8 +55,11 @@ public class InternalAiController {
         StringBuilder sql = new StringBuilder("SELECT s.id, s.movie_id, m.title, s.hall_id, h.name hall_name, "
                 + "c.id cinema_id, c.name cinema_name, s.start_time, s.end_time, s.price, s.status "
                 + "FROM screening s JOIN movie m ON m.id = s.movie_id JOIN hall h ON h.id = s.hall_id "
-                + "JOIN cinema c ON c.id = h.cinema_id WHERE s.status = 'SCHEDULED'");
+                + "JOIN cinema c ON c.id = h.cinema_id WHERE " + SellableScreenings.WHERE);
         List<Object> parameters = new ArrayList<>();
+        parameters.add(LocalDateTime.now());
+        parameters.add(parameters.get(0));
+        parameters.add(parameters.get(0));
         if (movieId != null) {
             sql.append(" AND s.movie_id = ?");
             parameters.add(movieId);

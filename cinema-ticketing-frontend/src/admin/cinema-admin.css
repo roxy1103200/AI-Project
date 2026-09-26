@@ -1,0 +1,9 @@
+.cinema-admin-table { min-width: 760px; }
+.cinema-admin-table .cinema-admin-address { max-width: 340px; line-height: 1.55; white-space: normal; }
+.cinema-admin-name { display: grid; gap: 6px; min-width: 150px; }
+.cinema-admin-name strong { color: #f5f3ef; font-size: 12px; font-weight: 600; }
+.cinema-admin-name small { color: #727981; font-size: 10px; }
+.cinema-admin-status { display: inline-flex; align-items: center; gap: 7px; border: 1px solid #4a4e55; border-radius: 999px; padding: 5px 9px; color: #bec2c6; font-size: 10px; }
+.cinema-admin-status i { width: 5px; height: 5px; border-radius: 50%; background: currentColor; }
+.cinema-admin-status.is-active { border-color: rgb(125 211 160 / .25); color: #7dd3a0; }
+.cinema-admin-status.is-inactive { color: #9298a0; }

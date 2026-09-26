@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS movie (
     description TEXT,
     duration INT NOT NULL,
     release_date DATE,
+    sale_start_time DATETIME,
+    sale_end_time DATETIME,
     director VARCHAR(128),
     actors VARCHAR(512),
     genre VARCHAR(128),
@@ -192,3 +194,18 @@ WHERE NOT EXISTS (SELECT 1 FROM knowledge_document WHERE title = '退票规则' 
 INSERT INTO knowledge_document (title, content, document_type, version, status)
 SELECT '影院 FAQ', '如遇支付成功但订单状态未更新，请保留支付流水号并联系影院客服，系统会按支付流水进行幂等核验。', 'FAQ', '2026.01', 'PUBLISHED'
 WHERE NOT EXISTS (SELECT 1 FROM knowledge_document WHERE title = '影院 FAQ' AND version = '2026.01');
+
+CREATE TABLE IF NOT EXISTS movie_review (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    movie_id BIGINT NOT NULL,
+    user_id BIGINT NOT NULL,
+    rating INT NOT NULL,
+    content VARCHAR(1000) NOT NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    UNIQUE KEY uk_movie_review_user (movie_id, user_id),
+    INDEX idx_movie_review_time (movie_id, updated_at),
+    CONSTRAINT fk_review_movie FOREIGN KEY (movie_id) REFERENCES movie(id) ON DELETE CASCADE,
+    CONSTRAINT fk_review_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT chk_review_rating CHECK (rating BETWEEN 1 AND 5)
+);

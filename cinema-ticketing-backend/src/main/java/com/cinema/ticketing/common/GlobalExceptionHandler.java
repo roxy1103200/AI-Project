@@ -9,7 +9,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.servlet.resource.NoResourceFoundException;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.MissingServletRequestParameterException;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
+import org.springframework.web.HttpRequestMethodNotSupportedException;
+import org.springframework.web.HttpMediaTypeNotSupportedException;
 
 @RestControllerAdvice
 public class GlobalExceptionHandler {
@@ -54,6 +62,41 @@ public class GlobalExceptionHandler {
         log.warn("请求体解析失败: {}", exception.getMessage());
         return ResponseEntity.badRequest()
                 .body(ApiResponse.failure(HttpStatus.BAD_REQUEST.value(), "请求体格式错误，请确认是合法 JSON 且为 UTF-8 编码"));
+    }
+
+    @ExceptionHandler(MaxUploadSizeExceededException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUploadTooLarge(MaxUploadSizeExceededException exception) {
+        return ResponseEntity.status(HttpStatus.PAYLOAD_TOO_LARGE)
+                .body(ApiResponse.failure(HttpStatus.PAYLOAD_TOO_LARGE.value(), "图片不能超过 5 MB"));
+    }
+
+    @ExceptionHandler({MethodArgumentTypeMismatchException.class,
+            MissingServletRequestParameterException.class, HandlerMethodValidationException.class})
+    public ResponseEntity<ApiResponse<Void>> handleInvalidRequest(Exception exception) {
+        return ResponseEntity.badRequest().body(ApiResponse.failure(400, "请求参数缺失或格式错误"));
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    public ResponseEntity<ApiResponse<Void>> handleMissingHeader(MissingRequestHeaderException exception) {
+        int status = "X-Auth-Token".equalsIgnoreCase(exception.getHeaderName()) ? 401 : 400;
+        String message = status == 401 ? "登录已失效，请重新登录" : "缺少必要的请求头";
+        return ResponseEntity.status(status).body(ApiResponse.failure(status, message));
+    }
+
+    @ExceptionHandler(HttpRequestMethodNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnsupportedMethod(HttpRequestMethodNotSupportedException exception) {
+        return ResponseEntity.status(405).body(ApiResponse.failure(405, "该接口不支持此请求方式"));
+    }
+
+    @ExceptionHandler(HttpMediaTypeNotSupportedException.class)
+    public ResponseEntity<ApiResponse<Void>> handleUnsupportedContentType(HttpMediaTypeNotSupportedException exception) {
+        return ResponseEntity.status(415).body(ApiResponse.failure(415, "请求内容类型不受支持"));
+    }
+
+    @ExceptionHandler(DataIntegrityViolationException.class)
+    public ResponseEntity<ApiResponse<Void>> handleDataConflict(DataIntegrityViolationException exception) {
+        return ResponseEntity.status(409)
+                .body(ApiResponse.failure(409, "数据与已有记录冲突，请检查关联数据或重复字段"));
     }
 
     @ExceptionHandler(Exception.class)

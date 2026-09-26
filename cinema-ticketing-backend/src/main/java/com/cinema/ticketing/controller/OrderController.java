@@ -83,4 +83,10 @@ public class OrderController {
             @PathVariable String orderNo) {
         return ApiResponse.success(orderService.findOrder(authService.requireUserId(token), orderNo));
     }
+
+    @GetMapping("/orders/{orderNo}/seat-map")
+    public ApiResponse<?> seatMap(@RequestHeader("X-Auth-Token") String token,
+                                  @PathVariable String orderNo) {
+        return ApiResponse.success(orderService.orderSeatMap(authService.requireUserId(token), orderNo));
+    }
 }

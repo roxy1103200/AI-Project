@@ -1,0 +1,46 @@
+<?xml version="1.0" encoding="UTF-8" ?>
+<!DOCTYPE mapper
+        PUBLIC "-//mybatis.org//DTD Mapper 3.0//EN"
+        "https://mybatis.org/dtd/mybatis-3-mapper.dtd">
+<mapper namespace="com.cinema.ticketing.mapper.CinemaMapper">
+    <resultMap id="cinemaMap" type="com.cinema.ticketing.entity.Cinema">
+        <id property="id" column="id"/>
+        <result property="name" column="name"/>
+        <result property="address" column="address"/>
+        <result property="phone" column="phone"/>
+        <result property="status" column="status"/>
+        <result property="createdAt" column="created_at"/>
+        <result property="updatedAt" column="updated_at"/>
+    </resultMap>
+
+    <select id="findAll" resultMap="cinemaMap">
+        SELECT id, name, address, phone, status, created_at, updated_at
+        FROM cinema
+        ORDER BY id DESC
+    </select>
+
+    <select id="findById" resultMap="cinemaMap">
+        SELECT id, name, address, phone, status, created_at, updated_at
+        FROM cinema
+        WHERE id = #{id}
+    </select>
+
+    <insert id="insert" useGeneratedKeys="true" keyProperty="id">
+        INSERT INTO cinema (name, address, phone, status)
+        VALUES (#{name}, #{address}, #{phone}, #{status})
+    </insert>
+
+    <update id="update">
+        UPDATE cinema
+        SET name = #{name}, address = #{address}, phone = #{phone}, status = #{status}
+        WHERE id = #{id}
+    </update>
+
+    <select id="countHalls" resultType="int">
+        SELECT COUNT(*) FROM hall WHERE cinema_id = #{cinemaId}
+    </select>
+
+    <delete id="delete">
+        DELETE FROM cinema WHERE id = #{id}
+    </delete>
+</mapper>

@@ -65,6 +65,9 @@ services:
       SPRING_RABBITMQ_PASSWORD: cinema
       AI_SERVICE_URL: http://cinema-ai:8000
       AI_INTERNAL_TOKEN: cinema-internal-token
+      MOVIE_IMAGE_DIRECTORY: /app/图片
+    volumes:
+      - ../图片:/app/图片
     depends_on:
       mysql:
         condition: service_healthy

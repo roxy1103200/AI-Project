@@ -10,6 +10,7 @@ import org.springframework.data.redis.core.StringRedisTemplate;
 import org.springframework.data.redis.core.script.DefaultRedisScript;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.dao.DuplicateKeyException;
+import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.support.GeneratedKeyHolder;
 import org.springframework.jdbc.support.KeyHolder;
 import org.springframework.stereotype.Service;
@@ -207,6 +208,25 @@ public class OrderService {
                 order.expireAt(), order.paidAt(), order.startTime(), items);
     }
 
+    public Map<String, Object> orderSeatMap(long userId, String orderNo) {
+        OrderSnapshot order = findOrderSnapshot(userId, orderNo);
+        Map<String, Object> result = jdbcTemplate.queryForMap(
+                "SELECT m.title movieTitle,c.name cinemaName,h.name hallName,h.row_count rowCount, "
+                        + "h.column_count columnCount,s.start_time startTime,h.id hallId "
+                        + "FROM screening s JOIN movie m ON m.id=s.movie_id JOIN hall h ON h.id=s.hall_id "
+                        + "JOIN cinema c ON c.id=h.cinema_id WHERE s.id=?", order.screeningId());
+        result.put("orderNo", order.orderNo());
+        result.put("status", order.status());
+        result.put("totalAmount", order.totalAmount());
+        // Historical tickets remain readable after the screening has started or stopped selling.
+        result.put("seats", jdbcTemplate.queryForList(
+                "SELECT s.id,s.row_no,s.column_no,s.seat_code,s.status, "
+                        + "CASE WHEN oi.id IS NOT NULL THEN TRUE ELSE FALSE END is_order_seat,oi.ticket_status "
+                        + "FROM seat s LEFT JOIN order_item oi ON oi.seat_id=s.id AND oi.order_id=? "
+                        + "WHERE s.hall_id=? ORDER BY s.row_no,s.column_no", order.id(), result.get("hallId")));
+        return result;
+    }
+
     /**
      * MQ 消费入口：先落幂等记录，再走 {@link #cancelOverdueOrder}。
      *
@@ -285,16 +305,20 @@ public class OrderService {
     private Screening screening(long screeningId) {
         try {
             Screening screening = jdbcTemplate.queryForObject(
-                    "SELECT hall_id, price, start_time FROM screening WHERE id = ? AND status = 'SCHEDULED'",
+                    "SELECT hall_id, price, start_time FROM screening WHERE id = ? AND status = 'SCHEDULED' "
+                            + "AND movie_id IN (SELECT id FROM movie WHERE status IN ('UPCOMING', 'ON_SHELF', 'ON_SHOW') "
+                            + "AND (sale_start_time IS NULL OR sale_start_time<=?) AND (sale_end_time IS NULL OR sale_end_time>?) "
+                            + "AND (sale_start_time IS NULL OR screening.start_time>=sale_start_time) "
+                            + "AND (sale_end_time IS NULL OR screening.end_time<=sale_end_time)) "
+                            + "AND hall_id IN (SELECT h.id FROM hall h JOIN cinema c ON c.id = h.cinema_id "
+                            + "WHERE h.status = 'ACTIVE' AND c.status = 'ACTIVE') FOR SHARE",
                     (rs, rowNum) -> new Screening(rs.getLong("hall_id"), rs.getBigDecimal("price"),
-                            rs.getObject("start_time", LocalDateTime.class)), screeningId);
+                            rs.getObject("start_time", LocalDateTime.class)), screeningId, LocalDateTime.now(), LocalDateTime.now());
             if (screening.startTime() == null || !screening.startTime().isAfter(LocalDateTime.now())) {
                 throw new BusinessException(409, "场次已停止售票");
             }
             return screening;
-        } catch (BusinessException exception) {
-            throw exception;
-        } catch (Exception exception) {
+        } catch (EmptyResultDataAccessException exception) {
             throw new BusinessException(404, "场次不存在或不可售");
         }
     }
@@ -415,7 +439,7 @@ public class OrderService {
                             rs.getObject("paid_at", LocalDateTime.class),
                             rs.getObject("start_time", LocalDateTime.class), orderSeatIds(rs.getLong("id"))),
                     orderNo, userId);
-        } catch (Exception exception) {
+        } catch (EmptyResultDataAccessException exception) {
             throw new BusinessException(404, "订单不存在");
         }
     }

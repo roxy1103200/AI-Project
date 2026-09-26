@@ -9,7 +9,11 @@
 1. 启动基础设施：`docker compose up -d mysql redis rabbitmq`（首次启动会自动执行 `schema.sql`）
 2. 构建并启动服务：`mvn spring-boot:run`
 3. 健康检查：`GET http://localhost:8080/api/health`
-4. Swagger UI：`http://localhost:8080/swagger-ui.html`
+4. Knife4j 中文接口文档：`http://localhost:8080/doc.html`
+
+Windows 本地开发可在停止旧服务后运行 `powershell -File .\start-local.ps1`。脚本每次先重新打包，再以 `local` 配置启动，确保新增控制器已加载；图片目录固定为项目根目录的 `图片`。端口可用 `-Port 8081` 覆盖。
+
+如果上传图片出现“接口不存在: /api/movies/{id}/poster”，请检查运行中的后端是否为最新构建。仅编译或刷新前端不会让已经运行的 Java 进程加载新控制器。最新的 `/api/health` 返回 `features.moviePosters: true`，影片编辑页会在保存图片前检查该能力，旧后端将被拦截，避免先保存影片信息再报图片错误。
 
 ## Docker 启动
 
@@ -17,7 +21,21 @@
 2. 启动完整应用：`docker compose --profile app up -d --build`
 3. 前端入口为 `http://localhost/`，健康检查为 `http://localhost/api/health`
 
-首次创建 MySQL 数据卷时，Compose 会依次执行 `schema.sql` 和演示数据脚本 `seed-local-data.sql`。已有数据卷不会重放初始化脚本；需要演示数据时可手动执行该 SQL 文件。
+首次创建 MySQL 数据卷时，Compose 会依次执行 `schema.sql` 和演示数据脚本 `seed-local-data.sql`。已有数据卷不会重放初始化脚本；需要演示数据时可手动执行该 SQL 文件。场次会按北京时间当天补充 2～3 天后的演示排期，同一天重复执行不重复插入，已有重叠排期则跳过；旧场次及历史订单保持原样。
+
+`GET /api/screenings` 和 AI 场次查询仅返回尚未开场、影片可售且影院/影厅启用的场次，场次列表不缓存。历史订单由订单接口直接返回影片、影院、影厅和开场时间，不依赖可售场次列表。
+
+影片管理支持上架开始/截止时间（北京时间）和多个放映场次；各场次可选影院/影厅、开场/结束时间、票价及状态。周期与场次随影片资料在同一事务中保存，失败时整体回滚。完整放映时间须在周期内，影厅排期不能重叠；已有订单的场次只能保留。旧影片两项周期均为空时保持不限时行为。影片列表的 `sales_status` 区分可订购、待排期、未上架和已截止。
+
+已有数据库升级前先执行 `migrations/20260926-movie-sale-window.sql`（可重复执行，只添加缺失列）；新数据库已在 `schema.sql` 中包含对应字段。上架周期开始时可售，截止时停止售票；无需定时任务修改影片状态。
+
+新建或调整排期时，场次占用结束时间固定为开场时间 + 影片片长 + 20 分钟周转时间，后端按包含周转时间的区间检查影厅冲突。已有订单场次保留原值；周期表计算旧场次的周转占用时也预留至少 20 分钟。影片编辑窗口提供 7/14/28 天的影厅排期周期表，按时间排序并叠加未保存场次，可点击空档添加场次。
+
+订单列表返回当前退票政策对应的 `refund_deadline`、`can_refund`、`refund_reason` 和服务器时间。前端按服务器时间校正倒计时，到截止时刻禁用并灰显退票按钮；后端退票校验仍为最终依据。观众片单及管理统计区分正在上映和待排期影片。
+
+`GET /api/orders/{orderNo}/seat-map` 校验订单归属后返回真实影厅座位布局和本订单座位标记，不受场次停售影响，也不暴露其他订单。订单列表的“查看电影票 / 查看座位”入口展示银幕方向、排号、座位号和订单状态；失效订单明确标注仅供查看记录。影片编辑分为资料、上架、排期三个页签，排期列表按需展开，周期表独立切换，切换时保留未保存内容。
+
+首页轮播当前可售的上映影片，支持切换、暂停及减少动态效果；两周日程通过 `GET /api/screenings/schedule?from=YYYY-MM-DD&to=YYYY-MM-DD` 展示今天起 14 个自然日的已排场次（截止日期不包含），包含未到上架时间的影片；返回同一场次关联的影片/影厅/影院资料及 `can_book`，未开放购票的场次显示开放时间并禁用选座。日程按北京时间的开场日期归类，管理端周期表另外标明跨日占用；影片的 `future_screening_count` 用于区分已排期待上架与待排期，支持日期/影院筛选与选座入口，定期刷新真实排期。影片详情提供评论和 1～5 星评分，登录用户每部影片一条评价，可修改或删除本人评价，分页读取；片单展示真实平均分与评价数量，无评价时显示“暂无评分”。已有数据库升级先执行 `migrations/20260926-movie-reviews.sql` 创建评价表，新库 `schema.sql` 已包含该表。
 
 基础设施账号仅用于本地开发，生产环境必须通过环境变量替换。
 
@@ -34,6 +52,12 @@
 - `GET /api/orders/{orderNo}`：订单详情
 
 写接口已要求 `X-Auth-Token`，只有登录后的 `ADMIN` 用户可以操作；注册接口为 `POST /api/auth/register`，登录接口为 `POST /api/auth/login`，退出接口为 `POST /api/auth/logout`。
+
+用户列表和用户详情同样要求管理员权限。影片名称、片长、上映状态和日期会在服务端校验；不存在的资源返回 404，关联数据阻止删除时返回 409，不会误报保存成功或服务器故障。
+
+影院管理现由独立的 `CinemaController`、`CinemaService` 和 MyBatis `CinemaMapper` 负责，沿用 `GET/POST /api/cinemas`、`GET/PUT/DELETE /api/cinemas/{id}`。新增和修改校验名称、地址及 `ACTIVE`/`INACTIVE` 状态；查询不存在的影院返回 404，已有影厅的影院不能直接删除（返回 409）。管理员登录后可在前端“影院管理”页面操作。
+
+影片图片保存在项目根目录的 `图片` 文件夹，文件名按影片 ID 生成，不需要修改已有数据库表。管理员在影片管理页新增或编辑影片时可以上传、替换和移除图片；观众片单优先显示已上传的图片。接口为 `GET /api/movies/{id}/poster`、`POST /api/movies/{id}/poster`（`multipart/form-data`，字段名 `file`）和 `DELETE /api/movies/{id}/poster`。写操作需要管理员 `X-Auth-Token`，支持 JPG、PNG、WebP，单张最大 5 MB。删除影片后会清理对应图片。应用在 `cinema-ticketing-backend` 目录启动时默认写入 `../图片`；也可用 `MOVIE_IMAGE_DIRECTORY` 指定绝对目录。Docker Compose 已将项目根目录的 `图片` 挂载进后端容器，重建容器不会丢失上传的图片。
 
 用户列表和详情只返回脱敏字段，绝不返回 `password_hash`。密码使用 BCrypt 哈希保存。登录 token 使用 Redis TTL（2 小时）保存，支持多实例共享；单元测试未启用 Redis 时才使用进程内存回退。
 
