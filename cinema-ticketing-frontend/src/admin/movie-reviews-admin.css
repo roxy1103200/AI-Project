@@ -1,0 +1,31 @@
+.movie-review-admin { padding-top: 44px; padding-bottom: 80px; }
+.moderation-tabs { display: flex; gap: 24px; border-bottom: 1px solid #343b43; margin-top: 24px; }
+.moderation-tabs button { padding: 14px 0; background: transparent; border: 0; border-bottom: 2px solid transparent; color: #9faec1; font: inherit; font-size: 14px; }
+.moderation-tabs button.active { color: #fff; border-bottom-color: #ef7067; }
+.moderation-filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; margin: 24px 0; }
+.moderation-filters label, .moderation-card > label { display: grid; gap: 8px; font-size: 13px; color: #aebaca; }
+.moderation-filters input, .moderation-filters select, .moderation-card textarea { background: #171c23; border: 1px solid #3b424b; color: #e8eff8; padding: 11px; font: inherit; min-width: 130px; }
+.moderation-search { flex: 1; min-width: 180px; }
+.moderation-summary { display: flex; gap: 24px; flex-wrap: wrap; padding: 16px 0; border-block: 1px solid #343b43; margin-bottom: 24px; color: #aebaca; font-size: 13px; }
+.moderation-card { border: 1px solid #343b43; padding: 22px; background: #191e25; margin-block: 14px; }
+.moderation-card header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; }
+.moderation-card time, .moderation-meta { color: #99a9bc; font-size: 12px; }
+.moderation-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.moderation-tags span { border: 1px solid #3b424b; padding: 4px 8px; color: #acbacc; font-size: 11px; }
+.moderation-tags .warning { color: #ffaaa1; border-color: #8b4e46; }
+.moderation-card h3 { margin: 18px 0 8px; font-size: 18px; }
+.moderation-card p, .moderation-card blockquote { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; }
+.moderation-card blockquote { margin: 18px 0; border-left: 2px solid #6a7586; padding: 8px 16px; color: #c8d2e0; background: #15191e; }
+.moderation-card .moderation-body { margin-block: 20px; }
+.moderation-card textarea { box-sizing: border-box; width: 100%; resize: vertical; }
+.moderation-actions { display: flex; justify-content: end; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; font-size: 13px; }
+.moderation-card summary { cursor: pointer; color: #e7b6ad; padding-block: 10px; font-size: 13px; }
+.moderation-history { margin-top: 20px; padding-top: 12px; border-top: 1px solid #343b43; }
+.moderation-empty { padding: 48px 20px; border: 1px dashed #343b43; text-align: center; color: #9aa9bc; }
+.movie-review-admin button:disabled { opacity: .45; cursor: not-allowed; }
+.check-in-tickets { display: grid; grid-template-columns: repeat(auto-fit,minmax(200px,1fr)); gap: 12px; margin-top: 24px; }
+.check-in-tickets label { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; padding: 16px; border: 1px solid #3b424b; background: #15191e; }
+.check-in-tickets input { accent-color: #ef7067; }
+.check-in-tickets span { width: 100%; font-size: 12px; color: #99a9bc; padding-left: 24px; }
+.check-in-tickets .checked { border-color: #587461; }
+@media (max-width: 640px) { .moderation-card { padding: 16px; } .moderation-filters label { flex: 1; } .moderation-tabs { gap: 16px; } .check-in-tickets { grid-template-columns: 1fr; } }

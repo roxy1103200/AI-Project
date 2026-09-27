@@ -11,6 +11,7 @@ a { color: inherit; text-decoration: none; }
 .brand { display: flex; align-items: center; gap: 10px; letter-spacing: .18em; font-size: 13px; font-weight: 700; }
 .brand-mark { display: grid; place-items: center; width: 28px; height: 28px; border-radius: 50%; background: #ec5c52; color: #12151a; font-family: "Avenir Next", "Segoe UI", sans-serif; font-size: 15px; letter-spacing: 0; }
 .main-nav { display: flex; gap: 32px; color: #9298a0; font-size: 13px; }
+.main-nav.admin-nav { gap: clamp(12px, 1.5vw, 24px); }
 .main-nav a { padding-block: 30px; border-bottom: 2px solid transparent; transition: color .2s ease, border-color .2s ease; }
 .main-nav a:hover, .main-nav .active { color: #f5f3ef; border-color: #ec5c52; }
 .main-nav-control { border: 0; border-bottom: 2px solid transparent; padding: 30px 0; color: #9298a0; background: transparent; font-size: 13px; transition: color .2s ease, border-color .2s ease; }
@@ -374,3 +375,9 @@ h2 { margin-bottom: 0; font-size: clamp(30px, 4vw, 48px); letter-spacing: -.06em
 .schedule-date-explanation { margin: 12px 0 0; color: #7e8b99; font-size: 12px; line-height: 1.7; }
 .schedule-session-list button:disabled { cursor: default; border-style: dashed; color: #a4aeb9; background: #171b21; }
 .schedule-session-list button:disabled small { color: #d3a77b; }
+.refund-policy-admin { padding-block: 40px 80px; }
+.refund-policy-form { display: grid; gap: 18px; max-width: 620px; margin-top: 30px; }
+.refund-policy-form label { display: grid; gap: 10px; color: #aab5c2; font-size: 13px; }
+.refund-policy-form input, .refund-policy-form textarea { padding: 12px; border: 1px solid #3a4048; color: #f5f3ef; background: #1a1e24; font: inherit; }
+.refund-policy-form small { color: #82909e; font-size: 12px; }
+.refund-policy-form .primary-button { justify-self: start; }

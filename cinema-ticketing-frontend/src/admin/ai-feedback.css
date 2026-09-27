@@ -1,0 +1,27 @@
+.ai-feedback-admin { padding-top: 44px; padding-bottom: 80px; }
+.ai-feedback-filters { display: flex; flex-wrap: wrap; gap: 14px; align-items: end; margin: 28px 0 20px; }
+.ai-feedback-filters label, .ai-feedback-card label { display: grid; gap: 8px; font-size: 13px; color: #acbacc; }
+.ai-feedback-filters input, .ai-feedback-filters select, .ai-feedback-card textarea { background: #171c23; border: 1px solid #3b424b; color: #e8eff8; padding: 11px; font: inherit; min-width: 130px; }
+.ai-feedback-search { flex: 1; min-width: 180px; }
+.ai-feedback-summary { display: flex; flex-wrap: wrap; gap: 16px 28px; border-block: 1px solid #343b43; padding: 16px 0; margin-bottom: 24px; color: #9aa9bc; font-size: 13px; }
+.ai-feedback-summary strong { color: #fff; margin-left: 8px; font-size: 18px; }
+.ai-feedback-list { display: grid; gap: 14px; }
+.ai-feedback-card { border: 1px solid #343b43; padding: 22px; background: #191e25; }
+.ai-feedback-card header { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; align-items: center; }
+.ai-feedback-card header small { color: #99a9bc; }
+.ai-feedback-tags { display: flex; flex-wrap: wrap; gap: 8px; }
+.ai-feedback-tags span { border: 1px solid #3b424b; color: #acbacc; padding: 4px 8px; font-size: 11px; }
+.ai-feedback-tags .negative { border-color: #ac514b; color: #ff8178; }
+.ai-feedback-card h3 { margin: 18px 0 8px; font-size: 18px; overflow-wrap: anywhere; }
+.ai-feedback-card p { color: #acbacc; overflow-wrap: anywhere; white-space: pre-wrap; }
+.ai-feedback-card summary { color: #f5c3bc; cursor: pointer; padding-top: 10px; font-size: 13px; }
+.ai-feedback-card dl { margin: 22px 0; }
+.ai-feedback-card dl > div { display: grid; grid-template-columns: 110px minmax(0, 1fr); border-top: 1px solid #343b43; padding: 12px 0; font-size: 13px; gap: 12px; }
+.ai-feedback-card dt { color: #899aad; }
+.ai-feedback-card dd { margin: 0; line-height: 1.7; overflow-wrap: anywhere; }
+.ai-feedback-answer, .ai-feedback-card pre { white-space: pre-wrap; margin: 0; }
+.ai-feedback-card textarea { width: 100%; box-sizing: border-box; resize: vertical; }
+.ai-feedback-review, .ai-feedback-pagination { display: flex; justify-content: end; align-items: center; flex-wrap: wrap; gap: 12px; margin-top: 16px; }
+.ai-feedback-pagination { margin-top: 28px; font-size: 13px; color: #acbacc; }
+.ai-feedback-empty { padding: 52px 20px; border: 1px dashed #343b43; text-align: center; color: #9aa9bc; }
+@media (max-width: 640px) { .ai-feedback-card { padding: 16px; } .ai-feedback-card dl > div { grid-template-columns: 1fr; gap: 5px; } .ai-feedback-filters label { flex: 1; } }

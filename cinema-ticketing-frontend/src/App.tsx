@@ -1,12 +1,20 @@
 import { useEffect, useState, type FormEvent } from "react";
 import MovieAdmin from "./admin/MovieAdmin";
 import CinemaAdmin from "./admin/CinemaAdmin";
+import RefundPolicyAdmin from "./admin/RefundPolicyAdmin";
+import AiFeedbackAdmin from "./admin/AiFeedbackAdmin";
+import HallSeatAdmin from "./admin/HallSeatAdmin";
+import MovieReviewAdmin from "./admin/MovieReviewAdmin";
+import TicketCheckInAdmin from "./admin/TicketCheckInAdmin";
 import RefundControl from "./orders/RefundControl";
 import TicketDialog from "./orders/TicketDialog";
 import MovieCarousel from "./home/MovieCarousel";
 import TwoWeekSchedule from "./home/TwoWeekSchedule";
 import MovieReviews from "./home/MovieReviews";
 import MovieDetailDialog from "./home/MovieDetailDialog";
+import CinemaAssistant from "./chat/CinemaAssistant";
+import { useScopedRequest } from "./auth/client";
+import { useTabSession, type StoredSession } from "./auth/useTabSession";
 
 type Movie = {
   id: number;
@@ -86,22 +94,9 @@ type OrderView = {
   items: OrderItem[];
 };
 
-type ApiResponse<T> = { code: number; message?: string; data: T };
 type AuthMode = "login" | "register";
 type BookingStep = "screenings" | "seats";
 
-type LoginPayload = {
-  token: string;
-  userId: number;
-  username: string;
-  role: string;
-  expiresInSeconds: number;
-};
-
-type StoredSession = LoginPayload & { expiresAt: number };
-
-const AUTH_STORAGE_KEY = "cinema-auth";
-const LEGACY_TOKEN_KEY = "cinema-auth-token";
 const MAX_SEATS_PER_ORDER = 6;
 
 function movieSalesLabel(movie: Movie): string {
@@ -112,49 +107,6 @@ function movieSalesLabel(movie: Movie): string {
   if (movie.sales_status === "AVAILABLE") return "可订购";
   if (movie.sales_status === "NO_SCREENINGS") return "待排期";
   return movie.status === "UPCOMING" ? "即将上映" : "正在上映";
-}
-
-async function apiRequest<T>(path: string, init: RequestInit = {}, token?: string): Promise<T> {
-  const headers = new Headers(init.headers);
-  if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
-    headers.set("Content-Type", "application/json");
-  }
-  if (token) {
-    headers.set("X-Auth-Token", token);
-  }
-
-  const response = await fetch(path, { ...init, headers });
-  const payload = await response.json().catch(() => null) as ApiResponse<T> | null;
-  if (!payload) {
-    throw new Error("服务暂时无法响应，请稍后重试");
-  }
-  if (!response.ok || payload.code !== 0) {
-    throw new Error(payload.message ?? `请求失败（${response.status}）`);
-  }
-  return payload.data;
-}
-
-function readSession(): StoredSession | null {
-  localStorage.removeItem(LEGACY_TOKEN_KEY);
-  try {
-    const raw = localStorage.getItem(AUTH_STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as StoredSession;
-    if (!parsed.token || !parsed.expiresAt || parsed.expiresAt <= Date.now()) {
-      localStorage.removeItem(AUTH_STORAGE_KEY);
-      return null;
-    }
-    return parsed;
-  } catch {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    return null;
-  }
-}
-
-function saveSession(payload: LoginPayload): StoredSession {
-  const stored: StoredSession = { ...payload, expiresAt: Date.now() + payload.expiresInSeconds * 1000 };
-  localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(stored));
-  return stored;
 }
 
 function formatDateTime(value?: string): string {
@@ -195,6 +147,18 @@ function moviePosterUrl(movieId: number, version: number): string {
 }
 
 function App() {
+  const auth = useTabSession();
+  if (auth.checking || auth.error) return <main className="page-shell"><h1>影院</h1>
+    <p role={auth.error ? "alert" : "status"}>{auth.error || "正在核验当前标签页的登录身份…"}</p>
+    {auth.error && <button type="button" onClick={auth.retry}>重新核验</button>}
+  </main>;
+  return <CinemaWorkspace key={auth.session?.token ?? "guest"} session={auth.session} signIn={auth.signIn} signOut={auth.signOut} />;
+}
+
+type WorkspaceProps = { session: StoredSession | null; signIn: (username: string, password: string) => Promise<void>; signOut: () => void };
+
+function CinemaWorkspace({ session, signIn, signOut }: WorkspaceProps) {
+  const apiRequest = useScopedRequest();
   const [movies, setMovies] = useState<Movie[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
   const [isScreeningsLoading, setIsScreeningsLoading] = useState(false);
@@ -207,8 +171,7 @@ function App() {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [session, setSession] = useState<StoredSession | null>(() => readSession());
-  const [activeView, setActiveView] = useState<"catalog" | "movies" | "cinemas">("catalog");
+  const [activeView, setActiveView] = useState<"catalog" | "movies" | "cinemas" | "refund-policy" | "ai-feedback" | "halls" | "seats" | "movie-reviews" | "ticket-check-in">("catalog");
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [loginName, setLoginName] = useState("");
@@ -275,14 +238,7 @@ function App() {
     setIsSubmitting(true);
     setAuthMessage("");
     try {
-      const payload = await apiRequest<LoginPayload>("/api/auth/login", {
-        method: "POST",
-        body: JSON.stringify({ username: loginName, password: loginPassword }),
-      });
-      setSession(saveSession(payload));
-      setAuthFailed(false);
-      setAuthMessage(`欢迎回来，${payload.username}`);
-      window.setTimeout(() => setIsAuthOpen(false), 500);
+      await signIn(loginName, loginPassword);
     } catch (error) {
       setAuthFailed(true);
       setAuthMessage(error instanceof Error ? error.message : "登录失败，请稍后再试");
@@ -319,18 +275,7 @@ function App() {
   }
 
   async function handleLogout() {
-    const token = session?.token;
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    setSession(null);
-    setActiveView("catalog");
-    setOrders([]);
-    setOrderDetails({});
-    if (!token) return;
-    try {
-      await apiRequest<void>("/api/auth/logout", { method: "POST" }, token);
-    } catch {
-      // 本地已退出；即使服务端请求未送达，会话也会在两小时后过期。
-    }
+    signOut();
   }
 
   async function refreshOrders(token = session?.token) {
@@ -353,6 +298,7 @@ function App() {
   async function refreshMovies(refreshPoster = true) {
     const [result, slots] = await Promise.all([apiRequest<Movie[]>("/api/movies"), apiRequest<Screening[]>("/api/screenings")]);
     setMovies(result ?? []);
+    setSelectedMovie((current) => current ? (result ?? []).find((movie) => movie.id === current.id) ?? null : null);
     setScreenings(slots ?? []);
     setErrorMessage("");
     if (refreshPoster) setImageVersion((current) => current + 1);
@@ -637,16 +583,15 @@ function App() {
         <a className="brand" href="#top" aria-label="Cinema 首页" onClick={() => setActiveView("catalog")}>
           <span className="brand-mark">C</span><span>CINEMA</span>
         </a>
-        <nav className="main-nav" aria-label="主导航">
+        <nav className={`main-nav ${session?.role === "ADMIN" ? "admin-nav" : ""}`} aria-label="主导航">
           <a className={activeView === "catalog" ? "active" : ""} href="#movies" onClick={() => { setMovieCategory("showing"); setActiveView("catalog"); }}>正在上映</a>
           <a href="#cinemas" onClick={() => setActiveView("catalog")}>影院</a>
           <a href="#orders" onClick={() => setActiveView("catalog")}>我的订单</a>
-          {session?.role === "ADMIN" && <button className={`main-nav-control ${activeView === "movies" ? "active" : ""}`} type="button" onClick={() => { setSelectedMovie(null); setActiveView("movies"); }}>影片管理</button>}
-          {session?.role === "ADMIN" && <button className={`main-nav-control ${activeView === "cinemas" ? "active" : ""}`} type="button" onClick={() => { setSelectedMovie(null); setActiveView("cinemas"); }}>影院管理</button>}
+          {session?.role === "ADMIN" && <select className="admin-desktop-shortcut" aria-label="后台管理页面" value={activeView} onChange={(event) => { setSelectedMovie(null); setActiveView(event.target.value as typeof activeView); }}><option value="catalog">后台管理</option><option value="movies">影片管理</option><option value="cinemas">影院管理</option><option value="halls">影厅管理</option><option value="seats">座位管理</option><option value="refund-policy">退票规则</option><option value="movie-reviews">影评管理</option><option value="ticket-check-in">验票入场</option><option value="ai-feedback">AI 反馈</option></select>}
         </nav>
         {session ? (
           <div className={`account-area ${session.role === "ADMIN" ? "admin-account" : ""}`}>
-            {session.role === "ADMIN" && <><button className="admin-mobile-shortcut" type="button" onClick={() => { setSelectedMovie(null); setActiveView("movies"); }}>影片</button><button className="admin-mobile-shortcut" type="button" onClick={() => { setSelectedMovie(null); setActiveView("cinemas"); }}>影院</button></>}
+            {session.role === "ADMIN" && <select className="admin-mobile-shortcut" aria-label="管理页面" value={activeView} onChange={(event) => { setSelectedMovie(null); setActiveView(event.target.value as typeof activeView); }}><option value="catalog">首页</option><option value="movies">影片</option><option value="cinemas">影院</option><option value="halls">影厅</option><option value="seats">座位</option><option value="refund-policy">退票规则</option><option value="movie-reviews">影评管理</option><option value="ticket-check-in">验票入场</option><option value="ai-feedback">AI 反馈</option></select>}
             <span className="account-name" title={`已登录：${session.username}（${session.role}）`}>
               <span className="account-dot" aria-hidden="true" />{session.username}
             </span>
@@ -659,6 +604,16 @@ function App() {
 
       {session?.role === "ADMIN" && activeView === "movies" ? (
         <MovieAdmin movies={movies} isLoading={isLoading} errorMessage={errorMessage} imageVersion={imageVersion} token={session.token} request={apiRequest} onRefresh={refreshMovies} />
+      ) : session?.role === "ADMIN" && (activeView === "halls" || activeView === "seats") ? (
+        <HallSeatAdmin view={activeView} cinemas={cinemas} request={apiRequest} token={session.token} onRefresh={async () => { const values = await apiRequest<Hall[]>("/api/halls"); setHalls(values); await refreshMovies(false); }} onSeats={() => setActiveView("seats")} />
+      ) : session?.role === "ADMIN" && activeView === "movie-reviews" ? (
+        <MovieReviewAdmin key={session.token} request={apiRequest} token={session.token} onChanged={() => refreshMovies(false)} />
+      ) : session?.role === "ADMIN" && activeView === "ticket-check-in" ? (
+        <TicketCheckInAdmin request={apiRequest} token={session.token} />
+      ) : session?.role === "ADMIN" && activeView === "ai-feedback" ? (
+        <AiFeedbackAdmin request={apiRequest} token={session.token} />
+      ) : session?.role === "ADMIN" && activeView === "refund-policy" ? (
+        <RefundPolicyAdmin request={apiRequest} token={session.token} />
       ) : session?.role === "ADMIN" && activeView === "cinemas" ? (
         <CinemaAdmin cinemas={cinemas} halls={halls} isLoading={isCinemaLoading} errorMessage={cinemaError} token={session.token} request={apiRequest} onRefresh={refreshCinemas} />
       ) : (
@@ -790,7 +745,7 @@ function App() {
           saleWindow={selectedMovie.sale_start_time && selectedMovie.sale_end_time ? `${formatDateTime(selectedMovie.sale_start_time)} 至 ${formatDateTime(selectedMovie.sale_end_time)}` : "未设置时间限制"}
           salesLabel={`${movieSalesLabel(selectedMovie)}${selectedMovie.sales_status === "NO_SCREENINGS" ? "，影院安排场次后可订购" : ""}`}
           onClose={() => setSelectedMovie(null)} onBook={() => openBooking(selectedMovie)}>
-          <MovieReviews movieId={selectedMovie.id} token={session?.token} request={apiRequest} onLogin={() => openAuth("login")} onChanged={refreshMovies} />
+          <MovieReviews key={`${selectedMovie.id}:${session?.userId ?? "guest"}`} movieId={selectedMovie.id} token={session?.token} userId={session?.userId} request={apiRequest} onLogin={() => openAuth("login")} onChanged={() => refreshMovies(false)} />
         </MovieDetailDialog>
       )}
 
@@ -888,6 +843,8 @@ function App() {
       )}
 
       {ticketOrderNo && session && <TicketDialog orderNo={ticketOrderNo} token={session.token} request={apiRequest} onClose={() => setTicketOrderNo(null)} />}
+
+      <CinemaAssistant token={session?.token} userId={session?.userId} onLogin={() => openAuth("login")} request={apiRequest} />
 
       {isAuthOpen && (
         <div className="modal-backdrop auth-backdrop" role="presentation" onClick={() => setIsAuthOpen(false)}>

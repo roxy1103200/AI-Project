@@ -1,0 +1,36 @@
+.hall-seat-admin { padding-block: 44px 80px; }
+.hall-seat-actions { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+.hall-seat-filters, .hall-seat-fields { display: flex; flex-wrap: wrap; gap: 16px; margin-block: 20px; }
+.hall-seat-admin label { display: grid; gap: 8px; color: #a6b4c7; font-size: 13px; }
+.hall-seat-admin input, .hall-seat-admin select { min-width: 100px; background: #181d24; color: #eef2f7; padding: 11px; border: 1px solid #3a424c; font: inherit; }
+.hall-seat-editor, .seat-admin-inspector { padding: 22px; background: #1a1f26; border: 1px solid #3a424c; margin-block: 20px; }
+.hall-seat-editor small, .seat-admin-inspector small { color: #9aabbe; display: block; margin-bottom: 18px; line-height: 1.6; }
+.hall-admin-list { display: grid; gap: 12px; }
+.hall-admin-list article { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 22px; border: 1px solid #3a424c; }
+.hall-admin-list article span { font-size: 12px; color: #9aabbe; }
+.hall-admin-list h3 { margin: 9px 0; }
+.hall-admin-list p { margin: 0; color: #9aabbe; font-size: 13px; }
+.hall-seat-error { color: #ff867d; }
+.hall-seat-confirm { padding: 16px; background: #352321; display: flex; flex-wrap: wrap; align-items: center; gap: 14px; margin-block: 20px; }
+.hall-seat-confirm button { background: transparent; color: #ffc8c2; border: 1px solid #95564f; padding: 8px 12px; cursor: pointer; }
+.seat-admin-toolbar { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 20px; align-items: center; color: #a6b4c7; font-size: 13px; }
+.seat-admin-workspace { display: grid; grid-template-columns: minmax(0,1fr) 290px; gap: 22px; margin-top: 24px; }
+.seat-admin-map { background: #171c22; border: 1px solid #3a424c; padding: 24px; min-width: 0; }
+.seat-admin-screen { margin: 0 auto 36px; border-top: 3px solid #738191; width: 65%; padding-top: 9px; text-align: center; color: #9aabbe; font-size: 12px; }
+.seat-admin-scroll { overflow: auto; padding-bottom: 16px; }
+.seat-admin-grid { display: grid; gap: 8px; width: max-content; margin: auto; }
+.seat-admin-grid button { height: 36px; border-radius: 7px 7px 3px 3px; font-size: 11px; cursor: pointer; }
+.seat-admin-grid .available { border: 1px solid #637b7d; background: #263839; color: #d8f1ed; }
+.seat-admin-grid .disabled-seat { border: 1px solid #545b64; background: repeating-linear-gradient(45deg,#2a3039,#2a3039 3px,#343b44 3px,#343b44 6px); color: #a4aebb; }
+.seat-admin-grid .missing { border: 1px dashed #515e6b; background: transparent; color: #9aabbe; }
+.seat-admin-grid .selected { background: #ee6055; border-color: #ee6055; color: #12151a; }
+.seat-admin-grid button:disabled { opacity: .5; cursor: wait; }
+.seat-admin-legend { display: flex; flex-wrap: wrap; gap: 18px; color: #9aabbe; font-size: 12px; margin: 20px 0 0; }
+.seat-admin-inspector { margin: 0; align-self: start; }
+.seat-admin-inspector .hall-seat-fields { display: grid; grid-template-columns: 1fr 1fr; }
+.seat-admin-inspector label:nth-child(n+3) { grid-column: 1 / -1; }
+.seat-admin-inspector input, .seat-admin-inspector select { min-width: 0; width: 100%; }
+.seat-admin-inspector p { color: #9aabbe; line-height: 1.7; font-size: 13px; }
+.admin-desktop-shortcut { background: transparent; border: 1px solid #4a4e55; color: #c5d0dd; padding: 8px 10px; align-self: center; font: inherit; }
+.admin-desktop-shortcut option { background: #181d24; }
+@media(max-width:800px) { .seat-admin-workspace { grid-template-columns: 1fr; } .hall-admin-list article { align-items: start; flex-direction: column; } .hall-seat-admin .section-heading { gap: 15px; flex-wrap: wrap; } }

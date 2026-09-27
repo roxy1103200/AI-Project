@@ -22,6 +22,9 @@ services:
   redis:
     image: redis:7.4-alpine
     container_name: cinema-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
     ports:
       - "6379:6379"
     healthcheck:
@@ -64,7 +67,7 @@ services:
       SPRING_RABBITMQ_USERNAME: cinema
       SPRING_RABBITMQ_PASSWORD: cinema
       AI_SERVICE_URL: http://cinema-ai:8000
-      AI_INTERNAL_TOKEN: cinema-internal-token
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-cinema-internal-token}
       MOVIE_IMAGE_DIRECTORY: /app/图片
     volumes:
       - ../图片:/app/图片
@@ -82,10 +85,42 @@ services:
     container_name: cinema-ai
     environment:
       JAVA_API_URL: http://cinema-api:8080
-      AI_INTERNAL_TOKEN: cinema-internal-token
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-cinema-internal-token}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      QWEN_API_KEY_FILE: /run/secrets/qwen_api_key
+      QWEN_MODEL: ${QWEN_MODEL:-qwen3.7-flash}
+      QWEN_API_BASE_URL: ${QWEN_API_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      QWEN_ENABLE_THINKING: ${QWEN_ENABLE_THINKING:-false}
+      QWEN_MAX_TOKENS: ${QWEN_MAX_TOKENS:-2048}
+    volumes:
+      - ../API/qwen.txt:/run/secrets/qwen_api_key:ro
     depends_on:
       cinema-api:
         condition: service_started
+
+  cinema-ai-gateway:
+    profiles: ["app"]
+    build: ./cinema-ai-gateway
+    environment:
+      JAVA_API_URL: http://cinema-api:8080
+      AGENT_API_URL: http://cinema-ai:8000
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-cinema-internal-token}
+      DIFY_API_BASE_URL: ${DIFY_API_BASE_URL:-https://api.dify.ai/v1}
+      DIFY_API_KEY: ${DIFY_API_KEY:-}
+      DIFY_API_KEY_FILE: /run/secrets/dify_api_key
+      AI_COOKIE_SECURE: ${AI_COOKIE_SECURE:-false}
+      AI_REDIS_URL: redis://redis:6379/0
+      AI_REDIS_PREFIX: ${AI_REDIS_PREFIX:-ai:gateway:}
+      WEB_CONCURRENCY: ${AI_GATEWAY_WORKERS:-2}
+    volumes:
+      - ../API/dify.txt:/run/secrets/dify_api_key:ro
+    depends_on:
+      cinema-api:
+        condition: service_started
+      cinema-ai:
+        condition: service_started
+      redis:
+        condition: service_healthy
 
   nginx:
     profiles: ["app"]
@@ -100,8 +135,9 @@ services:
     depends_on:
       cinema-api:
         condition: service_started
-      cinema-ai:
+      cinema-ai-gateway:
         condition: service_started
 
 volumes:
   mysql-data:
+  redis-data:

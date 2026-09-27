@@ -18,6 +18,10 @@
         WHERE username = #{username}
     </select>
 
+    <select id="findById" resultMap="userAccountMap">
+        SELECT id, username, phone, role, status FROM users WHERE id = #{id}
+    </select>
+
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO users (username, password_hash, phone, role, status)
         VALUES (#{username}, #{passwordHash}, #{phone}, #{role}, #{status})

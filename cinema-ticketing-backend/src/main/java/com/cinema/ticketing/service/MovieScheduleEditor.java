@@ -2,6 +2,7 @@ package com.cinema.ticketing.service;
 
 import com.cinema.ticketing.common.BusinessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.jdbc.support.GeneratedKeyHolder;
 
 import java.math.BigDecimal;
 import java.time.LocalDateTime;
@@ -20,7 +21,53 @@ final class MovieScheduleEditor {
 
     MovieScheduleEditor(JdbcTemplate jdbc) { this.jdbc = jdbc; }
 
-    void save(long movieId, Object input) {
+    long create(Map<String, Object> values) {
+        long movieId = movieId(values.get("movie_id"));
+        List<Map<String, Object>> rows = lockedRows(movieId);
+        Map<String, Object> created = new HashMap<>(values);
+        created.remove("id");
+        rows.add(created);
+        return save(movieId, rows).getFirst();
+    }
+
+    void update(long id, Map<String, Object> values) {
+        long movieId = screeningMovie(id);
+        if (movieId(values.get("movie_id")) != movieId) throw new BusinessException(400, "场次不能更换所属影片，请新建场次");
+        List<Map<String, Object>> rows = lockedRows(movieId);
+        Map<String, Object> replacement = new HashMap<>(values);
+        replacement.put("id", id);
+        boolean found = rows.removeIf(row -> ((Number) row.get("id")).longValue() == id);
+        if (!found) throw new BusinessException(404, "场次不存在");
+        rows.add(replacement);
+        save(movieId, rows);
+    }
+
+    void delete(long id) {
+        long movieId = screeningMovie(id);
+        List<Map<String, Object>> rows = lockedRows(movieId);
+        if (!rows.removeIf(row -> ((Number) row.get("id")).longValue() == id)) throw new BusinessException(404, "场次不存在");
+        save(movieId, rows);
+    }
+
+    private long movieId(Object value) {
+        try { long id = Long.parseLong(String.valueOf(value)); if (id > 0) return id; }
+        catch (NumberFormatException ignored) { }
+        throw new BusinessException(400, "场次必须指定有效的影片编号");
+    }
+
+    private long screeningMovie(long id) {
+        List<Map<String, Object>> rows = jdbc.queryForList("SELECT movie_id FROM screening WHERE id=?", id);
+        if (rows.isEmpty()) throw new BusinessException(404, "场次不存在");
+        return ((Number) rows.getFirst().get("movie_id")).longValue();
+    }
+
+    private List<Map<String, Object>> lockedRows(long movieId) {
+        if (jdbc.queryForList("SELECT id FROM movie WHERE id=? FOR UPDATE", movieId).isEmpty()) throw new BusinessException(404, "影片不存在");
+        return new ArrayList<>(jdbc.queryForList("SELECT id,hall_id,start_time,end_time,price,status FROM screening WHERE movie_id=? ORDER BY id FOR UPDATE", movieId));
+    }
+
+    List<Long> save(long movieId, Object input) {
+        List<Long> createdIds = new ArrayList<>();
         if (!(input instanceof List<?> rows) || rows.size() > 100) {
             throw new BusinessException(400, "场次必须是数组，单次最多保存 100 个场次");
         }
@@ -71,14 +118,23 @@ final class MovieScheduleEditor {
                 if (overlaps != null && overlaps > 0) throw new BusinessException(409, "影厅在所选时间已有场次，请调整影厅或放映时间");
             }
             if (slot.id() == null) {
-                jdbc.update("INSERT INTO screening(movie_id,hall_id,start_time,end_time,price,status) VALUES(?,?,?,?,?,?)",
-                        movieId, slot.hallId(), slot.start(), slot.end(), slot.price(), slot.status());
+                GeneratedKeyHolder key = new GeneratedKeyHolder();
+                jdbc.update(connection -> {
+                    var statement = connection.prepareStatement("INSERT INTO screening(movie_id,hall_id,start_time,end_time,price,status) VALUES(?,?,?,?,?,?)", java.sql.Statement.RETURN_GENERATED_KEYS);
+                    statement.setLong(1, movieId); statement.setLong(2, slot.hallId());
+                    statement.setObject(3, slot.start()); statement.setObject(4, slot.end());
+                    statement.setBigDecimal(5, slot.price()); statement.setString(6, slot.status());
+                    return statement;
+                }, key);
+                if (key.getKey() == null) throw new BusinessException(500, "场次创建失败");
+                createdIds.add(key.getKey().longValue());
             } else {
                 jdbc.update("UPDATE screening SET hall_id=?,start_time=?,end_time=?,price=?,status=? WHERE id=? AND movie_id=?",
                         slot.hallId(), slot.start(), slot.end(), slot.price(), slot.status(), slot.id(), movieId);
             }
         }
         validateWindow(movieId);
+        return createdIds;
     }
 
     void validateWindow(long movieId) {
@@ -90,8 +146,8 @@ final class MovieScheduleEditor {
     }
 
     private boolean hasOrders(long id) {
-        Long count = jdbc.queryForObject("SELECT COUNT(*) FROM ticket_order WHERE screening_id=?", Long.class, id);
-        return count != null && count > 0;
+        // A locking read sees orders committed while this transaction waited for the screening lock.
+        return !jdbc.queryForList("SELECT id FROM ticket_order WHERE screening_id=? ORDER BY id LIMIT 1 FOR UPDATE", id).isEmpty();
     }
 
     private void validate(Slot slot, Map<String, Object> movie) {

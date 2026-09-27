@@ -2,6 +2,7 @@ package com.cinema.ticketing.service;
 
 import com.cinema.ticketing.common.BusinessException;
 import com.cinema.ticketing.common.SellableScreenings;
+import com.cinema.ticketing.common.ReviewEligibility;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
@@ -62,6 +63,7 @@ public class CatalogService {
     public long create(String resource, Map<String, Object> values) {
         ResourceDefinition definition = definition(resource);
         rejectUserMutation(resource);
+        if ("screenings".equals(resource)) return scheduleEditor.create(values);
         Object[] parameters = definition.parameters(validatedValues(resource, values));
         KeyHolder keyHolder = new GeneratedKeyHolder();
         jdbcTemplate.update(connection -> {
@@ -87,6 +89,7 @@ public class CatalogService {
     public void update(String resource, long id, Map<String, Object> values) {
         ResourceDefinition definition = definition(resource);
         rejectUserMutation(resource);
+        if ("screenings".equals(resource)) { scheduleEditor.update(id, values); return; }
         Object[] parameters = definition.parameters(validatedValues(resource, values), id);
         if (jdbcTemplate.update(definition.updateSql(), parameters) == 0) {
             throw new BusinessException(404, "资源不存在");
@@ -137,7 +140,10 @@ public class CatalogService {
     }
 
     @CacheEvict(cacheNames = {"catalogList", "catalogDetail"}, allEntries = true)
+    @Transactional
     public void delete(String resource, long id) {
+        rejectUserMutation(resource);
+        if ("screenings".equals(resource)) { scheduleEditor.delete(id); return; }
         ResourceDefinition definition = definition(resource);
         try {
             if (jdbcTemplate.update(definition.deleteSql(), id) == 0) {
@@ -173,6 +179,7 @@ public class CatalogService {
                 || !List.of("UPCOMING", "ON_SHELF", "ON_SHOW", "OFFLINE").contains(status)) {
             throw new BusinessException(400, "影片上映状态无效");
         }
+        if ("ON_SHOW".equals(values.get("status"))) normalized.put("status", "ON_SHELF");
         validateMovieText(values, "director", 128);
         validateMovieText(values, "actors", 512);
         validateMovieText(values, "genre", 128);
@@ -220,6 +227,9 @@ public class CatalogService {
     }
 
     private void rejectUserMutation(String resource) {
+        if ("halls".equals(resource) || "seats".equals(resource)) {
+            throw new BusinessException(400, "请使用专用 /api/admin/halls 管理接口修改影厅和座位");
+        }
         if ("users".equals(resource)) {
             throw new BusinessException(400, "用户必须通过 /api/auth/register 创建或通过专用账户接口修改");
         }
@@ -284,7 +294,8 @@ public class CatalogService {
 
         private static ResourceDefinition movies() {
             return of("movie", "title,description,duration,release_date,sale_start_time,sale_end_time,director,actors,genre,status",
-                    "title,description,duration,release_date,sale_start_time,sale_end_time,director,actors,genre,status, "
+                    "title,description,duration,release_date,sale_start_time,sale_end_time,director,actors,genre, "
+                            + "CASE WHEN status='ON_SHOW' THEN 'ON_SHELF' ELSE status END status, "
                             + "CASE WHEN status = 'OFFLINE' THEN 'OFFLINE' "
                             + "WHEN sale_start_time IS NOT NULL AND sale_start_time > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR) THEN 'NOT_STARTED' "
                             + "WHEN sale_end_time IS NOT NULL AND sale_end_time <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR) THEN 'ENDED' "
@@ -299,8 +310,8 @@ public class CatalogService {
                             + "AND h.status='ACTIVE' AND c.status='ACTIVE' AND movie.status IN ('UPCOMING','ON_SHELF','ON_SHOW') "
                             + "AND (movie.sale_start_time IS NULL OR s.start_time>=movie.sale_start_time) "
                             + "AND (movie.sale_end_time IS NULL OR s.end_time<=movie.sale_end_time)) future_screening_count, "
-                            + "(SELECT ROUND(AVG(r.rating),1) FROM movie_review r WHERE r.movie_id=movie.id) rating_average, "
-                            + "(SELECT COUNT(*) FROM movie_review r WHERE r.movie_id=movie.id) rating_count");
+                            + "(SELECT ROUND(AVG(r.rating),1) FROM movie_review r WHERE r.movie_id=movie.id AND " + ReviewEligibility.WHERE + ") rating_average, "
+                            + "(SELECT COUNT(*) FROM movie_review r WHERE r.movie_id=movie.id AND " + ReviewEligibility.WHERE + ") rating_count");
         }
 
         private static ResourceDefinition halls() {

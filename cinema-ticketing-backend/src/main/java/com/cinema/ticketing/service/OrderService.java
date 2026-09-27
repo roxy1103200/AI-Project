@@ -58,9 +58,11 @@ public class OrderService {
         this.orderMessagePublisher = orderMessagePublisher;
     }
 
+    @Transactional
     public SeatLockResult lockSeats(String owner, long screeningId, List<Long> requestedSeatIds) {
         List<Long> seatIds = distinctSeatIds(requestedSeatIds);
         Screening screening = screening(screeningId);
+        lockAvailableSeats(screening.hallId(), seatIds);
         validateSeats(screeningId, screening.hallId(), seatIds);
         List<String> keys = seatIds.stream()
                 .map(seatId -> lockKey(screeningId, seatId))
@@ -150,6 +152,9 @@ public class OrderService {
         if (!"ISSUED".equals(order.status())) {
             throw new BusinessException(409, "只有已出票订单可以退票");
         }
+        if (!jdbcTemplate.queryForList("SELECT id FROM order_item WHERE order_id=? AND checked_in_at IS NOT NULL LIMIT 1", order.id()).isEmpty()) {
+            throw new BusinessException(409, "订单中已有电影票验票入场，不能退票");
+        }
         RefundPolicy policy = refundPolicy();
         if (!order.startTime().isAfter(LocalDateTime.now().plusMinutes(policy.cutoffMinutes()))) {
             throw new BusinessException(400, "已超过退票截止时间: " + policy.content());
@@ -221,7 +226,7 @@ public class OrderService {
         // Historical tickets remain readable after the screening has started or stopped selling.
         result.put("seats", jdbcTemplate.queryForList(
                 "SELECT s.id,s.row_no,s.column_no,s.seat_code,s.status, "
-                        + "CASE WHEN oi.id IS NOT NULL THEN TRUE ELSE FALSE END is_order_seat,oi.ticket_status "
+                        + "CASE WHEN oi.id IS NOT NULL THEN TRUE ELSE FALSE END is_order_seat,oi.ticket_status,oi.checked_in_at "
                         + "FROM seat s LEFT JOIN order_item oi ON oi.seat_id=s.id AND oi.order_id=? "
                         + "WHERE s.hall_id=? ORDER BY s.row_no,s.column_no", order.id(), result.get("hallId")));
         return result;

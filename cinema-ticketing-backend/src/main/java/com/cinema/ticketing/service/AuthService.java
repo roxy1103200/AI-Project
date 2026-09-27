@@ -2,6 +2,7 @@ package com.cinema.ticketing.service;
 
 import com.cinema.ticketing.common.BusinessException;
 import com.cinema.ticketing.dto.LoginResult;
+import com.cinema.ticketing.dto.CurrentSession;
 import com.cinema.ticketing.entity.UserAccount;
 import com.cinema.ticketing.mapper.UserMapper;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
@@ -71,6 +72,31 @@ public class AuthService {
             redisTemplate.expire(sessionKey(token), TOKEN_TTL);
         }
         return new LoginResult(token, account.getId(), account.getUsername(), account.getRole(), TOKEN_TTL.toSeconds());
+    }
+
+    /** Verify the account against the database without extending the login lifetime. */
+    public CurrentSession current(String token) {
+        LoginSession session = requireSession(token);
+        UserAccount account = userMapper.findById(session.userId());
+        if (account == null || !"ACTIVE".equals(account.getStatus())
+                || !("USER".equals(account.getRole()) || "ADMIN".equals(account.getRole()))) {
+            logout(token);
+            throw new BusinessException(401, "账户不可用，请重新登录");
+        }
+        long remaining;
+        if (redisTemplate == null) {
+            remaining = Duration.between(Instant.now(), session.expiresAt()).toSeconds();
+            sessions.replace(token, session, new LoginSession(session.userId(), account.getRole(), session.expiresAt()));
+        } else {
+            // Atomically refresh role only on an existing expiring token; never recreate an expired login.
+            var script = new org.springframework.data.redis.core.script.DefaultRedisScript<Long>(
+                    "local ttl=redis.call('TTL',KEYS[1]); if ttl<=0 then return 0 end; "
+                    + "redis.call('HSET',KEYS[1],'role',ARGV[1]); return ttl", Long.class);
+            Long ttl = redisTemplate.execute(script, java.util.List.of(sessionKey(token)), account.getRole());
+            remaining = ttl == null ? 0 : ttl;
+        }
+        if (remaining <= 0) throw new BusinessException(401, "登录已失效，请重新登录");
+        return new CurrentSession(account.getId(), account.getUsername(), account.getRole(), remaining);
     }
 
     public void logout(String token) {

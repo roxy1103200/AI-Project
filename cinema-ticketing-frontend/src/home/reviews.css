@@ -1,0 +1,21 @@
+.movie-reviews .review-action-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-block: 12px; }
+.movie-reviews .review-action-row small { flex: 1; color: #9298a0; font-size: 11px; }
+.movie-reviews .review-own-status { background: #15191e; border-left: 2px solid #ef7067; padding: 12px 14px; margin: 16px 0; font-size: 12px; }
+.movie-reviews .review-own-status p { white-space: pre-wrap; overflow-wrap: anywhere; line-height: 1.7; color: #b1bccb; }
+.movie-reviews .review-interactions { display: block; }
+.movie-reviews .review-interactions .liked { color: #ef7067; }
+.movie-reviews .review-report { font-size: 12px; }
+.movie-reviews .review-inline-form { display: grid; gap: 10px; margin: 14px 0; }
+.movie-reviews .review-inline-form label { display: grid; gap: 8px; color: #a6b1bf; font-size: 12px; }
+.movie-reviews .review-inline-form textarea, .movie-reviews .review-inline-form select { box-sizing: border-box; width: 100%; background: #15191e; border: 1px solid #3a4048; color: #f5f3ef; padding: 10px; font: inherit; }
+.movie-reviews .review-inline-form textarea { resize: vertical; }
+.movie-reviews .review-replies { padding: 8px 14px; background: #15191e; border: 1px solid #303640; margin-top: 12px; width: 100%; }
+.movie-reviews .review-reply-item { border-bottom: 1px solid #303640; padding: 12px 0; }
+.movie-reviews .review-reply-item header { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; font-size: 12px; }
+.movie-reviews .review-reply-item p { white-space: pre-wrap; overflow-wrap: anywhere; font-size: 13px; line-height: 1.7; }
+.movie-reviews .review-reply-item small { color: #a6b1bf; font-size: 11px; }
+.movie-reviews .review-badge { color: #efaaa2; border: 1px solid #774742; padding: 2px 6px; font-size: 10px; }
+.movie-reviews .review-my-replies { margin-block: 18px; font-size: 13px; }
+.movie-reviews .review-my-replies summary { cursor: pointer; color: #c8d4e5; }
+.movie-reviews button:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 600px) { .movie-reviews .review-action-row { gap: 8px; } .movie-reviews .review-replies { padding-inline: 10px; } }

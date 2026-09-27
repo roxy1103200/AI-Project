@@ -6,5 +6,7 @@ public interface UserMapper {
 
     UserAccount findByUsername(String username);
 
+    UserAccount findById(long id);
+
     int insert(UserAccount userAccount);
 }

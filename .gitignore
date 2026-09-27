@@ -5,4 +5,8 @@ docker-compose.yml
 压测报告.md
 图片/*
 !图片/.gitkeep
-.png
+/API/
+**/.env
+**/.venv/
+**/__pycache__/
+**/.png

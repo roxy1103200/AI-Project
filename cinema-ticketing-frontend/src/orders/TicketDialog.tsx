@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { ApiRequest } from "../admin/movie-save";
 
-type TicketSeat = { id: number; row_no: number; column_no: number; seat_code: string; is_order_seat: boolean | number; ticket_status?: string };
+type TicketSeat = { id: number; row_no: number; column_no: number; seat_code: string; is_order_seat: boolean | number; ticket_status?: string; checked_in_at?: string | null };
 type Ticket = { orderNo: string; status: string; totalAmount: number | string; movieTitle: string; cinemaName: string; hallName: string; startTime: string; rowCount: number; columnCount: number; seats: TicketSeat[] };
 const statusLabels: Record<string, string> = { UNPAID: "待支付", PAID: "已支付", ISSUED: "已出票", REFUNDED: "已退票", CANCELLED: "已取消" };
 
@@ -64,7 +64,7 @@ export default function TicketDialog({ orderNo, token, request, onClose }: { ord
               })}</div></div>;
           })}
         </div></div>
-        <div className="ticket-seat-summary">{ownSeats.map((seat) => <strong key={seat.id}>{seat.row_no}排 {seat.column_no}座</strong>)}{ownSeats.length === 0 && <span>暂无座位记录</span>}</div>
+        <div className="ticket-seat-summary">{ownSeats.map((seat) => <strong key={seat.id} title={seat.checked_in_at ? `验票时间：${seat.checked_in_at.replace("T", " ").slice(0, 16)}` : "尚未验票"}>{seat.row_no}排 {seat.column_no}座{seat.checked_in_at ? " · 已验票" : ""}</strong>)}{ownSeats.length === 0 && <span>暂无座位记录</span>}</div>
         <p className="ticket-order-number">订单金额 ¥{Number(ticket.totalAmount).toFixed(2)} · 订单号 {ticket.orderNo}</p>
       </>}
     </section>
