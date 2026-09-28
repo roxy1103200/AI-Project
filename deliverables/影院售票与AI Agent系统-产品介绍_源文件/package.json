@@ -1,0 +1,14 @@
+{
+  "name": "cinema-product-introduction-deck",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "node build.js"
+  },
+  "dependencies": {
+    "fontkit": "^2.0.4",
+    "linebreak": "^1.1.0",
+    "pptxgenjs": "4.0.1",
+    "skia-canvas": "^3.0.8"
+  }
+}
