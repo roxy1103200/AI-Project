@@ -1,0 +1,80 @@
+spring:
+  application:
+    name: cinema-ticketing-backend
+  datasource:
+    # serverTimezone 必须写服务器的真实时区。原来写的 Asia/Shanghai 是假的 —— 容器和 Ubuntu 虚拟机都是 UTC。
+    # 这个声明只影响 TIMESTAMP 列的读写转换，对 DATETIME（expire_at / paid_at / created_at 等）不起作用，
+    # 所以它并不能"纠正"任何时间；写错了只会让 TIMESTAMP 列跟着一起错。业务时间统一由应用侧
+    # LocalDateTime.now() 产生并显式写库，读取用 getObject(col, LocalDateTime.class) 逐字取出，不跨时区。
+    url: ${DB_URL:jdbc:mysql://localhost:3306/cinema_ticketing?useUnicode=true&characterEncoding=UTF-8&serverTimezone=UTC&useSSL=false&allowPublicKeyRetrieval=true&createDatabaseIfNotExist=true}
+    username: ${DB_USERNAME:cinema}
+    password: ${DB_PASSWORD:cinema}
+    driver-class-name: com.mysql.cj.jdbc.Driver
+  servlet:
+    multipart:
+      max-file-size: 5MB
+      max-request-size: 6MB
+  cache:
+    type: redis
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+
+server:
+  port: ${SERVER_PORT:8080}
+
+media:
+  movie-image-directory: ${MOVIE_IMAGE_DIRECTORY:../图片}
+
+mybatis:
+  mapper-locations: classpath*:*Mapper.xml
+  type-aliases-package: com.cinema.ticketing
+  configuration:
+    map-underscore-to-camel-case: true
+
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    enabled: true
+
+knife4j:
+  enable: true
+  setting:
+    language: zh_cn
+
+logging:
+  level:
+    com.cinema.ticketing: INFO
+  file:
+    name: ${LOG_FILE:logs/cinema-ticketing.log}
+
+rate-limit:
+  requests-per-minute: ${RATE_LIMIT_REQUESTS_PER_MINUTE:120}
+  trusted-proxy-header: ${RATE_LIMIT_TRUSTED_PROXY_HEADER:cinema-nginx}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized
+  metrics:
+    tags:
+      application: ${spring.application.name}
+
+ai:
+  service-url: ${AI_SERVICE_URL:http://localhost:8000}
+  internal-token: ${AI_INTERNAL_TOKEN:local-internal-token}
+
+order:
+  reconcile:
+    # 超时订单对账兜底：延迟消息一旦丢失（重试耗尽进了 order.cancel.failed —— 那队列没有消费者、
+    # 或发布与 ack 之间宕机），订单会永远停在 UNPAID 且座位锁不释放，还没人知道。
+    # 这个定时任务直接扫库取消，不依赖 RabbitMQ；正常情况下扫不到东西。
+    fixed-delay-ms: ${ORDER_RECONCILE_FIXED_DELAY_MS:60000}
+    # 首次延迟故意设长：给基础设施留启动时间，也让几十秒内结束的集成测试不会触发它。
+    initial-delay-ms: ${ORDER_RECONCILE_INITIAL_DELAY_MS:60000}

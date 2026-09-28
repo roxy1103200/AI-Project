@@ -1,4 +1,4 @@
-﻿param([ValidateSet('all','agent','gateway')][string]$Service = 'all')
+param([ValidateSet('all','agent','gateway')][string]$Service = 'all')
 $ErrorActionPreference = 'Stop'
 $projectPath = [System.IO.Path]::GetFullPath($PSScriptRoot)
 $ports = if ($Service -eq 'agent') { @(8000) } elseif ($Service -eq 'gateway') { @(8010) } else { @(8000,8010) }

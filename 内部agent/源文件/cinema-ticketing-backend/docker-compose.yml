@@ -1,0 +1,143 @@
+services:
+  mysql:
+    image: mysql:8.0.44
+    container_name: cinema-mysql
+    environment:
+      MYSQL_DATABASE: cinema_ticketing
+      MYSQL_USER: cinema
+      MYSQL_PASSWORD: cinema
+      MYSQL_ROOT_PASSWORD: root
+    ports:
+      - "3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-ucinema", "-pcinema"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./src/main/resources/schema.sql:/docker-entrypoint-initdb.d/01-schema.sql:ro
+      - ./seed-local-data.sql:/docker-entrypoint-initdb.d/02-seed-local-data.sql:ro
+
+  redis:
+    image: redis:7.4-alpine
+    container_name: cinema-redis
+    command: ["redis-server", "--appendonly", "yes", "--appendfsync", "everysec"]
+    volumes:
+      - redis-data:/data
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  rabbitmq:
+    image: rabbitmq:4.1-management
+    container_name: cinema-rabbitmq
+    environment:
+      RABBITMQ_DEFAULT_USER: cinema
+      RABBITMQ_DEFAULT_PASS: cinema
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # 应用层三个服务都归到 app profile：不激活时 `docker compose up -d` 只起中间件，
+  # 想全起用 `docker compose up -d --profile app`。加 profile 的直接原因是本项目的
+  # Dockerfile 只 COPY 预构建的 jar，服务器上没有 target/，裸 up -d 会卡在构建阶段。
+  cinema-api:
+    profiles: ["app"]
+    build: .
+    container_name: cinema-api
+    environment:
+      # mysql 容器跑在 UTC，这里就写 UTC。业务时间由应用侧生成后显式写库，不依赖这个声明。
+      DB_URL: jdbc:mysql://mysql:3306/cinema_ticketing?useUnicode=true&characterEncoding=utf8&serverTimezone=UTC
+      DB_USERNAME: cinema
+      DB_PASSWORD: cinema
+      SPRING_DATA_REDIS_HOST: redis
+      SPRING_DATA_REDIS_PORT: 6379
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: 5672
+      SPRING_RABBITMQ_USERNAME: cinema
+      SPRING_RABBITMQ_PASSWORD: cinema
+      AI_SERVICE_URL: http://cinema-ai:8000
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-cinema-internal-token}
+      MOVIE_IMAGE_DIRECTORY: /app/图片
+    volumes:
+      - ../图片:/app/图片
+    depends_on:
+      mysql:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+
+  cinema-ai:
+    profiles: ["app"]
+    build: ./cinema-ai
+    container_name: cinema-ai
+    environment:
+      JAVA_API_URL: http://cinema-api:8080
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-cinema-internal-token}
+      QWEN_API_KEY: ${QWEN_API_KEY:-}
+      QWEN_API_KEY_FILE: /run/secrets/qwen_api_key
+      QWEN_MODEL: ${QWEN_MODEL:-qwen3.7-flash}
+      QWEN_API_BASE_URL: ${QWEN_API_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
+      QWEN_ENABLE_THINKING: ${QWEN_ENABLE_THINKING:-false}
+      QWEN_MAX_TOKENS: ${QWEN_MAX_TOKENS:-2048}
+    volumes:
+      - ../API/qwen.txt:/run/secrets/qwen_api_key:ro
+    depends_on:
+      cinema-api:
+        condition: service_started
+
+  cinema-ai-gateway:
+    profiles: ["app"]
+    build: ./cinema-ai-gateway
+    environment:
+      JAVA_API_URL: http://cinema-api:8080
+      AGENT_API_URL: http://cinema-ai:8000
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-cinema-internal-token}
+      DIFY_API_BASE_URL: ${DIFY_API_BASE_URL:-https://api.dify.ai/v1}
+      DIFY_API_KEY: ${DIFY_API_KEY:-}
+      DIFY_API_KEY_FILE: /run/secrets/dify_api_key
+      AI_COOKIE_SECURE: ${AI_COOKIE_SECURE:-false}
+      AI_REDIS_URL: redis://redis:6379/0
+      AI_REDIS_PREFIX: ${AI_REDIS_PREFIX:-ai:gateway:}
+      WEB_CONCURRENCY: ${AI_GATEWAY_WORKERS:-2}
+    volumes:
+      - ../API/dify.txt:/run/secrets/dify_api_key:ro
+    depends_on:
+      cinema-api:
+        condition: service_started
+      cinema-ai:
+        condition: service_started
+      redis:
+        condition: service_healthy
+
+  nginx:
+    profiles: ["app"]
+    build:
+      context: ../cinema-ticketing-frontend
+      dockerfile: Dockerfile
+    container_name: cinema-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+    depends_on:
+      cinema-api:
+        condition: service_started
+      cinema-ai-gateway:
+        condition: service_started
+
+volumes:
+  mysql-data:
+  redis-data:

@@ -1,4 +1,4 @@
-﻿param([string]$InternalToken = $env:AI_INTERNAL_TOKEN,
+param([string]$InternalToken = $env:AI_INTERNAL_TOKEN,
       [ValidateSet('all','agent','gateway')][string]$Service = 'all')
 $ErrorActionPreference = 'Stop'
 $aiDirectory = Join-Path $PSScriptRoot 'cinema-ai'
