@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { GatewayError, gatewayRequest, streamChat, type ChatContext } from "./chatTransport";
+import { createMessageId } from "./messageId";
 import "./assistant.css";
 import MessageFeedback from "./MessageFeedback";
 
@@ -106,10 +107,10 @@ export default function CinemaAssistant({ token, userId, onLogin, request }: Pro
     const value = text.trim();
     if (!value || !info || busy || connecting) return;
     const currentGeneration = generation.current;
-    const id = crypto.randomUUID();
+    const id = createMessageId();
     const abort = new AbortController(); stream.current = abort;
     setBusy(true); setError(""); setSuggested(false); setQuestion("");
-    setMessages((current) => [...current.slice(-38), { id: crypto.randomUUID(), role: "user", content: value, mode },
+    setMessages((current) => [...current.slice(-38), { id: createMessageId(), role: "user", content: value, mode },
       { id, role: "assistant", content: "", mode }]);
     try {
       let activeCredential = credential;

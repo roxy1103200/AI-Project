@@ -12,3 +12,4 @@ docker-compose.yml
 **/.venv/
 **/__pycache__/
 **/.png
+AAA.pem
