@@ -79,6 +79,24 @@ services:
       rabbitmq:
         condition: service_healthy
 
+  cinema-mcp:
+    profiles: ["app"]
+    build: ./cinema-ai
+    command: ["uvicorn", "app.mcp_server:app", "--host", "0.0.0.0", "--port", "8020"]
+    environment:
+      JAVA_API_URL: http://cinema-api:8080
+      AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-cinema-internal-token}
+      CINEMA_MCP_ALLOWED_HOSTS: "cinema-mcp:*,localhost:*,127.0.0.1:*"
+    # MCP 只在 Compose 内网可达，复用 Agent 镜像但不加载模型密钥。
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8020/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      cinema-api:
+        condition: service_started
+
   cinema-ai:
     profiles: ["app"]
     build: ./cinema-ai
@@ -87,6 +105,7 @@ services:
       JAVA_API_URL: http://cinema-api:8080
       AI_INTERNAL_TOKEN: ${AI_INTERNAL_TOKEN:-cinema-internal-token}
       QWEN_API_KEY: ${QWEN_API_KEY:-}
+      CINEMA_MCP_URL: http://cinema-mcp:8020/mcp
       QWEN_API_KEY_FILE: /run/secrets/qwen_api_key
       QWEN_MODEL: ${QWEN_MODEL:-qwen3.7-flash}
       QWEN_API_BASE_URL: ${QWEN_API_BASE_URL:-https://dashscope.aliyuncs.com/compatible-mode/v1}
@@ -97,6 +116,8 @@ services:
     depends_on:
       cinema-api:
         condition: service_started
+      cinema-mcp:
+        condition: service_healthy
 
   cinema-ai-gateway:
     profiles: ["app"]

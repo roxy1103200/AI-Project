@@ -8,12 +8,25 @@ from openai import APIConnectionError, APIStatusError, APITimeoutError
 LOGGER = logging.getLogger("uvicorn.error")
 
 
+class CinemaQueryError(Exception):
+    """Safe business failure received through MCP, without upstream details."""
+
+    def __init__(self, code: str, message: str) -> None:
+        super().__init__(message)
+        self.code = code
+
+
 def describe_failure(exception: Exception, stage: str) -> tuple[str, str]:
     """Log only error type/status and return a stable, user-readable failure."""
     status = getattr(exception, "status_code", None)
     if isinstance(exception, httpx.HTTPStatusError):
         status = exception.response.status_code
     LOGGER.warning("Agent failure stage=%s type=%s status=%s", stage, type(exception).__name__, status)
+    # MCP transport task groups can wrap the original HTTP exception.
+    if isinstance(exception, ExceptionGroup):
+        return describe_failure(exception.exceptions[0], stage)
+    if isinstance(exception, CinemaQueryError):
+        return exception.code, str(exception)
     if isinstance(exception, (APITimeoutError, httpx.TimeoutException, TimeoutError)):
         return "query_timeout", "实时查询超时，请稍后重试。"
     if isinstance(exception, (APIConnectionError, httpx.RequestError)):

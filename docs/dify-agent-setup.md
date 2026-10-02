@@ -5,14 +5,14 @@
 ## 请求路径
 
 - 常见问题：浏览器 → `/ai-gateway/chat` → Python 网关 → Dify 云端。此路径不访问 Java 或数据库。
-- 手动转接：浏览器先向 Java `/api/ai/handoff` 申请凭证，再向网关发送问题。网关向 Java 校验凭证，调用内部 Agent `/ai/live`；Agent 通过固定 Java 工具查询业务数据。
+- 手动转接：浏览器先向 Java `/api/ai/handoff` 申请凭证，再向网关发送问题。网关向 Java 校验凭证，调用内部 Agent `/ai/live`；电影、场次、座位、本人订单通过独立 MCP Server 查询 Java，规则 RAG 和推荐保留原工具。详见 [Cinema MCP 配置](cinema-mcp.md)。
 - 回答由网关直接以 SSE 返回浏览器，Java 不转发模型长连接。
 - 凭证有效期 10 分钟，绑定当前登录与聊天会话，只支持只读查询。每轮实时查询都会重新核验登录状态；退出登录后凭证失效。
 - 前端不提交可信用户 ID。模型不生成 SQL；Java 工具使用固定 SQL 和参数查询本人订单、影片、场次、当前退票规则。
 
 ## 本地运行
 
-Java 端口 8080；内部 Agent 端口 8000；网关端口 **8010**。8001 已被本机代理服务占用，保留该服务。
+Java 端口 8080；内部 Agent 端口 8000；网关端口 **8010**；MCP 端口 **8020**，协议地址 `http://127.0.0.1:8020/mcp`。8001 已被本机代理服务占用，保留该服务。
 
 网关默认读取 `E:/development/AI-Project/API/dify.txt`，文件只放一行应用 API Key，也支持 `DIFY_API_KEY=...`。`API/` 与 `.env` 已加入 Git 忽略。也可以用服务端环境变量 `DIFY_API_KEY` 覆盖文件。
 
@@ -23,7 +23,7 @@ cd E:/development/AI-Project/cinema-ticketing-backend
 ./start-ai-local.ps1
 ```
 
-先启动 Java，再启动 AI。脚本后台启动两个 Python 进程，显示 PID；日志在 `cinema-ticketing-backend/target/ai-{agent,gateway}-{stdout,stderr}.log`。端口被占用时脚本会报错。可先运行 `./stop-ai-local.ps1`（全部）或 `./stop-ai-local.ps1 -Service gateway`（仅网关），随后对应运行 `./start-ai-local.ps1 -Service gateway`；脚本核实项目路径、端口和进程树，停止 supervisor 及 worker，不影响 Java、Vite 或本机代理。网关默认 2 个 worker，可用 AI_GATEWAY_WORKERS=1～8 调整。
+先启动 Java，再启动 AI。脚本后台依次启动 MCP、Agent 和网关进程，显示 PID；日志在 `cinema-ticketing-backend/target/ai-{mcp,agent,gateway}-{stdout,stderr}.log`。端口被占用时脚本会报错。可先运行 `./stop-ai-local.ps1`（全部）或 `./stop-ai-local.ps1 -Service gateway`（仅网关），随后对应运行 `./start-ai-local.ps1 -Service gateway`；`-Service mcp` 用于单独重启 MCP。仅启动 Agent 时需先启动 MCP 或配置已有 MCP 地址。脚本核实项目路径、端口和进程树，停止 supervisor 及 worker，不影响 Java、Vite 或本机代理。网关默认 2 个 worker，可用 AI_GATEWAY_WORKERS=1～8 调整。
 
 新环境安装依赖（需 Python 3.12）：
 
@@ -32,7 +32,7 @@ python -m venv cinema-ticketing-backend/cinema-ai/.venv
 cinema-ticketing-backend/cinema-ai/.venv/Scripts/python.exe -m pip install -r cinema-ticketing-backend/cinema-ai/requirements.txt
 ```
 
-网关可独立安装自己的 `requirements.txt`；本地脚本共用包含这些依赖的 Agent 虚拟环境，但两个服务是不同进程。
+网关可独立安装自己的 `requirements.txt`；本地脚本共用包含这些依赖的 Agent 虚拟环境，MCP、Agent、网关使用独立进程。
 
 网关配置示例在 `cinema-ticketing-backend/cinema-ai-gateway/.env.example`。复制为同目录 `.env` 后，启动脚本通过 Uvicorn 加载。
 
@@ -50,14 +50,14 @@ cinema-ticketing-backend/cinema-ai/.venv/Scripts/python.exe -m pip install -r ci
 
 密钥读取保留点号、下划线和 Base64 常见符号，避免截断供应商的完整密钥。模型鉴权、权限、限流、超时和业务查询错误以稳定错误码和中文原因返回页面；服务端只记录失败阶段、异常类型和 HTTP 状态，不输出密钥或完整对话。简单问候及能力介绍不执行业务 SQL。
 
-Java、网关与 Agent 的 `AI_INTERNAL_TOKEN` 必须一致。本地默认匹配 Java 的 `local-internal-token`；修改后请同时设置三个服务。
+Java、网关、Agent 与 MCP 的 `AI_INTERNAL_TOKEN` 必须一致。本地默认匹配 Java 的 `local-internal-token`；修改后请同时设置四个服务。
 
 ## 聊天体验
 
 - 默认由 Dify 回答，支持逐段显示、停止、错误重试、新对话。
 - 用户点击“转接实时 Agent”；未登录时先打开登录弹窗，成功登录后完成转接。
 - 转接后的问题携带最近 10 条、每条最多 2000 字的对话背景。背景只用于理解问题，不提供权限或覆盖业务事实。
-- Agent 可查影片、场次、本人订单和退票规则，不替用户下单、支付或退款。所有时区未标注的场次时间按北京时间解释。
+- Agent 可查影片、场次、实时座位、本人订单和退票规则，不替用户下单、支付或退款。座位查询需明确场次编号，如“查询场次 12 的座位”。所有时区未标注的场次时间按北京时间解释。
 - 返回智能助手时只继续 Dify 自己的会话；不会把实时 Agent 的订单回复发送给 Dify。退出或更换账户清空当前窗口记录。
 - 订单号必须由用户提供。直接回答追问的订单号时，Agent 会根据上一条询问衔接。
 

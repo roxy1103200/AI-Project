@@ -1,5 +1,5 @@
 ﻿param([string]$InternalToken = $env:AI_INTERNAL_TOKEN,
-      [ValidateSet('all','agent','gateway')][string]$Service = 'all')
+      [ValidateSet('all','mcp','agent','gateway')][string]$Service = 'all')
 $ErrorActionPreference = 'Stop'
 $aiDirectory = Join-Path $PSScriptRoot 'cinema-ai'
 $gatewayDirectory = Join-Path $PSScriptRoot 'cinema-ai-gateway'
@@ -7,15 +7,16 @@ $pythonPath = Join-Path $aiDirectory '.venv/Scripts/python.exe'
 if (!(Test-Path -LiteralPath $pythonPath)) {
     throw '请先按 docs/dify-agent-setup.md 创建 cinema-ai/.venv 并安装依赖。'
 }
-if (!$InternalToken) { $InternalToken = 'local-internal-token' }
-$env:AI_INTERNAL_TOKEN = $InternalToken
-if (!$env:JAVA_API_URL) { $env:JAVA_API_URL = 'http://127.0.0.1:8080' }
-if (!$env:AGENT_API_URL) { $env:AGENT_API_URL = 'http://127.0.0.1:8000' }
-if (!$env:DIFY_API_KEY_FILE) { $env:DIFY_API_KEY_FILE = Join-Path (Split-Path $PSScriptRoot -Parent) 'API/dify.txt' }
-if (!$env:QWEN_API_KEY_FILE) { $env:QWEN_API_KEY_FILE = Join-Path (Split-Path $PSScriptRoot -Parent) 'API/qwen.txt' }
+# 不预先设置默认环境值，否则会覆盖 uvicorn --env-file 中的实际配置。
+# 各服务自身提供本地默认地址和密钥文件路径；显式传参/已有环境变量仍优先。
+if ($InternalToken) { $env:AI_INTERNAL_TOKEN = $InternalToken }
 $logDirectory = Join-Path $PSScriptRoot 'target'
 New-Item -ItemType Directory -Force -Path $logDirectory | Out-Null
-$selectedServices = @(@{ Name = 'agent'; Port = 8000; Directory = $aiDirectory }, @{ Name = 'gateway'; Port = 8010; Directory = $gatewayDirectory })
+$selectedServices = @(
+    @{ Name = 'mcp'; Port = 8020; Directory = $aiDirectory; Module = 'app.mcp_server:app' },
+    @{ Name = 'agent'; Port = 8000; Directory = $aiDirectory; Module = 'app.main:app' },
+    @{ Name = 'gateway'; Port = 8010; Directory = $gatewayDirectory; Module = 'app.main:app' }
+)
 if ($Service -ne 'all') { $selectedServices = @($selectedServices | Where-Object { $_.Name -eq $Service }) }
 foreach ($aiService in $selectedServices) {
     if (Get-NetTCPConnection -LocalPort $aiService.Port -State Listen -ErrorAction SilentlyContinue) {
@@ -23,7 +24,7 @@ foreach ($aiService in $selectedServices) {
     }
 }
 foreach ($aiService in $selectedServices) {
-    $arguments = @('-m', 'uvicorn', 'app.main:app', '--host', '127.0.0.1', '--port', $aiService.Port)
+    $arguments = @('-m', 'uvicorn', $aiService.Module, '--app-dir', $aiService.Directory, '--host', '127.0.0.1', '--port', $aiService.Port)
     if ($aiService.Name -eq 'gateway') {
         $workerSetting = $env:AI_GATEWAY_WORKERS
         $gatewayEnvFile = Join-Path $gatewayDirectory '.env'
@@ -43,6 +44,20 @@ foreach ($aiService in $selectedServices) {
         -WorkingDirectory $aiService.Directory -WindowStyle Hidden -PassThru `
         -RedirectStandardOutput (Join-Path $logDirectory "ai-$($aiService.Name)-stdout.log") `
         -RedirectStandardError (Join-Path $logDirectory "ai-$($aiService.Name)-stderr.log")
+    if ($aiService.Name -eq 'mcp') {
+        $ready = $false
+        $deadline = [DateTime]::UtcNow.AddSeconds(15)
+        while ([DateTime]::UtcNow -lt $deadline) {
+            if ($process.HasExited) { break }
+            try {
+                $health = Invoke-RestMethod -Uri "http://127.0.0.1:$($aiService.Port)/health" -TimeoutSec 1
+                if ($health.status -eq 'UP' -and $health.service -eq 'cinema-mcp') { $ready = $true; break }
+            } catch { }
+            Start-Sleep -Milliseconds 200
+        }
+        if (!$ready) { throw "MCP 未成功启动，请检查 target/ai-mcp-stderr.log；尚未启动后续 Agent/网关。" }
+    }
     Write-Host "$($aiService.Name): PID=$($process.Id), port=$($aiService.Port)"
 }
+if ($Service -eq 'agent') { Write-Host 'Agent 查询需要 MCP 服务：请先启动 -Service mcp，或配置 CINEMA_MCP_URL 指向已有服务。' }
 

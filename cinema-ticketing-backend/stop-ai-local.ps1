@@ -1,7 +1,7 @@
-﻿param([ValidateSet('all','agent','gateway')][string]$Service = 'all')
+﻿param([ValidateSet('all','mcp','agent','gateway')][string]$Service = 'all')
 $ErrorActionPreference = 'Stop'
 $projectPath = [System.IO.Path]::GetFullPath($PSScriptRoot)
-$ports = if ($Service -eq 'agent') { @(8000) } elseif ($Service -eq 'gateway') { @(8010) } else { @(8000,8010) }
+$ports = if ($Service -eq 'agent') { @(8000) } elseif ($Service -eq 'gateway') { @(8010) } elseif ($Service -eq 'mcp') { @(8020) } else { @(8000,8010,8020) }
 $processes = @(Get-CimInstance Win32_Process)
 $targets = [System.Collections.Generic.HashSet[int]]::new()
 $ordered = [System.Collections.Generic.List[int]]::new()
@@ -15,7 +15,7 @@ function Add-ServiceTree([int]$processId) {
 foreach ($servicePort in $ports) {
     $roots = @($processes | Where-Object {
         $_.CommandLine -and $_.CommandLine.Contains($projectPath) -and
-        $_.CommandLine -like '*uvicorn app.main:app*' -and $_.CommandLine -match "--port\s+$servicePort(?:\s|$)"
+        $_.CommandLine -match 'uvicorn app\.(?:main|mcp_server):app' -and $_.CommandLine -match "--port\s+$servicePort(?:\s|$)"
     })
     if (!$roots.Count -and (Get-NetTCPConnection -LocalPort $servicePort -State Listen -ErrorAction SilentlyContinue)) {
         throw "端口 $servicePort 的进程不属于已确认的项目 AI 服务，未停止。"
