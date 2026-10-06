@@ -152,3 +152,18 @@ docker compose --profile app up -d --build
 - Python 5 项测试：真实 Chroma 的归属过滤、SQL 复核、更新/删除幂等、故障回退、过期事件跳过和失败重试；测试使用独立临时 collection 与合成向量，不依赖云模型。
 - 实际 MySQL + 本地 512 维 BGE + Chroma HTTP + Agent：两个临时账号验证跨会话记住、用户隔离、修改立即生效、删除立即生效以及提议不自动落库。
 - 页面实际验证“我的记忆”添加、修改及 Agent 确认保存入口；前端类型检查与生产构建通过。
+- Agent / MCP 合计 17 项、网关 9 项、前端 9 项，加上新增 Java 7 项，共 42 项测试通过。Chroma 服务重启后两个实际 BGE 向量仍可读取；临时测试账号与记忆已清理。
+- 管理员重建通过 SQL 事务测试及接口权限测试；本次未在本地真实管理员账号上执行。自动审批拒绝了临时账号提权的测试步骤，未实施该权限变更。
+
+### 本地助手连接故障与后台启动
+
+出现“助手连接失败”时先检查 8080 / 8000 / 8010 的监听状态。2026-10-06 排查发现前端和 MCP 存活，但后端、Agent 和网关进程已退出；恢复后，从 5173 代理入口验证两个登录会话均返回 200。
+
+新增 `cinema-ticketing-backend/start-stack-background.ps1`，通过隐藏的独立 Windows 启动器拉起已构建的 Java 后端及缺失的 AI 服务，避免后台进程依附调用终端的任务生命周期。已有端口不会重复启动；仅用于本地 `local` 配置，不负责重新构建 JAR。
+
+```powershell
+# 在 cinema-ticketing-backend 下，指定实际 Java 21 路径
+.\start-stack-background.ps1 -JavaPath 'D:\java\jdk21\bin\java.exe'
+```
+
+默认也支持 `JAVA_HOME` 或 PATH 中的 Java。启动日志为 `target/stack-startup.log`；AI 服务可继续用 `stop-ai-local.ps1 -Service ...` 停止。Java 后端需停止其已确认的本项目 JAR 进程。服务器使用 Compose 的服务管理，不使用此 Windows 脚本。
