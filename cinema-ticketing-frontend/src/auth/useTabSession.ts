@@ -47,6 +47,7 @@ export function useTabSession() {
     sessionStorage.removeItem(STORAGE_KEY);
     clearChatBindings();
     sessionStorage.removeItem("cinema-ai-handoff-pending");
+    sessionStorage.removeItem("cinema-agent-login-pending");
     setSession(null); setChecking(false); setError("");
   }
 

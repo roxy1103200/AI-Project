@@ -1,11 +1,11 @@
 # 方案 B：Dify Chatbot + 独立 AI 网关
 
-已接入自定义聊天窗口；Dify 使用云端 Chatbot 官方 API。首页右下角“影院助手”是统一入口。
+已接入两个独立聊天入口；Dify 使用云端 Chatbot 官方 API。首页右下角保留“智能 Agent”窗口，左侧增加 Dify 小悬浮球。两者的会话、历史、授权和反馈独立，详见 [聊天隔离说明](ai-chat-isolation.md)。
 
 ## 请求路径
 
-- 常见问题：浏览器 → `/ai-gateway/chat` → Python 网关 → Dify 云端。此路径不访问 Java 或数据库。
-- 手动转接：浏览器先向 Java `/api/ai/handoff` 申请凭证，再向网关发送问题。网关向 Java 校验凭证，调用内部 Agent `/ai/live`；电影、场次、座位、本人订单通过独立 MCP Server 查询 Java，规则 RAG 和推荐保留原工具。详见 [Cinema MCP 配置](cinema-mcp.md)。
+- 常见问题：浏览器 → `/ai-gateway/dify/chat` → Python 网关 → Dify 云端。此路径不访问 Java 或数据库。
+- 智能 Agent：浏览器自动向 Java `/api/ai/handoff` 申请仅绑定 Agent 会话的凭证，再向 `/ai-gateway/agent/chat` 发送问题。网关向 Java 校验凭证，调用内部 Agent `/ai/live`；电影、场次、座位、本人订单通过独立 MCP Server 查询 Java，规则 RAG 和推荐保留原工具。详见 [Cinema MCP 配置](cinema-mcp.md)。
 - 回答由网关直接以 SSE 返回浏览器，Java 不转发模型长连接。
 - 凭证有效期 10 分钟，绑定当前登录与聊天会话，只支持只读查询。每轮实时查询都会重新核验登录状态；退出登录后凭证失效。
 - 前端不提交可信用户 ID。模型不生成 SQL；Java 工具使用固定 SQL 和参数查询本人订单、影片、场次、当前退票规则。
@@ -54,31 +54,31 @@ Java、网关、Agent 与 MCP 的 `AI_INTERNAL_TOKEN` 必须一致。本地默�
 
 ## 聊天体验
 
-- 默认由 Dify 回答，支持逐段显示、停止、错误重试、新对话。
-- 用户点击“转接实时 Agent”；未登录时先打开登录弹窗，成功登录后完成转接。
-- 转接后的问题携带最近 10 条、每条最多 2000 字的对话背景。背景只用于理解问题，不提供权限或覆盖业务事实。
+- Dify 与智能 Agent 分别提供逐段显示、停止、错误重试、恢复聊天、新对话和回答评价。
+- 两个入口并排；桌面可以同时打开两个窗口，小屏幕逐个打开。Agent 未登录时提供登录按钮，成功登录后自动打开 Agent。
+- Agent 问题仅携带其自身最近 10 条、每条最多 2000 字的对话背景。背景只用于理解问题，不提供权限或覆盖业务事实；不包含 Dify 历史。
 - Agent 可查影片、场次、实时座位、本人订单和退票规则，不替用户下单、支付或退款。座位查询需明确场次编号，如“查询场次 12 的座位”。所有时区未标注的场次时间按北京时间解释。
-- 返回智能助手时只继续 Dify 自己的会话；不会把实时 Agent 的订单回复发送给 Dify。退出或更换账户清空当前窗口记录。
+- 打开 Dify 只继续 Dify 自己的会话；Agent 的订单回复、凭证和历史不会发送给 Dify。退出或更换账户清空两个窗口的当前状态。
 - 订单号必须由用户提供。直接回答追问的订单号时，Agent 会根据上一条询问衔接。
 
 ## Dify 侧配合
 
 当前 Chatbot 不要求额外输入变量，可直接使用 `/chat-messages`。密钥的配置读取已成功；尚未自动发起收费模型回答。
 
-普通自然语言回答可直接流式展示。若希望 Dify 在回答末尾提示转接，可约定完整回答为 JSON：
+普通自然语言回答可直接流式展示。兼容已有的 JSON 回答形式：
 
 ```json
-{"answer":"需要查询实时订单数据，请选择转接。","handoffSuggested":true}
+{"answer":"实时订单数据请使用独立的智能 Agent 窗口查询。"}
 ```
 
-这是本项目的可选协议，不是 Dify 默认响应字段。网关收到完成事件后解析它；推荐提示不会自动调用 Agent，仍由用户点击。用户也可以随时手动转接。建议普通问答先使用自然语言，待你完善 Dify 提示词后再开启结构化协议。
+这是本项目的可选协议，不是 Dify 默认响应字段。网关只解析 `answer` 展示答案，不再处理 `handoffSuggested` 转接提示；两个窗口不传递上下文。
 
 ## 部署与当前边界
 
 - Docker Compose 的 `app` profile 增加 `cinema-ai-gateway`，Nginx `/ai-gateway/` 直达网关并关闭缓冲。网关、Agent 不发布宿主机端口，内部端点不会从 Nginx 转发到公网。
 - 云端 Dify 的调用采用服务端 Bearer Key、网关生成的独立 `user` 和会话 ID，遵循 [Dify Chat API](https://docs.dify.ai/en/api-reference/chat-messages/send-chat-message)。浏览器无法指定 Dify 会话 ID。
 - 网关默认最多 16 条并发流，每个会话每分钟最多 12 次提问；总生成时间最多 90 秒，单回答最多 40000 字。每个会话只允许一条流。
-- 网关会话已存入共享 Redis：所有 worker/实例共享会话、Dify 编号、聊天历史、反馈摘要、滑动限流、生成租约和全局并发额度。最多 2000 个聊天；匿名闲置 24 小时，登录账户闲置 30 天过期。默认 2 个 worker，不需要粘性会话。网关重启后可恢复既有 Redis 会话。部署仍需自行配置外部入口 IP 限流。
+- 网关会话已存入共享 Redis：同一渠道的所有 worker/实例共享会话、聊天历史、反馈摘要、滑动限流和生成租约；Dify 与 Agent 使用独立前缀，仅共享全局并发额度。每个渠道最多 2000 个聊天；匿名闲置 24 小时，登录账户闲置 30 天过期。默认 2 个 worker，不需要粘性会话。网关重启后可恢复各自 Redis 会话。旧混合记录不自动导入。部署仍需自行配置外部入口 IP 限流。
 - 线上使用 HTTPS，替换演示内部凭证，并限制 Java 内部端点和 Agent 端口仅内网可达。页面登录及随机聊天绑定凭证保存在 sessionStorage；网关忽略旧共享 Cookie，浏览器请求使用 credentials=omit。AI_COOKIE_SECURE 为旧配置，当前不再签发用于鉴权的 Cookie。
 - 现有 Java `/api/ai/chat`、`/api/ai/stream` 兼容保留；新前端不使用它们。旧 `/ai/stream` 仍是完整结果事件，新 `/ai/live` 提供进度和模型增量。
 - 首期没有新增数据库缓存或通用 SQL 工具。减少 Java 问答流量靠 FAQ 分流；实时查询仍会产生业务请求与 SQL。
@@ -91,7 +91,7 @@ Java、网关、Agent 与 MCP 的 `AI_INTERNAL_TOKEN` 必须一致。本地默�
 - 先保存影院本地反馈，再同步 Dify。云端失败不会丢失本地记录；页面提示实际状态，后台记录 PENDING/SYNCED/FAILED/UNAVAILABLE。内部 Agent 反馈为 NOT_APPLICABLE，订单回答不会发往 Dify。当前重试由用户发起，没有后台自动同步队列。
 - 共享 Redis 保留最近最多 1000 条反馈摘要、最多 8000 字/条、最长 2 小时（达到数量上限会提前淘汰）。反馈和提交锁可跨 worker；网关重启后仍可评价有效摘要。用户提交评价才写 Java/MySQL。新对话或过期后不能评价旧回答，已经保存的后台反馈仍保留。每会话每分钟最多 20 次反馈。
 - 管理员从导航“AI 反馈”进入，默认显示待处理点踩；可按来源/评价/原因/处理状态/关键词筛选，展开查看原问题、归一化问题、意图、实体、查询工具、原始回答、异常、同步状态，保存备注及标记已处理/重新打开。该页面仅 ADMIN 可访问。Dify 的内部意图不在现有 SSE 合同中，后台对此显示未返回，不推测。
-- 本次新增 Java API 和 `ai_message_feedback` 表，因此 **IDEA 中的 Java 服务也需要重启**，Python Agent 与网关也需重启；刷新前端后开始新对话、重新转接。
+- 首次启用反馈功能时需部署 Java API 和 `ai_message_feedback` 表并重启 Java。此次独立聊天改动只需要配套更新前端与 AI 网关、重启网关并刷新页面，Java/Agent/MCP 接口不变。
 - Java 启动默认只执行 `src/main/resources/ai-feedback-schema.sql` 的 CREATE TABLE IF NOT EXISTS，不重跑影片种子。生产库可由运维预先执行该文件，并设置 `ai.feedback.initialize-schema=false`，应用账号无需 DDL 权限。既有表不自动变更。
 - 普通聊天自动保存到 Redis，不写 Java/MySQL；后台显示用户明确提交的评价。撤回反馈保留本地业务记录，不提供逐次投票审计历史。
 
@@ -99,11 +99,11 @@ Java、网关、Agent 与 MCP 的 `AI_INTERNAL_TOKEN` 必须一致。本地默�
 
 - `AI_REDIS_URL` 指向共享会话 Redis（默认 redis://127.0.0.1:6379/0）；所有网关实例的 `AI_REDIS_PREFIX` 必须一致，默认 ai:gateway:。本地未设置 URL 时，且 Java 指向 localhost，读取被 Git 忽略的 Java application-local.yml 中 Redis 配置；不会打印连接凭证。Docker 使用 redis 服务的数据库 0。
 - 网关直接读取 Java 的 `auth:session:<token>` 验证登录、用户和退出状态，普通 FAQ 与恢复会话无需调用 Java。`AI_AUTH_REDIS_URL` 默认同 AI_REDIS_URL；将 AI 数据放到另一数据库时，必须单独指向 Java 所使用的 Redis 数据库。网关身份绑定只保存在服务端，浏览器不指定 userId，生成模型也不提供身份。
-- 打开助手或点击“恢复聊天”读取最近 40 条已结束的消息（完成、失败、用户停止均保存），每个回答最多保存前 8000 字，较长回答明确显示截断。同一登录账户在不同设备恢复同一当前聊天；默认回到 Dify，继续实时查询需使用本设备当前登录重新转接，不保存转接凭证。没有全量历史检索或恢复正在进行中的 SSE。
+- 打开某个助手或点击其“恢复聊天”读取该渠道最近 40 条已结束的消息（完成、失败、用户停止均保存），每个回答最多保存前 8000 字，较长回答明确显示截断。同一登录账户在不同设备分别恢复该渠道当前聊天；Agent 继续查询时使用本设备当前登录自动申请只读凭证，不持久化凭证。没有全量历史检索或恢复正在进行中的 SSE。
 - 登录只恢复该账户当前会话，匿名记录不自动合并；退出/更换账户立即清空窗口、取消旧请求并清除本地聊天绑定。每次聊天、停止、重置和反馈均发送当前标签的 X-Auth-Token、X-AI-Session 随机绑定凭证及 X-AI-Conversation 期望会话 ID；缺失、过期、归属不匹配或旧对话均被拒绝，恢复需显式重新连接。其他标签/设备独立有效的登录不受退出影响。匿名聊天凭证仅保存在当前标签的 sessionStorage，不能跨设备识别匿名用户。会话建立响应含 bindingKey，需保密，不写 URL 或日志。
 - 页面启动用 /api/auth/me 核验登录账户，菜单依据确认的角色显示；临时失败可重试，登录过期清理当前标签。发布后需重启 Java 和网关并刷新所有页面，旧 localStorage 登录不迁移，各标签重新登录。
 - 网关到 Java/内部 Agent、内部 Agent 到 Java 均使用独立的 HTTP 客户端并设置 trust_env=false，直接连接配置的内部地址；这些调用不使用环境或 Windows 系统代理，避免本机服务被转发到代理后返回 502。Dify 云端请求仍使用独立云端客户端。网关失败日志仅记录 provider、固定 stage、异常类型和 HTTP 状态，不打印 token、URL 参数、对话或供应商响应正文。
-- “新对话”清空当前会话的 Redis 最近聊天并切换账户指针，其他设备点击恢复后同步新会话；正在生成时拒绝重置。已保存的 MySQL 反馈不删除。生成锁默认 120 秒，回答预算 90 秒，进程崩溃后自动释放容量；有残留云端任务时下一轮先尝试停止。
+- “新对话”仅清空所在渠道当前会话的 Redis 最近聊天并切换该渠道账户指针，其他设备在该渠道点击恢复后同步新会话；正在生成时拒绝重置，另一渠道保持不变。已保存的 MySQL 反馈不删除。生成锁默认 120 秒，回答预算 90 秒，进程崩溃后自动释放容量；Dify 有残留云端任务时下一轮先尝试停止。
 - 普通聊天每会话每分钟 12 次、反馈 20 次、新对话每浏览器每分钟 5 次；全局同时生成最多 AI_MAX_STREAMS（默认16）。额度在 Redis 中共享，不会随 worker/实例数量翻倍。反馈同步锁也跨实例串行，防止点赞/撤回顺序被覆盖。
 - 本地启动默认 `--workers 2`；Docker 默认 WEB_CONCURRENCY=2。多副本可执行 `docker compose --profile app up -d --scale cinema-ai-gateway=2`，网关已移除固定 container_name；扩缩容后重启 Nginx 刷新 Docker DNS 地址。所有实例必须共用 Dify 应用、密钥、Redis 和内部服务凭证。仅 `cinema-ai-gateway` 支持该扩展；其他已有固定名称服务不在本次扩容范围。
 - Docker Redis 已开启 AOF（everysec）并挂载 redis-data 卷。既有虚拟机 Redis 部署需保留其持久化配置和磁盘；网关进程重启不会清理聊天，Redis 自身数据被清空或丢失仍会丢失恢复记录。客户端使用 [Redis 官方异步 Python 客户端接口](https://redis.readthedocs.io/en/stable/examples/asyncio_examples.html)，依赖锁定 redis==5.2.1。当前 Lua 跨键事务面向单 Redis 主节点，不支持直接切换到 Redis Cluster。

@@ -94,12 +94,12 @@
 - Java 的 /api/ai/chat 和 /api/ai/stream 要求观众登录，并从已验证的会话中取得用户 ID。
 - Java 网关使用内部服务凭证调用独立 Python AI 服务；Python 服务提供影片和场次查询、本人订单查询、退票规则与知识库检索、影片推荐及退票资格查询。
 - 这些工具目前只读。下单、支付和退票仍由 Java 业务接口处理。
-- 前端“影院助手”默认通过独立 Python 网关调用 Dify 云端 Chatbot；普通问答与 SSE 不经过 Java。
-- 用户主动转接后，Java 签发 10 分钟、绑定登录和聊天会话的只读凭证。网关每轮核验凭证，调用内部 Agent `/ai/live`，业务工具仍由 Java 执行，模型回复直接由网关流回浏览器。
+- 前端 Dify 小悬浮球通过 `/ai-gateway/dify/` 调用 Dify 云端 Chatbot；普通问答与 SSE 不经过 Java。旁边的智能 Agent 使用独立窗口与 `/ai-gateway/agent/`，两者会话、历史、生成控制与反馈独立。
+- Agent 查询时，Java 签发 10 分钟、绑定登录和 Agent 聊天会话的只读凭证。网关每轮核验凭证，调用内部 Agent `/ai/live`，业务工具仍由 Java 执行，模型回复直接由网关流回浏览器；Dify 历史不传入 Agent，Agent 查询结果不传入 Dify。
 - 实时查询本人订单使用服务端身份，并返回当前退票规则计算的资格、截止时间和座位。没有通用 SQL 或自动交易工具。
 - 内部 Agent 模型为 Qwen3.7 Flash（qwen3.7-flash），服务端读取 API/qwen.txt 密钥，通过百炼兼容接口根据工具结果生成流式回复。内部 Agent 先识别意图、归一化同义说法、结合最近 10 条上下文提取影片/影院/日期/订单号，再校验并选择固定只读工具；低置信度或缺少订单号先澄清。模型不生成 SQL、不提供身份、不执行交易。问候走快速规则；模型理解失败时记录原因并回退保守规则。
 - 聊天回答支持点赞/点踩、可选原因与说明。网关按会话验证消息归属，仅在用户提交反馈时向 Java 保存原问题、归一化问题、意图/置信度/提取实体/查询工具、回答、异常码与评价。Dify 回答同步官方反馈接口，内部 Agent 反馈只保存在影院后台。管理员在“AI 反馈”中筛选、查看、备注和标记已处理；撤回评价保留本地记录但清空当前 rating。Dify 未通过 API 返回的意图不伪造。
-- AI 网关会话、Dify 编号、最近 40 条聊天、反馈摘要、限流和生成锁存入共享 Redis。登录账户恢复最近 30 天内的当前聊天，匿名浏览器恢复最近 24 小时内的聊天；不自动合并匿名记录。用户可点击“恢复聊天”，账户切换只读取新账户的历史。内部 Agent 的上下文从服务器历史获取。多个 worker/实例共享生成锁与额度，锁在进程异常后自动过期；普通问答不调用 Java，登录由共享 Redis 会话验证。
+- AI 网关会话、Dify 编号、最近 40 条聊天、反馈摘要、限流和生成锁存入共享 Redis。登录账户恢复最近 30 天内的当前聊天，匿名浏览器恢复最近 24 小时内的聊天；不自动合并匿名记录。用户可点击“恢复聊天”，账户切换只读取新账户的历史。内部 Agent 的上下文仅从 Agent 渠道服务器历史获取；Dify 与 Agent 的账户当前会话指针和 Redis 数据前缀分别保存，旧混合历史不自动导入。多个 worker/实例共享生成锁与额度，锁在进程异常后自动过期；普通问答不调用 Java，登录由共享 Redis 会话验证。
 - 配置和已实现边界见 [dify-agent-setup.md](dify-agent-setup.md)。
 
 对应代码：[AiGatewayController.java](../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/controller/AiGatewayController.java)、[AiGatewayService.java](../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/service/AiGatewayService.java)、[main.py](../cinema-ticketing-backend/cinema-ai/app/main.py)、[InternalAiController.java](../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/controller/InternalAiController.java)。
@@ -111,7 +111,7 @@
 - Java 登录生成独立随机 token，生产路径在 Redis 保存 userId/role，2 小时到期；多端登录各自持有 token，退出仅撤销当前 token。注册只创建 USER。登录信息保存在 sessionStorage，同一浏览器不同标签页可以分别登录；页面启动读取 token 候选并调用 /api/auth/me，服务端根据数据库确认账户状态、用户名和角色，返回剩余有效期，不延长登录寿命。核验完成前不显示管理菜单，暂时不可用可重试，401 清理当前标签身份。后台接口仍调用 requireAdmin。
 - 订单查询、支付、取消、退票和座位详情都从 token 获取 userId，并在订单 SQL 检查归属；普通观众传其他 userId 查询订单列表仍只得到本人数据。管理员可以查询其他账户订单列表并验票，这是当前全局管理权限。
 - 个人影评和回复的修改/删除按服务端 userId 限定；管理员审核独立检查 ADMIN 并记录操作人，审核不能代替观影资格。此次已移除未确认的“不能通过本人内容”限制，通过说明可省略，拒绝/隐藏原因必填；审核页面按 token 重新挂载，清理旧账户页面状态。
-- 账号登录、退出或过期时，App 按 token 重建整个业务页面，清空订单、详情、购票/电影票弹窗、管理页面和聊天界面状态；统一请求作用域取消旧页面的请求，并在响应返回时再次检查取消状态。迟到的旧页面回调只能作用于已卸载实例。401 事件带原请求 token，只使当前匹配的标签会话失效；到期计时器也会清理身份。登录触发的实时 Agent 转接意图只在该标签保留到登录成功。
+- 账号登录、退出或过期时，App 按 token 重建整个业务页面，清空订单、详情、购票/电影票弹窗、管理页面和聊天界面状态；统一请求作用域取消旧页面的请求，并在响应返回时再次检查取消状态。迟到的旧页面回调只能作用于已卸载实例。401 事件带原请求 token，只使当前匹配的标签会话失效；到期计时器也会清理身份。登录触发的 Agent 打开意图只在该标签保留到登录成功。
 - AI 网关共享会话按 owner_id 隔离，使用 sessionStorage 保存的随机标签凭证，忽略原有共享 Cookie。建立会话时必须明确携带当前 token（匿名为空）；聊天、停止、重置和反馈同时携带 X-AI-Session、X-AI-Conversation 和当前 X-Auth-Token。网关逐次读取 Java 的 Redis 登录会话，检查绑定 token、账户归属、期望会话 ID 和当前账户会话；任何一项不匹配即拒绝，不自动用绑定中旧 token 代替请求 token，不自动切换到另一对话。聊天请求体 sessionId 和反馈消息归属另行校验；实时 Agent 凭证继续绑定 token、对话和只读范围，工具使用服务端身份查询个人订单。
 
 仍需改造的实际缺口：
