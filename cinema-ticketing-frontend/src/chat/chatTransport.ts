@@ -1,6 +1,6 @@
 import { invalidateToken } from "../auth/client";
 
-export type ChatEvent = { type: string; text?: string; message?: string; code?: string; messageId?: string; normalized_question?: string };
+export type ChatEvent = { type: string; text?: string; message?: string; code?: string; messageId?: string; normalized_question?: string; content?: string; category?: string };
 export type ChatChannel = "dify" | "agent";
 export type ChatContext = { channel: ChatChannel; bindingKey: string; sessionId?: string; token?: string };
 

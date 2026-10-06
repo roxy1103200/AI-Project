@@ -96,6 +96,7 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
             self.stores = {channel: ConversationStore(channel) for channel in ("dify", "agent")}
         self.upstream_requests: list[httpx.Request] = []
         self.agent_session_id = ""
+        self.agent_memory_suggestion = False
         self.upstream = httpx.AsyncClient(transport=httpx.MockTransport(self.mock_upstream))
         app.state.stores = self.stores
         app.state.client = app.state.internal_client = self.upstream
@@ -126,6 +127,8 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(200, json={"userId": 2, "sessionId": self.agent_session_id, "scope": "cinema:read"})
         if request.url.path == "/ai/live":
             content = 'data: {"type":"delta","text":"AGENT ONLY"}\n\ndata: {"type":"complete"}\n\n'
+            if self.agent_memory_suggestion:
+                content = 'data: {"type":"memory_suggestion","content":"喜欢科幻","category":"GENRE","userId":999}\n\n' + content
             return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
         if request.url.path.endswith("/chat-messages"):
             content = (
@@ -183,6 +186,14 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(dify_call.content)["conversation_id"], "")
         session = await self.stores["agent"].load(self.info["agent"]["sessionId"])
         self.assertEqual(session.conversation_id, "")
+
+    async def test_memory_suggestion_is_agent_only_and_has_no_owner_override(self) -> None:
+        self.agent_memory_suggestion = True
+        response = await self.turn("agent", "请记住科幻偏好")
+        self.assertIn('"type": "memory_suggestion"', response.text)
+        self.assertNotIn('"userId": 999', response.text)
+        response = await self.turn("dify", "购票须知")
+        self.assertNotIn("memory_suggestion", response.text)
 
     async def test_binding_and_feedback_cannot_cross_channels(self) -> None:
         for channel, other in (("dify", "agent"), ("agent", "dify")):

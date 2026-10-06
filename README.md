@@ -166,6 +166,7 @@ mvn test
 - [当前业务流程与实现边界](docs/business-logic.md)
 - [AI 网关、Dify 与内部 Agent 配置](docs/dify-agent-setup.md)
 - [Dify 与 Agent 聊天隔离及更新说明](docs/ai-chat-isolation.md)
+- [内部 Agent 长期记忆接入方案：MySQL + Chroma](docs/agent-long-term-memory-chroma.md)
 - [Dify 与内部 Agent 方案说明](docs/dify-agent-options.md)
 - [影评、审核与验票说明](docs/movie-reviews.md)
 - [后端 API、运行和功能说明](cinema-ticketing-backend/README.md)

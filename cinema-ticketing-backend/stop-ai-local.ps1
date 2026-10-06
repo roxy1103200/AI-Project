@@ -1,7 +1,7 @@
-﻿param([ValidateSet('all','mcp','agent','gateway')][string]$Service = 'all')
+﻿param([ValidateSet('all','mcp','agent','gateway','chroma','memory')][string]$Service = 'all')
 $ErrorActionPreference = 'Stop'
 $projectPath = [System.IO.Path]::GetFullPath($PSScriptRoot)
-$ports = if ($Service -eq 'agent') { @(8000) } elseif ($Service -eq 'gateway') { @(8010) } elseif ($Service -eq 'mcp') { @(8020) } else { @(8000,8010,8020) }
+$ports = if ($Service -eq 'agent') { @(8000) } elseif ($Service -eq 'gateway') { @(8010) } elseif ($Service -eq 'mcp') { @(8020) } elseif ($Service -in @('memory','chroma')) { @() } else { @(8000,8010,8020) }
 $processes = @(Get-CimInstance Win32_Process)
 $targets = [System.Collections.Generic.HashSet[int]]::new()
 $ordered = [System.Collections.Generic.List[int]]::new()
@@ -20,6 +20,14 @@ foreach ($servicePort in $ports) {
     if (!$roots.Count -and (Get-NetTCPConnection -LocalPort $servicePort -State Listen -ErrorAction SilentlyContinue)) {
         throw "端口 $servicePort 的进程不属于已确认的项目 AI 服务，未停止。"
     }
+    foreach ($root in $roots) { Add-ServiceTree ([int]$root.ProcessId) }
+}
+foreach ($memoryService in @('chroma','memory')) {
+    if ($Service -notin @('all',$memoryService)) { continue }
+    $roots = @($processes | Where-Object {
+        $_.CommandLine -and $_.CommandLine.Contains($projectPath) -and
+        $_.CommandLine -match 'app\.memory_runtime' -and $_.CommandLine -match "--service\s+$memoryService(?:\s|$)"
+    })
     foreach ($root in $roots) { Add-ServiceTree ([int]$root.ProcessId) }
 }
 $stopOrder = $ordered.ToArray()

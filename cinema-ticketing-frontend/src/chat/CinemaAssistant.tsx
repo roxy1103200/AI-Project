@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from "react";
 import { bindingStorageKey, GatewayError, gatewayRequest, streamChat, type ChatChannel, type ChatContext } from "./chatTransport";
 import { createMessageId } from "./messageId";
 import MessageFeedback from "./MessageFeedback";
+import UserMemories, { SaveMemory, type MemoryProposal } from "./UserMemories";
 import "./assistant.css";
 
 type Message = { id: string; role: "user" | "assistant"; content: string; mode: ChatChannel; failed?: boolean; messageId?: string; normalizedQuestion?: string; finished?: boolean; truncated?: boolean; feedback?: { rating?: "like" | "dislike" | null; reason?: string | null; content?: string } };
@@ -40,6 +41,8 @@ function ChatAssistant({ token, userId, onLogin, request, channel, open, onOpen 
   const [info, setInfo] = useState<SessionInfo | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [question, setQuestion] = useState("");
+  const [showMemories, setShowMemories] = useState(false);
+  const [proposals, setProposals] = useState<Record<string, MemoryProposal>>({});
   const [credential, setCredential] = useState<Credential | null>(null);
   const [busy, setBusy] = useState(false);
   const [connecting, setConnecting] = useState(false);
@@ -82,6 +85,7 @@ function ChatAssistant({ token, userId, onLogin, request, channel, open, onOpen 
     previousToken.current = token;
     generation.current++; stream.current?.abort(); stream.current = null;
     setBusy(false); setCredential(null); setInfo(null); setMessages([]); setQuestion(""); setError(""); setStatus("");
+    setShowMemories(false); setProposals({});
     if (open) void connect();
   }, [token]);
   useEffect(() => { if (open && !connecting && info) input.current?.focus(); }, [open, connecting, info]);
@@ -112,6 +116,8 @@ function ChatAssistant({ token, userId, onLogin, request, channel, open, onOpen 
             ...(packet.messageId ? { messageId: packet.messageId } : {}), ...(packet.normalized_question ? { normalizedQuestion: packet.normalized_question } : {}) } : message));
         } else if (packet.type === "delta" || packet.type === "replace") {
           setMessages((current) => current.map((message) => message.id === id ? { ...message, content: packet.type === "replace" ? packet.text ?? "" : message.content + (packet.text ?? "") } : message));
+        } else if (packet.type === "memory_suggestion" && isAgent && packet.content) {
+          setProposals((current) => ({ ...current, [id]: { content: packet.content!, category: packet.category ?? "GENERAL" } }));
         } else if (packet.type === "status") setStatus(packet.message ?? "");
         else if (packet.type === "complete") { setMessages((current) => current.map((message) => message.id === id ? { ...message, finished: true } : message)); setStatus(""); }
         else if (packet.code === "handoff_expired") setCredential(null);
@@ -138,6 +144,7 @@ function ChatAssistant({ token, userId, onLogin, request, channel, open, onOpen 
       const value = await gatewayRequest<{ sessionId: string }>("reset", { method: "POST", signal: lifetime.current.signal }, context);
       if (currentGeneration !== generation.current) return;
       setInfo({ ...info, ...value }); setCredential(null); setMessages([]); setQuestion(""); setStatus("");
+      setProposals({});
     } catch (cause) { if (currentGeneration === generation.current) setError(cause instanceof Error ? cause.message : "新对话创建失败"); }
     finally { if (currentGeneration === generation.current) setConnecting(false); }
   }
@@ -152,22 +159,24 @@ function ChatAssistant({ token, userId, onLogin, request, channel, open, onOpen 
     {open && <section id={`cinema-assistant-${channel}`} className={`assistant-panel ${channel}-panel`} role="dialog" aria-label={name} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); close(); } }}>
       <header className="assistant-header"><div><span className="assistant-eyebrow">{isAgent ? "CINEMA AGENT" : "DIFY KNOWLEDGE"}</span><h2>{isAgent ? "你的观影助手" : "Dify 知识问答"}</h2></div><button type="button" aria-label={`关闭${name}`} onClick={close}>×</button></header>
       <div className="assistant-mode"><span><i />{isAgent ? "智能 Agent · 实时查询" : "Dify · 常见问题"}</span><div className="assistant-session-actions"><button type="button" disabled={busy || connecting || (isAgent && !token)} onClick={() => void connect()}>恢复聊天</button><button type="button" title={`仅清空${name}的当前会话`} disabled={busy || connecting || !info} onClick={() => void reset()}>新对话</button></div></div>
-      <div className="assistant-transcript" ref={scroll} role="log" aria-label={`${name}聊天记录`} aria-live="polite" aria-relevant="additions">
+      {isAgent && token && !showMemories && <button type="button" className="assistant-memory-entry" onClick={() => setShowMemories(true)}>我的记忆</button>}
+      {showMemories && isAgent && token ? <UserMemories key={token} token={token} request={request} onClose={() => setShowMemories(false)} /> : <div className="assistant-transcript" ref={scroll} role="log" aria-label={`${name}聊天记录`} aria-live="polite" aria-relevant="additions">
         {messages.length === 0 && <div className="assistant-welcome"><span className="assistant-welcome-mark">{isAgent ? "C /" : "D /"}</span><h3>{isAgent ? "查询你的观影安排" : "了解购票与观影"}</h3><p>{isAgent ? "查询电影、实时场次、座位和本人订单。提供订单号，还可以查看当前退票资格。" : "购票流程、观影须知与常见问题，都可以在这里咨询。"}</p>
           {isAgent && !token ? <button type="button" className="assistant-login" onClick={login}>登录后开始查询 →</button> : <div className="assistant-prompts">{prompts.map((text) => <button key={text} type="button" disabled={busy || connecting || !canSend} onClick={() => void send(text)}>{text}<span>↗</span></button>)}</div>}
         </div>}
         {messages.map((message) => <article key={message.id} className={`assistant-message ${message.role}${message.failed ? " incomplete" : ""}`}><span>{message.role === "user" ? "你" : name}</span>
           {message.normalizedQuestion && <details className="assistant-understanding"><summary>理解后的问题</summary><p>{message.normalizedQuestion}</p></details>}
           <p>{message.content || "正在准备回答…"}</p>{message.failed && <small>回答未完成</small>}{message.truncated && <small>较长回答仅恢复前 8000 字。</small>}
+          {isAgent && token && proposals[message.id] && <SaveMemory key={`${token}:${message.id}`} proposal={proposals[message.id]} messageId={message.messageId} token={token} request={request} />}
           {message.role === "assistant" && message.messageId && message.finished && <MessageFeedback messageId={message.messageId} initial={message.feedback} disabled={busy || connecting} context={context} />}
         </article>)}
         {status && <p className="assistant-status" role="status">{status}</p>}
         {error && <div className="assistant-error" role="alert"><p>{error}</p>{info && lastQuestion && <button type="button" disabled={busy || connecting} onClick={() => void send(lastQuestion)}>重试问题</button>}{!info && <button type="button" disabled={connecting} onClick={() => void connect()}>重新连接</button>}</div>}
         {info && !info.ready && <p className="assistant-status">Dify 知识问答尚未配置，请稍后再试。</p>}
-      </div>
+      </div>}
       <div className="assistant-handoff"><span>{isAgent ? "只读查询，不执行购票或退款" : "购票流程与观影常见问题"}</span></div>
-      <form className="assistant-composer" onSubmit={submit}><label className="sr-only" htmlFor={`assistant-question-${channel}`}>输入你的问题</label><textarea ref={input} id={`assistant-question-${channel}`} value={question} maxLength={2000} rows={2} placeholder={isAgent ? token ? "请输入订单号或想查询的场次…" : "请先登录后查询…" : "输入你的观影问题…"} disabled={connecting || !canSend} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!busy) void send(); } }} />
-        {busy ? <button type="button" onClick={stop}>停止</button> : <button type="submit" disabled={!question.trim() || connecting || !canSend} aria-label={`发送${name}问题`}>发送 ↗</button>}</form>
+      {!showMemories && <form className="assistant-composer" onSubmit={submit}><label className="sr-only" htmlFor={`assistant-question-${channel}`}>输入你的问题</label><textarea ref={input} id={`assistant-question-${channel}`} value={question} maxLength={2000} rows={2} placeholder={isAgent ? token ? "请输入订单号或想查询的场次…" : "请先登录后查询…" : "输入你的观影问题…"} disabled={connecting || !canSend} onChange={(event) => setQuestion(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); if (!busy) void send(); } }} />
+        {busy ? <button type="button" onClick={stop}>停止</button> : <button type="submit" disabled={!question.trim() || connecting || !canSend} aria-label={`发送${name}问题`}>发送 ↗</button>}</form>}
     </section>}
   </>;
 }

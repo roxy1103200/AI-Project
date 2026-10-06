@@ -66,3 +66,18 @@
   .dify-launcher { right: 170px; bottom: 16px; width: 48px; height: 48px; padding: 0; }
   .dify-panel { right: 10px; width: calc(100% - 20px); }
 }
+/* Agent memory editor uses the same panel; Dify never mounts these controls. */
+.assistant-memory-entry { margin: 6px 16px; align-self: flex-start; border: 0; background: transparent; color: #ff9a8e; cursor: pointer; }
+.assistant-memories { overflow-y: auto; flex: 1; padding: 16px; min-height: 0; font-size: 13px; }
+.assistant-memories header { display: flex; align-items: center; justify-content: space-between; }
+.assistant-memories h3 { margin: 0; }
+.assistant-memories p { line-height: 1.6; white-space: pre-wrap; overflow-wrap: anywhere; }
+.assistant-memories label { display: flex; flex-direction: column; gap: 5px; margin-bottom: 10px; }
+.assistant-memories textarea, .assistant-memories select { font: inherit; padding: 8px; border: 1px solid #454d59; border-radius: 6px; width: 100%; box-sizing: border-box; }
+.assistant-memories button, .assistant-memory-proposal button { padding: 6px 10px; border: 1px solid #454d59; background: #262b34; color: #ff9a8e; border-radius: 6px; margin: 0 5px 4px 0; cursor: pointer; }
+.assistant-memories button:disabled, .assistant-memory-proposal button:disabled { opacity: .55; cursor: default; }
+.assistant-memories ul { list-style: none; padding: 0; }
+.assistant-memories li { border-top: 1px solid #454d59; padding: 12px 0; }
+.assistant-memory-proposal { border: 1px solid #454d59; border-radius: 8px; padding: 10px; margin: 8px 0; }
+
+.assistant-memories textarea, .assistant-memories select { background: #12161c; color: #eee; }

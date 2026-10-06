@@ -311,6 +311,11 @@ async def agent_events(
                     message=str(message)[:240] if code in safe_codes else "实时查询暂时失败，请稍后重试",
                 )
                 return
+            elif kind == "memory_suggestion":
+                content = str(packet.get("content", "")).strip()[:500]
+                category = packet.get("category", "GENERAL")
+                if content and category in {"GENERAL", "GENRE", "CINEMA", "SEAT", "HABIT"}:
+                    yield event("memory_suggestion", content=content, category=category)
             elif kind == "complete":
                 completed = True
                 yield event("complete")
