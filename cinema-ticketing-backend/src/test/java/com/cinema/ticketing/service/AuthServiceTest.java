@@ -1,26 +1,25 @@
 package com.cinema.ticketing.service;
 
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
 import com.cinema.ticketing.dto.LoginResult;
 import com.cinema.ticketing.entity.UserAccount;
+import com.cinema.ticketing.mapper.UserMapper;
+
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
-import com.cinema.ticketing.mapper.UserMapper;
-
-import static org.junit.jupiter.api.Assertions.assertNotEquals;
-import static org.junit.jupiter.api.Assertions.assertThrows;
-import static org.junit.jupiter.api.Assertions.assertTrue;
-import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
 class AuthServiceTest {
 
-    @Mock
-    private UserMapper userMapper;
+    @Mock private UserMapper userMapper;
 
     @Test
     void registerHashesPasswordAndLoginReturnsToken() {
@@ -45,6 +44,8 @@ class AuthServiceTest {
         AuthService authService = new AuthService(userMapper);
         when(userMapper.findByUsername("alice")).thenReturn(null);
         UserAccount registered = authService.register("alice", "password-123", null);
+        registered.setId(1L);
+        when(userMapper.findById(1L)).thenReturn(registered);
         when(userMapper.findByUsername("alice")).thenReturn(registered);
         String token = authService.login("alice", "password-123").token();
 

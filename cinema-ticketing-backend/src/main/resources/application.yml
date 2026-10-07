@@ -66,6 +66,9 @@ management:
     tags:
       application: ${spring.application.name}
 
+auth:
+  initialize-schema: ${AUTH_INITIALIZE_SCHEMA:true}
+
 ai:
   service-url: ${AI_SERVICE_URL:http://localhost:8000}
   internal-token: ${AI_INTERNAL_TOKEN:local-internal-token}

@@ -67,6 +67,7 @@ export async function streamChat(body: object, signal: AbortSignal, onEvent: (ev
         if (!raw || raw === "[DONE]") continue;
         const packet = JSON.parse(raw) as ChatEvent;
         if (packet.type === "error") {
+          if (packet.code === "auth_expired") invalidateToken(context.token);
           onEvent(packet);
           throw new Error(packet.message ?? "回答失败，请稍后重试");
         }

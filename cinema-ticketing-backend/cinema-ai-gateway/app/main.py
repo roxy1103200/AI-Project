@@ -52,7 +52,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             trust_env=False,
         ) as internal_client,
     ):
-        stores = {channel: ConversationStore(channel) for channel in ("dify", "agent")}
+        stores = {channel: ConversationStore(channel, internal_client) for channel in ("dify", "agent")}
         app.state.client = client
         # Java and the private Agent must not traverse environment or Windows system proxies.
         app.state.internal_client = internal_client
@@ -60,7 +60,6 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         try:
             for store in stores.values():
                 await store.redis.ping()
-                await store.auth.ping()
             yield
         finally:
             for store in stores.values():
@@ -385,8 +384,19 @@ async def chat(channel: ChatChannel, request: Request, body: ChatRequest) -> Str
         owner_task = asyncio.current_task()
 
         async def watch_stop() -> None:
+            checks = 0
             while True:
                 await asyncio.sleep(0.5)
+                checks += 1
+                # A long answer must also stop when the account is revoked during generation.
+                if session.owner_id and checks % 4 == 0:
+                    try:
+                        await store.identity(session.auth_token)
+                    except HTTPException as exc:
+                        record.error_code = "auth_expired" if exc.status_code == 401 else "auth_unavailable"
+                        if owner_task:
+                            owner_task.cancel()
+                        return
                 if await store.cancelled(session):
                     if owner_task:
                         owner_task.cancel()
@@ -447,6 +457,14 @@ async def chat(channel: ChatChannel, request: Request, body: ChatRequest) -> Str
         if storage_error:
             yield event(
                 "error", message="回答已生成，但聊天记录未能保存，请稍后恢复聊天", code="conversation_storage_failed"
+            )
+        elif record.error_code in ("auth_expired", "auth_unavailable"):
+            yield event(
+                "error",
+                message="登录已失效，请重新登录"
+                if record.error_code == "auth_expired"
+                else "账户校验服务暂不可用，请稍后重试",
+                code=record.error_code,
             )
         elif record.error_code == "interrupted":
             yield event("error", message="已停止回答，可重新输入问题", code="interrupted")

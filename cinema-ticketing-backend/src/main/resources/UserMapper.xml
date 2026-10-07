@@ -10,17 +10,31 @@
         <result property="phone" column="phone"/>
         <result property="role" column="role"/>
         <result property="status" column="status"/>
+        <result property="sessionVersion" column="session_version"/>
     </resultMap>
 
     <select id="findByUsername" resultMap="userAccountMap">
-        SELECT id, username, password_hash, phone, role, status
+        SELECT id, username, password_hash, phone, role, status, session_version
         FROM users
         WHERE username = #{username}
     </select>
 
-    <select id="findById" resultMap="userAccountMap">
-        SELECT id, username, phone, role, status FROM users WHERE id = #{id}
+    <select id="findById" resultMap="userAccountMap" flushCache="true" useCache="false">
+        SELECT id, username, phone, role, status, session_version FROM users WHERE id = #{id}
     </select>
+
+    <select id="findByIdWithPassword" resultMap="userAccountMap">
+        SELECT id, username, password_hash, phone, role, status, session_version FROM users WHERE id = #{id}
+    </select>
+
+    <update id="revokeSessions">
+        UPDATE users SET session_version=session_version+1 WHERE id=#{id} AND session_version=#{version}
+    </update>
+
+    <update id="changePassword">
+        UPDATE users SET password_hash=#{passwordHash}, session_version=session_version+1
+        WHERE id=#{id} AND session_version=#{version} AND status='ACTIVE'
+    </update>
 
     <insert id="insert" useGeneratedKeys="true" keyProperty="id">
         INSERT INTO users (username, password_hash, phone, role, status)

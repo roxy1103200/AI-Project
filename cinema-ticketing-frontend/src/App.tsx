@@ -1,5 +1,7 @@
 import { useEffect, useState, type FormEvent } from "react";
 import MovieAdmin from "./admin/MovieAdmin";
+import AccountAdmin from "./admin/AccountAdmin";
+import AccountSecurityDialog from "./auth/AccountSecurityDialog";
 import CinemaAdmin from "./admin/CinemaAdmin";
 import RefundPolicyAdmin from "./admin/RefundPolicyAdmin";
 import AiFeedbackAdmin from "./admin/AiFeedbackAdmin";
@@ -148,16 +150,17 @@ function moviePosterUrl(movieId: number, version: number): string {
 
 function App() {
   const auth = useTabSession();
+  const [securityNotice, setSecurityNotice] = useState("");
   if (auth.checking || auth.error) return <main className="page-shell"><h1>影院</h1>
     <p role={auth.error ? "alert" : "status"}>{auth.error || "正在核验当前标签页的登录身份…"}</p>
     {auth.error && <button type="button" onClick={auth.retry}>重新核验</button>}
   </main>;
-  return <CinemaWorkspace key={auth.session?.token ?? "guest"} session={auth.session} signIn={auth.signIn} signOut={auth.signOut} />;
+  return <>{securityNotice && <p className="security-notice" role="status">{securityNotice}</p>}<CinemaWorkspace key={auth.session?.token ?? "guest"} session={auth.session} signIn={async (username, password) => { await auth.signIn(username, password); setSecurityNotice(""); }} signOut={auth.signOut} securityRevoked={(message) => { setSecurityNotice(message); auth.forgetSession(); }} /></>;
 }
 
-type WorkspaceProps = { session: StoredSession | null; signIn: (username: string, password: string) => Promise<void>; signOut: () => void };
+type WorkspaceProps = { session: StoredSession | null; signIn: (username: string, password: string) => Promise<void>; signOut: () => void; securityRevoked: (message: string) => void };
 
-function CinemaWorkspace({ session, signIn, signOut }: WorkspaceProps) {
+function CinemaWorkspace({ session, signIn, signOut, securityRevoked }: WorkspaceProps) {
   const apiRequest = useScopedRequest();
   const [movies, setMovies] = useState<Movie[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
@@ -171,8 +174,9 @@ function CinemaWorkspace({ session, signIn, signOut }: WorkspaceProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [activeView, setActiveView] = useState<"catalog" | "movies" | "cinemas" | "refund-policy" | "ai-feedback" | "halls" | "seats" | "movie-reviews" | "ticket-check-in">("catalog");
+  const [activeView, setActiveView] = useState<"catalog" | "movies" | "cinemas" | "refund-policy" | "ai-feedback" | "halls" | "seats" | "movie-reviews" | "ticket-check-in" | "accounts">("catalog");
   const [isAuthOpen, setIsAuthOpen] = useState(false);
+  const [securityOpen, setSecurityOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
   const [loginName, setLoginName] = useState("");
   const [loginPassword, setLoginPassword] = useState("");
@@ -587,14 +591,15 @@ function CinemaWorkspace({ session, signIn, signOut }: WorkspaceProps) {
           <a className={activeView === "catalog" ? "active" : ""} href="#movies" onClick={() => { setMovieCategory("showing"); setActiveView("catalog"); }}>正在上映</a>
           <a href="#cinemas" onClick={() => setActiveView("catalog")}>影院</a>
           <a href="#orders" onClick={() => setActiveView("catalog")}>我的订单</a>
-          {session?.role === "ADMIN" && <select className="admin-desktop-shortcut" aria-label="后台管理页面" value={activeView} onChange={(event) => { setSelectedMovie(null); setActiveView(event.target.value as typeof activeView); }}><option value="catalog">后台管理</option><option value="movies">影片管理</option><option value="cinemas">影院管理</option><option value="halls">影厅管理</option><option value="seats">座位管理</option><option value="refund-policy">退票规则</option><option value="movie-reviews">影评管理</option><option value="ticket-check-in">验票入场</option><option value="ai-feedback">AI 反馈</option></select>}
+          {session?.role === "ADMIN" && <select className="admin-desktop-shortcut" aria-label="后台管理页面" value={activeView} onChange={(event) => { setSelectedMovie(null); setActiveView(event.target.value as typeof activeView); }}><option value="catalog">后台管理</option><option value="movies">影片管理</option><option value="cinemas">影院管理</option><option value="halls">影厅管理</option><option value="seats">座位管理</option><option value="refund-policy">退票规则</option><option value="movie-reviews">影评管理</option><option value="ticket-check-in">验票入场</option><option value="ai-feedback">AI 反馈</option><option value="accounts">账户安全</option></select>}
         </nav>
         {session ? (
           <div className={`account-area ${session.role === "ADMIN" ? "admin-account" : ""}`}>
-            {session.role === "ADMIN" && <select className="admin-mobile-shortcut" aria-label="管理页面" value={activeView} onChange={(event) => { setSelectedMovie(null); setActiveView(event.target.value as typeof activeView); }}><option value="catalog">首页</option><option value="movies">影片</option><option value="cinemas">影院</option><option value="halls">影厅</option><option value="seats">座位</option><option value="refund-policy">退票规则</option><option value="movie-reviews">影评管理</option><option value="ticket-check-in">验票入场</option><option value="ai-feedback">AI 反馈</option></select>}
+            {session.role === "ADMIN" && <select className="admin-mobile-shortcut" aria-label="管理页面" value={activeView} onChange={(event) => { setSelectedMovie(null); setActiveView(event.target.value as typeof activeView); }}><option value="catalog">首页</option><option value="movies">影片</option><option value="cinemas">影院</option><option value="halls">影厅</option><option value="seats">座位</option><option value="refund-policy">退票规则</option><option value="movie-reviews">影评管理</option><option value="ticket-check-in">验票入场</option><option value="ai-feedback">AI 反馈</option><option value="accounts">账户安全</option></select>}
             <span className="account-name" title={`已登录：${session.username}（${session.role}）`}>
               <span className="account-dot" aria-hidden="true" />{session.username}
             </span>
+            <button className="account-button" type="button" onClick={() => setSecurityOpen(true)}>账户安全</button>
             <button className="account-button" type="button" onClick={handleLogout}>退出登录</button>
           </div>
         ) : (
@@ -608,6 +613,8 @@ function CinemaWorkspace({ session, signIn, signOut }: WorkspaceProps) {
         <HallSeatAdmin view={activeView} cinemas={cinemas} request={apiRequest} token={session.token} onRefresh={async () => { const values = await apiRequest<Hall[]>("/api/halls"); setHalls(values); await refreshMovies(false); }} onSeats={() => setActiveView("seats")} />
       ) : session?.role === "ADMIN" && activeView === "movie-reviews" ? (
         <MovieReviewAdmin key={session.token} request={apiRequest} token={session.token} onChanged={() => refreshMovies(false)} />
+      ) : session?.role === "ADMIN" && activeView === "accounts" ? (
+        <AccountAdmin request={apiRequest} token={session.token} />
       ) : session?.role === "ADMIN" && activeView === "ticket-check-in" ? (
         <TicketCheckInAdmin request={apiRequest} token={session.token} />
       ) : session?.role === "ADMIN" && activeView === "ai-feedback" ? (
@@ -846,6 +853,7 @@ function CinemaWorkspace({ session, signIn, signOut }: WorkspaceProps) {
 
       <CinemaAssistant token={session?.token} userId={session?.userId} onLogin={() => openAuth("login")} request={apiRequest} />
 
+      {securityOpen && session && <AccountSecurityDialog token={session.token} close={() => setSecurityOpen(false)} revoked={securityRevoked} />}
       {isAuthOpen && (
         <div className="modal-backdrop auth-backdrop" role="presentation" onClick={() => setIsAuthOpen(false)}>
           <section className="auth-modal" role="dialog" aria-modal="true" aria-labelledby="auth-title" onClick={(event) => event.stopPropagation()}>

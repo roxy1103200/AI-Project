@@ -8,6 +8,15 @@ public class UserAccount {
     private String phone;
     private String role;
     private String status;
+    private long sessionVersion;
+
+    public long getSessionVersion() {
+        return sessionVersion;
+    }
+
+    public void setSessionVersion(long sessionVersion) {
+        this.sessionVersion = sessionVersion;
+    }
 
     public Long getId() {
         return id;

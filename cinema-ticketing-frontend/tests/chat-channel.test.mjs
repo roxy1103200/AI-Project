@@ -6,7 +6,7 @@ import ts from "typescript";
 // Transpile the real transport with the project's compiler; stub only the unrelated login event.
 const source = await readFile(new URL("../src/chat/chatTransport.ts", import.meta.url), "utf8");
 const compiled = ts.transpileModule(source, { compilerOptions: { target: ts.ScriptTarget.ES2022, module: ts.ModuleKind.ESNext } }).outputText;
-const authStub = "data:text/javascript," + encodeURIComponent("export function invalidateToken() {};");
+const authStub = "data:text/javascript," + encodeURIComponent("export function invalidateToken(token) { globalThis.revokedToken = token; };");
 const transport = compiled.replace('"../auth/client"', JSON.stringify(authStub));
 const { bindingStorageKey, gatewayRequest, streamChat } = await import("data:text/javascript;base64," + Buffer.from(transport).toString("base64"));
 
@@ -52,4 +52,22 @@ test("SSE requests use independent routes without a mode-switch field", async ()
     assert.deepEqual(calls.map((call) => call.url), ["/ai-gateway/dify/chat", "/ai-gateway/agent/chat"]);
     assert.ok(calls.every((call) => !("mode" in call.body)));
   } finally { globalThis.fetch = originalFetch; }
+});
+
+test("revoked sessions clear the matching login for HTTP and active stream failures", async () => {
+  const originalFetch = globalThis.fetch;
+  try {
+    globalThis.revokedToken = undefined;
+    globalThis.fetch = async () => new Response(JSON.stringify({ detail: "expired" }), { status: 401, headers: { "X-Auth-Expired": "1" } });
+    await assert.rejects(gatewayRequest("session", {}, { channel: "agent", bindingKey: "test", token: "matching-token" }));
+    assert.equal(globalThis.revokedToken, "matching-token");
+    globalThis.revokedToken = undefined;
+    globalThis.fetch = async () => new Response('data: {"type":"error","code":"auth_expired","message":"expired"}\n\n');
+    await assert.rejects(streamChat({}, new AbortController().signal, () => {}, { channel: "agent", bindingKey: "test", token: "stream-token" }));
+    assert.equal(globalThis.revokedToken, "stream-token");
+    globalThis.revokedToken = undefined;
+    globalThis.fetch = async () => new Response(JSON.stringify({ detail: "temporarily unavailable" }), { status: 503 });
+    await assert.rejects(gatewayRequest("session", {}, { channel: "agent", bindingKey: "test", token: "keep-token" }));
+    assert.equal(globalThis.revokedToken, undefined);
+  } finally { globalThis.fetch = originalFetch; delete globalThis.revokedToken; }
 });

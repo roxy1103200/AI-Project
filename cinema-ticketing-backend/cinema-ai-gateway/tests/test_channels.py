@@ -88,20 +88,25 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.token = str(uuid.uuid4())
         self.prefix = f"test:split:{uuid.uuid4()}:"
+        self.account_active = True
+        self.account_version = 0
+        self.identity_failure = False
+        self.upstream = httpx.AsyncClient(transport=httpx.MockTransport(self.mock_upstream))
         with (
             patch("app.store.REDIS_URL", self.redis_url),
-            patch("app.store.AUTH_REDIS_URL", self.redis_url),
             patch("app.store.REDIS_PREFIX", self.prefix),
         ):
-            self.stores = {channel: ConversationStore(channel) for channel in ("dify", "agent")}
+            self.stores = {channel: ConversationStore(channel, self.upstream) for channel in ("dify", "agent")}
         self.upstream_requests: list[httpx.Request] = []
         self.agent_session_id = ""
         self.agent_memory_suggestion = False
-        self.upstream = httpx.AsyncClient(transport=httpx.MockTransport(self.mock_upstream))
+        self.revoke_during_stream = False
         app.state.stores = self.stores
         app.state.client = app.state.internal_client = self.upstream
         self.client = httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://test")
-        await self.stores["dify"].auth.hset("auth:session:" + self.token, mapping={"userId": "2", "role": "USER"})
+        await self.stores["dify"].redis.hset(
+            "auth:session:" + self.token, mapping={"userId": "2", "role": "USER", "sessionVersion": "0"}
+        )
         self.info = {}
         for channel in ("dify", "agent"):
             response = await self.client.get(f"/ai-gateway/{channel}/session", headers={"X-Auth-Token": self.token})
@@ -116,19 +121,41 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
         keys = [key async for key in store.redis.scan_iter(self.prefix + "*")]
         if keys:
             await store.redis.delete(*keys)
-        await store.auth.delete("auth:session:" + self.token)
+        await store.redis.delete("auth:session:" + self.token)
         for store in self.stores.values():
             await store.close()
 
     async def mock_upstream(self, request: httpx.Request) -> httpx.Response:
         """Return deterministic SSE and resolved identities, never contact cloud/Java."""
+        if request.url.path.endswith("/auth/resolve"):
+            if self.identity_failure:
+                return httpx.Response(503, json={"message": "fixture unavailable"})
+            token = json.loads(request.content)["token"]
+            values = await self.stores["dify"].redis.hgetall("auth:session:" + token)
+            if not self.account_active or values.get("sessionVersion") != str(self.account_version):
+                return httpx.Response(401, json={"message": "fixture revoked"})
+            return httpx.Response(200, json={"userId": 2, "role": "USER", "expiresInSeconds": 60})
         self.upstream_requests.append(request)
         if request.url.path.endswith("/handoff/resolve"):
             return httpx.Response(200, json={"userId": 2, "sessionId": self.agent_session_id, "scope": "cinema:read"})
         if request.url.path == "/ai/live":
+            if self.revoke_during_stream:
+                owner = self
+
+                class RevokedStream(httpx.AsyncByteStream):
+                    async def __aiter__(self):
+                        yield b'data: {"type":"delta","text":"before revocation"}\n\n'
+                        owner.account_version += 1
+                        await asyncio.sleep(10)
+                        yield b'data: {"type":"complete"}\n\n'
+
+                return httpx.Response(200, stream=RevokedStream(), headers={"Content-Type": "text/event-stream"})
             content = 'data: {"type":"delta","text":"AGENT ONLY"}\n\ndata: {"type":"complete"}\n\n'
             if self.agent_memory_suggestion:
-                content = 'data: {"type":"memory_suggestion","content":"喜欢科幻","category":"GENRE","userId":999}\n\n' + content
+                content = (
+                    'data: {"type":"memory_suggestion","content":"喜欢科幻","category":"GENRE","userId":999}\n\n'
+                    + content
+                )
             return httpx.Response(200, text=content, headers={"Content-Type": "text/event-stream"})
         if request.url.path.endswith("/chat-messages"):
             content = (
@@ -284,6 +311,63 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
             restored = (await self.client.get(f"/ai-gateway/{channel}/session", headers=self.headers(channel))).json()
             self.assertEqual(restored["messages"], [])
             self.assertNotEqual(restored["sessionId"], legacy_chat)
+
+    async def test_revoked_tokens_cannot_read_reset_chat_or_submit_feedback(self) -> None:
+        """Leftover Redis hashes grant no access after authoritative revocation."""
+        self.account_version += 1
+        self.assertTrue(await self.stores["dify"].redis.exists("auth:session:" + self.token))
+        for channel in ("dify", "agent"):
+            requests = [
+                self.client.get(f"/ai-gateway/{channel}/session", headers=self.headers(channel)),
+                self.client.post(f"/ai-gateway/{channel}/reset", headers=self.headers(channel)),
+                self.client.post(
+                    f"/ai-gateway/{channel}/chat",
+                    headers=self.headers(channel),
+                    json={
+                        "sessionId": self.info[channel]["sessionId"],
+                        "question": "private query",
+                        "credential": "old-credential",
+                    },
+                ),
+                self.client.post(
+                    f"/ai-gateway/{channel}/feedback",
+                    headers=self.headers(channel),
+                    json={"messageId": str(uuid.uuid4()), "rating": "like"},
+                ),
+            ]
+            for response in await asyncio.gather(*requests):
+                self.assertEqual(response.status_code, 401)
+                self.assertEqual(response.headers.get("X-Auth-Expired"), "1")
+        self.assertEqual(self.upstream_requests, [])
+
+    async def test_account_revocation_interrupts_an_active_answer(self) -> None:
+        self.revoke_during_stream = True
+        response = await self.client.post(
+            "/ai-gateway/agent/chat",
+            headers=self.headers("agent"),
+            json={
+                "sessionId": self.info["agent"]["sessionId"],
+                "question": "slow query",
+                "credential": "old-credential",
+            },
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertIn('"code": "auth_expired"', response.text)
+        self.assertNotIn('"type": "complete"', response.text)
+        session = await self.stores["agent"].load(self.info["agent"]["sessionId"])
+        self.assertFalse(await self.stores["agent"].busy(session))
+
+    async def test_disabled_accounts_are_rejected_and_java_failure_never_falls_back(self) -> None:
+        self.account_active = False
+        response = await self.client.get("/ai-gateway/agent/session", headers=self.headers("agent"))
+        self.assertEqual(response.status_code, 401)
+        self.account_active = True
+        self.identity_failure = True
+        for channel in ("dify", "agent"):
+            response = await self.client.get(f"/ai-gateway/{channel}/session", headers=self.headers(channel))
+            self.assertEqual(response.status_code, 503)
+            self.assertNotIn("X-Auth-Expired", response.headers)
+        self.assertEqual(self.upstream_requests, [])
 
     async def test_store_rejects_accidental_cross_provider_write(self) -> None:
         record = Snapshot(session_id=self.info["agent"]["sessionId"], provider="AGENT", question="private")

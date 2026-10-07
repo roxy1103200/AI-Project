@@ -7,10 +7,11 @@ import uuid
 from dataclasses import asdict, dataclass
 from typing import Any, Literal
 
+import httpx
 from fastapi import HTTPException
 from redis.asyncio import Redis
 
-from app.config import AUTH_REDIS_URL, MAX_STREAMS, REDIS_PREFIX, REDIS_URL
+from app.config import INTERNAL_TOKEN, JAVA_API_URL, MAX_STREAMS, REDIS_PREFIX, REDIS_URL
 from app.feedback import MAX_SNAPSHOTS, SNAPSHOT_TTL, Snapshot
 
 ANONYMOUS_TTL = 86400
@@ -80,7 +81,7 @@ class Session:
 class ConversationStore:
     """No process-local state determines identity, ownership, limits or exclusivity."""
 
-    def __init__(self, channel: ChatChannel) -> None:
+    def __init__(self, channel: ChatChannel, identity_client: httpx.AsyncClient | None = None) -> None:
         """Keep all conversation data in a provider-specific Redis namespace.
 
         登录身份仍由 Java 共享会话校验；聊天历史、账号活跃指针、浏览器绑定、
@@ -99,27 +100,49 @@ class ConversationStore:
             "health_check_interval": 30,
         }
         self.redis = Redis.from_url(REDIS_URL, **options)
-        self.auth = Redis.from_url(AUTH_REDIS_URL, **options)
+        self.identity_client = identity_client or httpx.AsyncClient(trust_env=False)
+        self.owns_identity_client = identity_client is None
 
     def key(self, name: str) -> str:
         """Keep AI data under its own namespace in the existing Redis database."""
         return self.prefix + name
 
     async def close(self) -> None:
-        """Release both connection pools at worker shutdown."""
+        """Release owned connection pools at worker shutdown."""
         await self.redis.aclose()
-        await self.auth.aclose()
+        if self.owns_identity_client:
+            await self.identity_client.aclose()
 
     async def identity(self, token: str) -> int:
-        """Verify Java's shared login session without a Java request per chat turn."""
+        """Apply Java's durable account/version rules on every authenticated request.
+
+        Redis 中残留的旧 token 不能作为身份凭据；Java 不可用时拒绝授权。
+        """
         try:
             uuid.UUID(token)
         except (ValueError, AttributeError) as exc:
             raise HTTPException(401, "登录已过期，请重新登录", headers={"X-Auth-Expired": "1"}) from exc
-        values = await self.auth.hgetall("auth:session:" + token)
-        if not values.get("userId", "").isdigit():
+        if str(uuid.UUID(token)) != token.lower():
             raise HTTPException(401, "登录已过期，请重新登录", headers={"X-Auth-Expired": "1"})
-        return int(values["userId"])
+        try:
+            response = await self.identity_client.post(
+                JAVA_API_URL + "/internal/ai/auth/resolve",
+                headers={"X-Internal-Token": INTERNAL_TOKEN},
+                json={"token": token},
+                timeout=httpx.Timeout(5, connect=2),
+            )
+            if response.status_code == 401:
+                raise HTTPException(401, "账户或登录已失效，请重新登录", headers={"X-Auth-Expired": "1"})
+            response.raise_for_status()
+            identity = response.json()
+            user_id = identity["userId"]
+            if type(user_id) is not int or user_id <= 0 or identity["role"] not in ("USER", "ADMIN"):
+                raise ValueError("Invalid authoritative identity")
+            if identity["expiresInSeconds"] <= 0:
+                raise ValueError("Invalid authoritative lifetime")
+            return user_id
+        except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            raise HTTPException(503, "账户校验服务暂不可用，请稍后重试") from exc
 
     async def load(self, chat_id: str) -> Session | None:
         """Load one shared conversation; nonexistent IDs grant no access."""

@@ -1,0 +1,17 @@
+.account-security-dialog { max-height: 90vh; overflow-y: auto; }
+.account-security-dialog p, .account-security-admin > p { color: #aeb7c5; line-height: 1.65; }
+.account-security-dialog hr { border: 0; border-top: 1px solid #384150; margin: 26px 0; }
+.account-security-admin { padding: 36px 0; }
+.account-security-admin > header { display: flex; justify-content: space-between; align-items: center; gap: 16px; }
+.account-security-row { display: flex; flex-wrap: wrap; gap: 16px; align-items: end; padding: 24px 0; border-top: 1px solid #384150; }
+.account-security-row > div { min-width: 160px; flex: 1; align-self: center; }
+.account-security-row small { display: block; color: #aeb7c5; margin-top: 8px; }
+.account-security-row label { display: grid; gap: 8px; }
+.account-security-row select { background: #1a1e24; color: #fff; border: 1px solid #596477; padding: 10px 14px; border-radius: 8px; }
+.account-security-row > p { flex-basis: 100%; color: #ffb5b5; }
+.security-notice { margin: 0; padding: 16px 24px; background: #203e36; color: #fff; text-align: center; }
+.account-area .account-button { white-space: nowrap; }
+@media (max-width: 760px) {
+  .account-area { max-width: 70%; flex-wrap: wrap; justify-content: flex-end; gap: 8px; }
+  .account-security-row > button { width: 100%; }
+}
