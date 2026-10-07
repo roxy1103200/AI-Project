@@ -12,7 +12,7 @@ type Props = {
 };
 
 export default function HallScheduleCalendar({ slots, halls, cinemas, movieId, movieTitle, duration, saleStart, saleEnd, token, request, disabled, onAdd }: Props) {
-  const [from, setFrom] = useState(() => (saleStart || wallString(Date.now())).slice(0, 10));
+  const [from, setFrom] = useState(() => wallString(Date.now()).slice(0, 10));
   const [days, setDays] = useState(7);
   const [hallFilter, setHallFilter] = useState(() => String(halls.find((hall) => hall.status === "ACTIVE")?.id ?? ""));
   const [dayStart, setDayStart] = useState("09:00");
