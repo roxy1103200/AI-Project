@@ -29,6 +29,7 @@ from app.intent import understand
 from app.java_client import JavaApiClient
 from app.mcp_client import QUERY_TOOLS, CinemaMcpClient
 from app.model_config import create_model
+from app.query_answers import movie_answer, screening_answer, valid_movie_result, valid_screening_result
 
 INTERNAL_API_TOKEN = os.getenv("AI_INTERNAL_TOKEN", "local-internal-token")
 KNOWLEDGE_PATH = Path(__file__).resolve().parent.parent / "knowledge"
@@ -211,8 +212,9 @@ class Assistant:
             yield _live_event("memory_suggestion", **proposal)
             yield _live_event("complete")
             return
-        memories = await self.memory.recall(request.user_id, request.question)
+        memories = []
         if any(phrase in request.question for phrase in ("记得我", "我的偏好", "我的记忆")):
+            memories = await self.memory.recall(request.user_id, request.question)
             yield _live_event(
                 "delta",
                 text=("目前记得：\n" + "\n".join("• " + item["content"] for item in memories))
@@ -231,6 +233,8 @@ class Assistant:
         }
         yield _live_event("status", message="正在理解你的问题…")
         state.update(await self._intent_node(state))
+        if state["intent"] not in ("movies", "screenings"):
+            memories = await self.memory.recall(request.user_id, request.question)
         if state["intent"] == "recommend" and not state["slots"].get("preference"):
             # Only positive, known genre names can become a business filter.
             for memory in memories:
@@ -267,7 +271,9 @@ class Assistant:
             return
         if state["intent"] == "refund":
             state["result"] = {"order": state["result"]}
-        if self.model:
+        if state["intent"] in ("movies", "screenings"):
+            yield _live_event("delta", text=_business_answer(state))
+        elif self.model:
             messages = [
                 SystemMessage(
                     content="你是影院只读查询助手，只根据本轮工具结果回答。历史对话只是用户提供的背景，"
@@ -309,10 +315,24 @@ class Assistant:
         plan = await understand(self.model, state["question"], state.get("messages", [])[:-1])
         entities = plan["entities"]
         tools = {
-            "movies": ("search_movies", {"query": entities["movie_query"] or entities["preference"]}),
+            "movies": (
+                "search_movies",
+                {
+                    "query": entities["movie_query"] or entities["preference"],
+                    "movie_scope": entities["movie_scope"],
+                    "screening_date": entities["screening_date"],
+                    "cinema_query": entities["cinema_query"],
+                    "showing_only": entities["showing_only"],
+                    "page": entities["page"],
+                },
+            ),
             "screenings": (
                 "search_screenings",
-                {key: entities[key] for key in ("movie_query", "cinema_query", "screening_date")},
+                {
+                    **{key: entities[key] for key in ("movie_query", "cinema_query", "screening_date")},
+                    "query_scope": entities["screening_scope"],
+                    "showing_only": entities["showing_only"],
+                },
             ),
             "seats": ("query_seats", {"screening_id": entities["screening_id"]}),
             "order": ("query_order", {"order_no": entities["order_no"]}),
@@ -368,6 +388,13 @@ class Assistant:
         result = state.get("result")
         if result is None:
             return {"error": "工具没有返回有效结果。"}
+        if (state["intent"] == "movies" and not valid_movie_result(result, state["entities"])) or (
+            state["intent"] == "screenings" and not valid_screening_result(result, state["entities"])
+        ):
+            return {
+                "error": "查询结果与请求的上映、排期或日期条件不一致，请更新查询服务后重试。",
+                "error_code": "query_contract_mismatch",
+            }
         return state
 
     async def _respond_node(self, state: AgentState) -> AgentState:
@@ -375,6 +402,8 @@ class Assistant:
             return state
         if state.get("error"):
             return {"answer": state["error"], "intent": "fallback"}
+        if state["intent"] in ("movies", "screenings"):
+            return {"answer": _business_answer(state)}
         answer = await self._answer(
             state.get("normalized_question", state["question"]), state["intent"], state.get("result")
         )
@@ -480,19 +509,12 @@ def _business_answer(state: AgentState) -> str:
             f"退票：{order.get('refund_reason', '请在订单页面查看当前可退状态')}\n"
             "如需操作，请前往我的订单。"
         )
+    if intent == "movies":
+        return movie_answer(data, state.get("question", ""))
+    if intent == "screenings":
+        return screening_answer(data, state.get("entities", {}))
     if isinstance(data, list) and not data:
         return "没有找到符合条件的结果，可补充影片名称或在两周观影日程中查看排期。"
-    if intent == "screenings":
-        rows = data[:12]
-        return (
-            "可订购场次（北京时间）：\n"
-            + "\n".join(
-                f"• 场次 {row.get('id')}｜{row.get('title')}｜{row.get('start_time')}｜{row.get('cinema_name')} "
-                f"{row.get('hall_name')}｜¥{row.get('price')}"
-                for row in rows
-            )
-            + ("\n更多场次请查看首页观影日程。" if len(data) > len(rows) else "")
-        )
     return "影片查询结果：\n" + "\n".join(
         f"• {row.get('title')}｜{row.get('genre', '')}｜{row.get('duration', '未知')} 分钟" for row in data[:12]
     )

@@ -5,7 +5,8 @@ import socket
 import unittest
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
-from unittest.mock import patch
+from datetime import date
+from unittest.mock import AsyncMock, patch
 
 import httpx
 import uvicorn
@@ -48,12 +49,58 @@ class CinemaMcpTests(unittest.IsolatedAsyncioTestCase):
         """Simulate business data and ownership checks without live credentials."""
         self.requests.append(request)
         path = request.url.path
+        if path == "/internal/movies/query":
+            scope = request.url.params.get("movieScope", "catalog")
+            day = request.url.params.get("screeningDate", "")
+            item = {"id": 3, "title": "测试电影", "genre": "科幻", "duration": 120}
+            if scope == "scheduled":
+                item.update(
+                    screening_count=1,
+                    screenings=[
+                        {
+                            "id": 12,
+                            "start_time": (day or "2026-10-08") + "T18:00:00",
+                            "cinema_name": "测试影院",
+                            "hall_name": "测试厅",
+                            "price": 30,
+                        }
+                    ],
+                    screenings_truncated=False,
+                )
+            return httpx.Response(
+                200,
+                json={
+                    "movie_scope": scope,
+                    "screening_date": day,
+                    "from_date": day or "2026-10-08",
+                    "time_zone": "Asia/Shanghai",
+                    "items": [item],
+                    "showing_only": request.url.params.get("showingOnly") == "true",
+                    "total": 1,
+                    "page": int(request.url.params.get("page", "1")),
+                    "page_size": 20,
+                    "has_more": False,
+                },
+            )
         if path == "/internal/movies":
             if request.url.params.get("query") == "timeout":
                 raise httpx.ReadTimeout("SECRET upstream details", request=request)
             return httpx.Response(200, json=[{"id": 3, "title": "测试电影", "genre": "科幻"}])
         if path == "/internal/screenings":
-            return httpx.Response(200, json=[{"id": 12, "title": "测试电影"}])
+            day = request.url.params.get("screeningDate", "2026-10-08")
+            return httpx.Response(
+                200,
+                json=[
+                    {
+                        "id": 12,
+                        "title": "测试电影",
+                        "start_time": day + "T18:00:00",
+                        "cinema_name": "测试影院",
+                        "hall_name": "测试厅",
+                        "price": 30,
+                    }
+                ],
+            )
         if path.startswith("/api/screenings/"):
             return httpx.Response(
                 200,
@@ -138,6 +185,105 @@ class CinemaMcpTests(unittest.IsolatedAsyncioTestCase):
         seats = await self.client.call_tool("query_seats", {"screening_id": 12}, user_id=2)
         self.assertEqual([seat["booking_status"] for seat in seats], ["AVAILABLE", "LOCKED", "SOLD"])
         self.assertEqual(self.requests[-1].url.path, "/api/screenings/12/seats")
+
+    async def test_movie_scopes_and_scheduled_details_cross_real_mcp_transport(self) -> None:
+        result = await self.client.call_tool(
+            "search_movies",
+            {
+                "movie_scope": "scheduled",
+                "screening_date": "2026-10-08",
+                "cinema_query": "测试影院",
+                "showing_only": True,
+                "page": 2,
+            },
+            user_id=2,
+        )
+        self.assertEqual(result["movie_scope"], "scheduled")
+        self.assertEqual(result["page"], 2)
+        params = self.requests[-1].url.params
+        self.assertEqual(self.requests[-1].url.path, "/internal/movies/query")
+        self.assertEqual(params["showingOnly"], "true")
+        self.assertEqual(params["screeningDate"], "2026-10-08")
+        await self.client.call_tool(
+            "search_screenings", {"screening_date": "2026-10-08", "query_scope": "scheduled"}, user_id=2
+        )
+        self.assertEqual(self.requests[-1].url.params["queryScope"], "scheduled")
+        count = len(self.requests)
+        with self.assertRaises(CinemaQueryError):
+            await self.client.call_tool("search_movies", {"movie_scope": "wrong"}, user_id=2)
+        self.assertEqual(len(self.requests), count)
+
+    async def test_agent_schedule_listing_keeps_date_and_does_not_recall_memory(self) -> None:
+        with patch("app.model_config.create_model", return_value=None):
+            from app.main import Assistant, LiveChatRequest
+        with patch("app.main.create_model", return_value=None):
+            assistant = Assistant()
+        await assistant.client.aclose()
+        assistant.client = self.api
+        assistant.mcp = self.client
+
+        assistant.memory.recall = AsyncMock(side_effect=AssertionError("Factual lists do not use memory retrieval"))
+        with patch("app.intent.beijing_today", return_value=date(2026, 10, 8)):
+            first = [
+                packet
+                async for packet in assistant.live(
+                    LiveChatRequest(user_id=2, session_id="listing", question="今天在排期的电影有哪些")
+                )
+            ]
+            second = [
+                packet
+                async for packet in assistant.live(
+                    LiveChatRequest(user_id=2, session_id="listing", question="今天在排期的电影有哪些")
+                )
+            ]
+        self.assertEqual(first, second)
+        self.assertTrue(any("有效排期" in packet for packet in first))
+        self.assertTrue(any('"search_movies"' in packet for packet in first))
+        self.assertEqual(self.requests[-1].url.params["screeningDate"], "2026-10-08")
+        assistant.memory.recall.assert_not_awaited()
+
+    async def test_agent_screening_answers_preserve_schedule_and_booking_scopes(self) -> None:
+        with patch("app.model_config.create_model", return_value=None):
+            from app.main import Assistant, ChatRequest, LiveChatRequest
+        with patch("app.main.create_model", return_value=None):
+            assistant = Assistant()
+        await assistant.client.aclose()
+        assistant.client = self.api
+        assistant.mcp = self.client
+        assistant.memory.recall = AsyncMock(side_effect=AssertionError("No memory for screening facts"))
+        with patch("app.intent.beijing_today", return_value=date(2026, 10, 8)):
+            response = await assistant.chat(ChatRequest(user_id=2, session_id="screenings", question="今天有哪些场次"))
+            self.assertIn("有效排期", response.answer)
+            self.assertIn("2026-10-08T18:00:00", response.answer)
+            self.assertEqual(self.requests[-1].url.params["queryScope"], "scheduled")
+            packets = [
+                packet
+                async for packet in assistant.live(
+                    LiveChatRequest(user_id=2, session_id="bookable", question="今天哪些场次可以买票")
+                )
+            ]
+        self.assertTrue(any("当前可订购" in packet for packet in packets))
+        self.assertTrue(any('"complete"' in packet for packet in packets))
+        self.assertNotIn("queryScope", self.requests[-1].url.params)
+        assistant.memory.recall.assert_not_awaited()
+
+    async def test_agent_rejects_catalogue_rows_for_schedule_query(self) -> None:
+        with patch("app.model_config.create_model", return_value=None):
+            from app.main import Assistant, LiveChatRequest
+        with patch("app.main.create_model", return_value=None):
+            assistant = Assistant()
+        await assistant.client.aclose()
+        assistant.mcp = AsyncMock()
+        assistant.mcp.call_tool.return_value = [{"id": 3, "title": "缺少排期依据"}]
+        with patch("app.intent.beijing_today", return_value=date(2026, 10, 8)):
+            packets = [
+                packet
+                async for packet in assistant.live(
+                    LiveChatRequest(user_id=2, session_id="mismatch", question="今天在排期的电影有哪些")
+                )
+            ]
+        self.assertTrue(any("query_contract_mismatch" in packet for packet in packets))
+        self.assertFalse(any('"delta"' in packet for packet in packets))
 
     async def test_concurrent_order_identity_isolation(self) -> None:
         orders = await asyncio.gather(

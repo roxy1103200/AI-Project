@@ -12,14 +12,16 @@
 
 ## 工具及边界
 
-- `search_movies(query="")`：查询影片，关键词支持片名、类型、演员。
-- `search_screenings(movie_id=null, cinema_id=null, movie_query="", cinema_query="", screening_date=null)`：查询场次；日期为北京时间 `YYYY-MM-DD`，返回的 `id` 是场次编号。
+- `search_movies(query="", movie_scope="catalog", screening_date=null, cinema_query="", showing_only=false, page=1, page_size=20)`：影片资料、上映中或已排期电影查询；关键词支持片名、类型、演员，排期列表按真实场次筛选并按电影分页。
+- `search_screenings(movie_id=null, cinema_id=null, movie_query="", cinema_query="", screening_date=null, query_scope="bookable", showing_only=false)`：查询场次；`scheduled` 为有效排期，`bookable` 为当前可订购，日期为北京时间 `YYYY-MM-DD`，返回的 `id` 是场次编号。
 - `query_seats(screening_id)`：正整数场次编号；复用 Java `/api/screenings/{id}/seats`，返回实时 `booking_status`，包含 `AVAILABLE`、`LOCKED`、`SOLD` 等状态。查询不会锁座。
 - `query_order(order_no)`：查询本人订单、出票信息及当前退票资格。订单号格式与现有 Agent 一致：O/o 开头，后接 5～63 个英文字母或数字。
 
 工具都声明 `readOnlyHint=true`。成功结果同时提供文本 `content` 和 `structuredContent={"data": ...}`；上游失败设置 MCP `isError=true`，结构化错误为 `{"error":{"code":"...","message":"..."}}`。Agent 解包后沿用原聊天/SSE 返回格式。参数验证失败由 SDK 返回 MCP 工具错误，不调用 Java。
 
 通用规则 RAG 与电影推荐继续使用现有工具。退票资格复合查询中的订单部分也通过 MCP 查询。
+
+上映、排期与可订购的规则、日期约束、结果限制和更新顺序详见 [影片与排期查询规则](ai-query-semantics.md)。
 
 ## 身份与配置
 

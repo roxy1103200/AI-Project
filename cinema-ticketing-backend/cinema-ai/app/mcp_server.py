@@ -6,7 +6,7 @@ import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from datetime import date
-from typing import Annotated, Any
+from typing import Annotated, Any, Literal
 
 from mcp.server.fastmcp import Context, FastMCP
 from mcp.server.transport_security import TransportSecuritySettings
@@ -89,9 +89,40 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
             return tool_result({"error": {"code": code, "message": message}})
 
     @mcp.tool(annotations=READ_ONLY)
-    async def search_movies(query: Keyword = "") -> QueryResult:
-        """查询可用电影，query 可填写片名、类型、演员或关键词；留空返回可用影片。"""
-        return await fetch("/internal/movies", {"query": query})
+    async def search_movies(
+        query: Keyword = "",
+        movie_scope: Literal["catalog", "showing", "scheduled"] = "catalog",
+        screening_date: date | None = None,
+        cinema_query: Keyword = "",
+        showing_only: bool = False,
+        page: Annotated[int, Field(ge=1, le=10000)] = 1,
+        page_size: Annotated[int, Field(ge=1, le=50)] = 20,
+    ) -> QueryResult:
+        """查询影片资料 catalog、上映中 showing、真实已排期 scheduled。
+
+        上映不代表有场次。scheduled 按北京时间日期查询，日期留空表示今天及以后，
+        包含已开场和未开售的有效排期；showing_only=true 额外要求影片已上映。
+        排期结果按电影分页去重并包含实际场次摘要，不能用 catalog 代替排期。
+        """
+        if (
+            movie_scope == "catalog"
+            and not screening_date
+            and not cinema_query
+            and not showing_only
+            and page == 1
+            and page_size == 20
+        ):
+            return await fetch("/internal/movies", {"query": query})
+        params = {
+            "query": query,
+            "movieScope": movie_scope,
+            "cinemaQuery": cinema_query,
+            "showingOnly": showing_only,
+            "page": page,
+            "pageSize": page_size,
+            "screeningDate": screening_date.isoformat() if screening_date else None,
+        }
+        return await fetch("/internal/movies/query", {key: value for key, value in params.items() if value is not None})
 
     @mcp.tool(annotations=READ_ONLY)
     async def search_screenings(
@@ -100,8 +131,14 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
         movie_query: Keyword = "",
         cinema_query: Keyword = "",
         screening_date: date | None = None,
+        query_scope: Literal["scheduled", "bookable"] = "bookable",
+        showing_only: bool = False,
     ) -> QueryResult:
-        """按电影/影院 ID 或关键词、北京时间日期 YYYY-MM-DD 查询可订购场次。"""
+        """查询场次明细：scheduled 为有效排期，bookable 为当前可订购。
+
+        日期按北京时间开场日筛选；未指定日期的 scheduled 返回今天及以后。
+        仅 bookable 排除已开场与未开售场次，默认值兼容原调用。
+        """
         params = {
             "movieId": movie_id,
             "cinemaId": cinema_id,
@@ -109,6 +146,10 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
             "cinemaQuery": cinema_query,
             "screeningDate": screening_date.isoformat() if screening_date else None,
         }
+        if query_scope != "bookable":
+            params["queryScope"] = query_scope
+        if showing_only:
+            params["showingOnly"] = True
         return await fetch("/internal/screenings", {key: value for key, value in params.items() if value is not None})
 
     @mcp.tool(annotations=READ_ONLY)
