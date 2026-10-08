@@ -1,4 +1,4 @@
-"""Official MCP client used by the Agent's fixed read-only query workflow."""
+"""Official MCP client used by the Agent's read-only ReAct workflow."""
 
 import asyncio
 import os

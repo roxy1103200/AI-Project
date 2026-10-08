@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1180" height="980" viewBox="0 0 1180 980" role="img" aria-labelledby="title desc">
+  <title id="title">影院 Agent ReAct 工具调用循环</title>
+  <desc id="desc">用户问题经过身份和参数校验后，模型选择只读工具，查询结果返回模型，继续查询或生成答复。缺少信息时追问，默认每轮最多四次工具调用尝试。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="#526274"/></marker>
+    <marker id="loop" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="#146d72"/></marker>
+    <style>
+      text{font-family:'Microsoft YaHei','PingFang SC',sans-serif;fill:#172c3e}
+      .node{fill:#fff;stroke:#aab8c4;stroke-width:1.5;rx:12}
+      .active{fill:#edf7f6;stroke:#146d72;stroke-width:2;rx:12}
+      .head{font-size:20px;font-weight:600}.detail{font-size:15px;fill:#526274}.label{font-size:14px;fill:#526274}
+      .edge{fill:none;stroke:#526274;stroke-width:2;marker-end:url(#arrow)}
+      .feedback{fill:none;stroke:#146d72;stroke-width:3;marker-end:url(#loop)}
+    </style>
+  </defs>
+  <rect width="1180" height="980" fill="#f7f9fb"/>
+  <text x="40" y="48" font-size="28" font-weight="600">影院 Agent：ReAct 工具调用循环</text>
+  <text x="40" y="78" class="detail">普通聊天 /ai/chat 与网站流式聊天 /ai/live 共用 LangGraph 状态图</text>
+
+  <rect x="420" y="108" width="320" height="58" class="node"/>
+  <text x="580" y="144" text-anchor="middle" class="head">用户问题</text>
+  <path d="M580 166 V190" class="edge"/>
+  <rect x="420" y="190" width="320" height="68" class="node"/>
+  <text x="580" y="217" text-anchor="middle" class="head">身份与会话凭证校验</text>
+  <text x="580" y="242" text-anchor="middle" class="detail">Java + 网关提供可信用户身份</text>
+  <path d="M580 258 V282" class="edge"/>
+  <rect x="420" y="282" width="320" height="82" class="node"/>
+  <text x="580" y="313" text-anchor="middle" class="head">理解问题 · 校验参数</text>
+  <text x="580" y="341" text-anchor="middle" class="detail">影片 / 影院 / 日期 / 订单号 / 范围</text>
+  <path d="M580 364 V410" class="edge"/>
+  <text x="595" y="393" class="label">信息足够</text>
+
+  <rect x="40" y="410" width="300" height="110" class="node"/>
+  <text x="190" y="447" text-anchor="middle" class="head">追问用户</text>
+  <text x="190" y="476" text-anchor="middle" class="detail">补充缺失条件或选择候选场次</text>
+  <text x="190" y="499" text-anchor="middle" class="detail">本轮结束，等待用户回答</text>
+  <path d="M420 323 H190 V410" class="edge"/>
+  <text x="210" y="310" class="label">缺少必要信息</text>
+
+  <rect x="420" y="410" width="320" height="130" class="active"/>
+  <text x="580" y="449" text-anchor="middle" class="head">Agent 选择下一步</text>
+  <text x="580" y="479" text-anchor="middle" class="detail">读取真实结果，再决定查询或结束</text>
+  <text x="580" y="507" text-anchor="middle" class="detail">模型原生 tool_calls</text>
+  <path d="M420 465 H340" class="edge"/>
+  <text x="350" y="450" class="label">追问</text>
+
+  <path d="M740 450 H810" class="edge"/>
+  <text x="751" y="432" class="label">只读工具</text>
+  <rect x="810" y="410" width="330" height="130" class="node"/>
+  <text x="975" y="448" text-anchor="middle" class="head">校验并执行查询</text>
+  <text x="975" y="478" text-anchor="middle" class="detail">白名单 · 参数来源 · 调用预算</text>
+  <text x="975" y="507" text-anchor="middle" class="detail">MCP / Java / 本地规则检索</text>
+  <path d="M975 540 V590" class="edge"/>
+  <text x="990" y="571" class="label">结果契约与归属校验</text>
+  <rect x="810" y="590" width="330" height="88" class="active"/>
+  <text x="975" y="625" text-anchor="middle" class="head">将结果交回 Agent</text>
+  <text x="975" y="652" text-anchor="middle" class="detail">ToolMessage：真实数据 / 可修正错误</text>
+  <path d="M810 634 H770 V505 H740" class="feedback"/>
+  <text x="810" y="712" font-size="17" fill="#146d72">循环：查询 → 观察结果 → 再选择</text>
+
+  <path d="M580 540 V728" class="edge"/>
+  <text x="596" y="626" class="label">查询足够 / 达到预算</text>
+  <text x="596" y="650" class="label">生成最终答复</text>
+  <path d="M190 520 V773 H420" class="edge"/>
+  <rect x="420" y="728" width="320" height="90" class="node"/>
+  <text x="580" y="764" text-anchor="middle" class="head">组织答复或返回错误</text>
+  <text x="580" y="793" text-anchor="middle" class="detail">只依据已校验结果，不输出内部规划</text>
+  <path d="M580 818 V846" class="edge"/>
+  <rect x="420" y="846" width="320" height="54" class="node"/>
+  <text x="580" y="880" text-anchor="middle" class="head">SSE → 网关 → 浏览器</text>
+
+  <text x="40" y="934" class="detail">默认每轮最多 4 次调用尝试；重复、不合法调用同样占用预算。场次 ID 来自用户或本轮真实结果。</text>
+  <text x="40" y="960" class="detail">六种只读业务工具 + ask_user；未配置模型时降级为确定性查询。问候与记忆确认保留快捷分支。</text>
+</svg>

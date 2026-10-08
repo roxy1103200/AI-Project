@@ -18,7 +18,7 @@
 - **Redis 处理短期和高频状态：** Redis 用于座位短锁、目录缓存、登录会话、AI 会话与限流。Lua 脚本将多座位检查和加锁合并为原子操作；锁的 TTL 可在用户中断流程后自动释放。订单状态仍以 MySQL 为准。
 - **并发写入使用幂等与状态校验：** 创建订单使用请求号幂等，支付使用支付流水号幂等，并结合数据库事务和行锁处理竞争，降低重复订单、重复支付和超卖风险。
 - **异步处理订单超时：** RabbitMQ 延迟消息触发超时取消；消费者再次确认订单仍为未支付后才取消并释放锁。定时对账任务补偿未成功处理的过期订单。
-- **AI 服务与票务业务分层：** Dify 负责常见问答，独立网关处理会话、限流和 SSE 流式转发；用户主动转接后，LangGraph Agent 调用固定的只读业务工具。知识库用于解释购票与退票规则，实时订单资格以 Java 返回的业务结果为准。
+- **AI 服务与票务业务分层：** Dify 负责常见问答，独立网关处理会话、限流和 SSE 流式转发；用户主动转接后，LangGraph Agent 通过 ReAct 循环组合白名单内的只读业务工具。知识库用于解释购票与退票规则，实时订单资格以 Java 返回的业务结果为准。
 
 该拆分让核心交易规则集中在 Java 服务中，同时允许 AI 问答独立迭代；Redis 与消息队列分别承担短期并发控制和异步超时处理，避免把所有状态变化都放进单次同步请求。
 
@@ -137,10 +137,20 @@ AI 服务支持 `OPENAI_API_KEY` 和 `OPENAI_MODEL`；未配置模型密钥时�
 
 AI 服务已使用 LangGraph 状态图组织完整流程：
 
-```text
-START -> intent -> clarify/execute -> validate -> respond -> END
+```mermaid
+flowchart LR
+    START --> prepare
+    prepare -->|信息足够| agent
+    prepare -->|缺少条件| clarify --> respond
+    prepare -->|问候| respond
+    agent -->|工具调用| tools
+    tools -->|有效结果或可修正错误| agent
+    tools -->|追问或致命错误| respond
+    agent -->|结束或达到预算| respond --> END
 ```
 
-状态图包含意图识别、订单号参数澄清、LangChain Tool/RAG 执行、结果校验、异常兜底和基于 `session_id` 的多轮会话记忆。AI 仍然不能直接访问数据库或执行支付、退票等写操作。
+`/ai/chat` 与网站使用的 `/ai/live` 共用这张图。`prepare` 提取并校验查询条件；缺少必要条件时先追问。`agent` 通过模型原生工具调用选择下一步，`tools` 校验参数、执行 MCP/Java/RAG 查询并将结果作为 `ToolMessage` 交回模型。模型可继续查询、调用 `ask_user` 或结束；`respond` 根据已验证结果组织答复，流式接口只推送状态和最终答复，不推送内部规划。
+
+每轮默认最多尝试 4 次工具调用，`AGENT_MAX_TOOL_CALLS` 可配置为 1～8；重复和不合法调用也占用预算。身份由服务器注入，场次编号来自用户明确提供或本轮真实查询结果。未配置模型或工具选择失败时降级到确定性查询；降级路径不具备模型动态规划能力。现有长期偏好记忆及显式保存确认保留。详见[流程图与实现说明](../docs/agent-react-flow.md)。
 
 数据库、服务端口和凭据均支持通过环境变量覆盖：`DB_URL`、`DB_USERNAME`、`DB_PASSWORD`、`SERVER_PORT`、`AI_SERVICE_URL`、`AI_INTERNAL_TOKEN`。

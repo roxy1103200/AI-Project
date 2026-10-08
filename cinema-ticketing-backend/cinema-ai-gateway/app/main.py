@@ -300,6 +300,9 @@ async def agent_events(
                     "data_not_found",
                     "business_auth_failed",
                     "business_unavailable",
+                    "query_contract_mismatch",
+                    "agent_no_evidence",
+                    "invalid_tool_call",
                     "agent_error",
                 }
                 code = packet.get("code", "agent_error")
