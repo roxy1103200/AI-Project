@@ -1,5 +1,5 @@
 const { Readable } = require('stream')
-const { Agent, EnvHttpProxyAgent, RetryAgent, fetch } = require('undici')
+const { EnvHttpProxyAgent } = require('undici')
 const { promises: fs } = require('graceful-fs')
 const log = require('./log')
 
@@ -48,7 +48,7 @@ async function createDispatcher (gyp) {
   const env = process.env
   const hasProxyEnv = env.http_proxy || env.HTTP_PROXY || env.https_proxy || env.HTTPS_PROXY
   if (!gyp.opts.proxy && !gyp.opts.cafile && !hasProxyEnv) {
-    return new RetryAgent(new Agent(), { maxRetries: 3 })
+    return undefined
   }
 
   const opts = {}
@@ -69,7 +69,7 @@ async function createDispatcher (gyp) {
   if (gyp.opts.noproxy) {
     opts.noProxy = gyp.opts.noproxy
   }
-  return new RetryAgent(new EnvHttpProxyAgent(opts), { maxRetries: 3 })
+  return new EnvHttpProxyAgent(opts)
 }
 
 async function readCAFile (filename) {
