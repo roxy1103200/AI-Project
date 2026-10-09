@@ -6,85 +6,54 @@ import asyncio
 import hmac
 import json
 import os
-import re
 from collections import defaultdict
 from collections.abc import AsyncIterator
 from contextlib import aclosing, asynccontextmanager
-from pathlib import Path
 from typing import Any, Literal
 
 import httpx
 from fastapi import Depends, FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse, StreamingResponse
-from langchain_core.documents import Document
-from langchain_core.retrievers import BaseRetriever
 from langchain_core.tools import BaseTool, tool
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from pydantic import BaseModel, Field
 
 from app.failures import describe_failure
 from app.java_client import JavaApiClient
 from app.mcp_client import QUERY_TOOLS, CinemaMcpClient
 from app.model_config import create_model
+from app.policy_retrieval import KeywordRetriever, load_retriever, policy_candidates
 from app.query_answers import movie_answer, screening_answer
 from app.react_agent import AgentState, CinemaReAct, initial_state
+from app.reranker import DashScopeReranker
 
 INTERNAL_API_TOKEN = os.getenv("AI_INTERNAL_TOKEN", "local-internal-token")
-KNOWLEDGE_PATH = Path(__file__).resolve().parent.parent / "knowledge"
 
 
-def _terms(text: str) -> set[str]:
-    """Create keyword terms that work for both Chinese and Latin text."""
-    words = set(re.findall(r"[A-Za-z0-9_]+|[\u4e00-\u9fff]", text.lower()))
-    return {word for word in words if word.strip()}
-
-
-class KeywordRetriever(BaseRetriever):
-    """Small deterministic retriever for the local policy knowledge base."""
-
-    documents: list[Document] = Field(default_factory=list)
-    top_k: int = 4
-
-    def _get_relevant_documents(self, query: str, *, run_manager: Any) -> list[Document]:
-        """Return documents ordered by keyword overlap with the question."""
-        query_terms = _terms(query)
-        ranked = []
-        for document in self.documents:
-            score = len(query_terms & _terms(document.page_content))
-            if score:
-                ranked.append((score, document))
-        ranked.sort(key=lambda item: item[0], reverse=True)
-        return [document for _, document in ranked[: self.top_k]]
-
-
-def load_retriever() -> KeywordRetriever:
-    """Load and split markdown knowledge documents into searchable chunks."""
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500,
-        chunk_overlap=80,
-        separators=["\n\n", "\n", "。", "，", " ", ""],
-    )
-    documents: list[Document] = []
-    for source in sorted(KNOWLEDGE_PATH.glob("*.md")):
-        text = source.read_text(encoding="utf-8")
-        documents.extend(splitter.create_documents([text], metadatas=[{"source": source.name, "version": "2026.01"}]))
-    return KeywordRetriever(documents=documents)
-
-
-def create_tools(client: JavaApiClient, retriever: KeywordRetriever) -> dict[str, BaseTool]:
-    """Keep policy RAG and recommendations local; the four queries use MCP."""
+def create_tools(
+    client: JavaApiClient,
+    retriever: KeywordRetriever,
+    reranker: DashScopeReranker | None = None,
+) -> dict[str, BaseTool]:
+    """Build policy RAG and recommendation tools; business queries use MCP."""
 
     @tool
     async def query_ticket_policy(question: str) -> dict[str, Any]:
         """Retrieve ticket policy passages with source and version metadata."""
-        documents = await retriever.ainvoke(question)
-        policy = await client.get("/internal/refund-policy")
-        business_documents = await client.get("/internal/knowledge/search", {"query": question})
+        local_documents, policy, business_documents = await asyncio.gather(
+            retriever.ainvoke(question),
+            client.get("/internal/refund-policy"),
+            client.get("/internal/knowledge/search", {"query": question}),
+        )
+        candidates = policy_candidates(
+            question,
+            local_documents,
+            business_documents,
+            reranker.settings.top_k if reranker else 30,
+        )
+        documents = await reranker.rerank(question, candidates) if reranker else candidates[:4]
         return {
-            "answer_context": [document.page_content for document in documents]
-            + [document["content"] for document in business_documents],
-            "sources": [document.metadata for document in documents]
-            + [{"source": "knowledge_document", **document} for document in business_documents],
+            "answer_context": [document.page_content for document in documents],
+            "sources": [document.metadata for document in documents],
             "policy": policy,
         }
 
@@ -143,7 +112,8 @@ class Assistant:
         self.memory = UserMemory(self.client)
         self.mcp = CinemaMcpClient()
         self.retriever = load_retriever()
-        self.tools = create_tools(self.client, self.retriever)
+        self.reranker = DashScopeReranker()
+        self.tools = create_tools(self.client, self.retriever, self.reranker)
         self.sessions: dict[str, list[dict[str, str]]] = defaultdict(list)
         self.model = create_model()
         self.workflow = CinemaReAct(
@@ -225,10 +195,11 @@ assistant = Assistant()
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-    """Close the remaining local policy/recommendation HTTP pool on shutdown."""
+    """Close the Java and DashScope HTTP pools on shutdown."""
     try:
         yield
     finally:
+        await assistant.reranker.aclose()
         await assistant.client.aclose()
 
 

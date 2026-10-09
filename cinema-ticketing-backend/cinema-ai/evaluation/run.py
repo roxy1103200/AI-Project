@@ -18,6 +18,7 @@ import time
 import types
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from dataclasses import asdict, replace
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
@@ -210,6 +211,10 @@ def instrument(assistant: Any) -> None:
     """Attach observers to injected boundaries; keep all application decisions intact."""
     assistant.mcp = RecordedMcp(assistant.mcp)
     assistant.tools = {name: RecordedTool(name, tool) for name, tool in assistant.tools.items()}
+    if hasattr(assistant, "reranker"):
+        from evaluation.rerank_metrics import observe_reranker
+
+        observe_reranker(assistant.reranker, ACTIVE)
 
 
 async def trial(
@@ -224,6 +229,7 @@ async def trial(
         "user_id": case["user_id"],
         "question": case["question"],
         "model_calls": [],
+        "rerank_calls": [],
         "proposals": [],
         "tools": [],
         "validation": [],
@@ -265,13 +271,14 @@ async def trial(
 
 def summaries(rows: list[dict[str, Any]]) -> dict[str, Any]:
     """Expose groups so clarification shortcuts cannot hide composite task failures."""
+    from evaluation.rerank_metrics import augment_summary
+
+    def group_summary(variant: str, group: str) -> dict[str, Any]:
+        selected = [row for row in rows if row["variant"] == variant and (group == "all" or row["group"] == group)]
+        return augment_summary(selected, summarize(selected))
+
     return {
-        variant: {
-            group: summarize(
-                [row for row in rows if row["variant"] == variant and (group == "all" or row["group"] == group)]
-            )
-            for group in ("all", "simple", "composite", "clarify", "safety")
-        }
+        variant: {group: group_summary(variant, group) for group in ("all", "simple", "composite", "clarify", "safety")}
         for variant in ("baseline", "react")
     }
 
@@ -305,6 +312,12 @@ async def run(options: argparse.Namespace) -> None:
         metadata = {
             "started_beijing": datetime.now(timezone(timedelta(hours=8))).isoformat(),
             "baseline_ref": ref,
+            "baseline_mode": options.baseline_mode,
+            "variant_labels": (
+                {"baseline": "ReAct（重排关闭）", "react": "ReAct + Rerank"}
+                if options.baseline_mode == "rerank-off"
+                else {"baseline": "旧流程", "react": "ReAct"}
+            ),
             "current_ref": current_ref,
             "model": model.model_name,
             "temperature": model.temperature,
@@ -329,7 +342,32 @@ async def run(options: argparse.Namespace) -> None:
             print(json.dumps({"prepared_cases": len(cases), "output": str(directory)}, ensure_ascii=True), flush=True)
             return
         current = importlib.import_module("app.main")
-        baseline = previous_module(ref, directory)
+        if options.baseline_mode == "rerank-off":
+            source = (AI_ROOT / "app/main.py").read_bytes()
+            (directory / "baseline_main.py").write_bytes(source)
+            baseline = types.ModuleType("evaluation_rerank_off_main")
+            baseline.__file__ = str(AI_ROOT / "app/main.py")
+            sys.modules[baseline.__name__] = baseline
+            exec(compile(source, baseline.__file__, "exec"), baseline.__dict__)
+            baseline.assistant.reranker.settings = replace(baseline.assistant.reranker.settings, enabled=False)
+            current.assistant.reranker.settings = replace(current.assistant.reranker.settings, enabled=True)
+            metadata["baseline_ref"] = current_ref
+            metadata["rerank_settings"] = asdict(current.assistant.reranker.settings)
+            saved = directory / "measured-source"
+            hashes = {}
+            for path in sorted([*(AI_ROOT / "app").glob("*.py"), *(AI_ROOT / "knowledge").glob("*.md")]):
+                relative = path.relative_to(AI_ROOT)
+                target = saved / relative
+                target.parent.mkdir(parents=True, exist_ok=True)
+                content = path.read_bytes()
+                target.write_bytes(content)
+                hashes[str(relative)] = hashlib.sha256(content).hexdigest()
+            metadata["measured_source_sha256"] = hashes
+            (directory / "metadata.json").write_text(
+                json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8"
+            )
+        else:
+            baseline = previous_module(ref, directory)
         from app import react_agent
 
         original_validate = react_agent.validate_arguments
@@ -384,6 +422,8 @@ async def run(options: argparse.Namespace) -> None:
         finally:
             react_agent.validate_arguments = original_validate
             for module in modules.values():
+                if hasattr(module.assistant, "reranker"):
+                    await module.assistant.reranker.aclose()
                 await module.assistant.client.aclose()
             await model.root_async_client.close()
         print(json.dumps({"finished": len(rows), "output": str(directory)}, ensure_ascii=True), flush=True)
@@ -394,6 +434,7 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--baseline-ref", default="039085e")
+    parser.add_argument("--baseline-mode", choices=("git", "rerank-off"), default="git")
     parser.add_argument("--repeats", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--limit", type=int)
     parser.add_argument("--manifest")

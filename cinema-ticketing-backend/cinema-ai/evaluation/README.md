@@ -49,3 +49,19 @@ cd E:\development\AI-Project\cinema-ticketing-backend\cinema-ai
 ```
 
 这些数据只能支持“固定开发业务问题集上的验收评测”。24 题的小样本 P95 不能作为线上 SLA，测试成功率不能称为生产用户成功率。自动事实规则只检查声明的关键事实，并非逐字语义审计；报告保留每题答复供复核。旧流程更快或更省费用时也应如实呈现。
+
+## Rerank 同版开关对照
+
+`--baseline-mode rerank-off` 在两个独立 Assistant 实例中运行同一份工作区源码，仅重排开关不同。会保存未提交的业务 Python 源码、知识文档和哈希，避免仅凭 HEAD 错认实际测量版本；不会修改项目 `.env` 或已有服务。
+
+```powershell
+.venv\Scripts\python.exe -m evaluation.run --output ..\target\agent-evaluation\rerank-prepared --prepare-only
+.venv\Scripts\python.exe -m evaluation.run --output ..\target\agent-evaluation\rerank-ab --manifest ..\target\agent-evaluation\rerank-prepared\cases.json --baseline-mode rerank-off --repeats 2
+.venv\Scripts\python.exe -m evaluation.rerank_focus --output ..\target\agent-evaluation\rerank-evidence --prepare-only
+.venv\Scripts\python.exe -m evaluation.rerank_focus --output ..\target\agent-evaluation\rerank-evidence
+.venv\Scripts\python.exe -m evaluation.report ..\target\agent-evaluation\rerank-ab --evidence-directory ..\target\agent-evaluation\rerank-evidence
+```
+
+专项准备默认拥有并关闭独立 Java/MCP 服务，也可用 `--java-url` 复用可用 Java。云端排序专项在端到端计时结束后执行，使用已冻结的真实候选；不生成回答。候选相关性规则在首次计分重排前声明，10 道有答案题纳入 Top1/MRR/NDCG 分母，2 道无答案题单列。测量输出已有 `trials.jsonl` 时拒绝静默重复执行。
+
+评测中的 `rerank_calls` 分别记录关闭、跳过、真实云端成功、回退，以及原生 usage、候选与来源、实际选中片段。报告按聊天和重排分别记账，并显示合计模型请求、Token 与估算费用。native usage 缺失不会当作免费调用。此处价格仅适用于本轮北京地域 `qwen3.7-text-rerank`。

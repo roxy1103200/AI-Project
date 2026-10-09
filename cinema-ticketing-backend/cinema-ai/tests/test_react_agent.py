@@ -7,6 +7,8 @@ from collections.abc import AsyncIterator
 from datetime import date
 from unittest.mock import AsyncMock, patch
 
+import httpx
+from langchain_core.documents import Document
 from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, ToolMessage
 
 from app.failures import CinemaQueryError
@@ -162,6 +164,48 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         packets = await self.packets("我的订单能退票吗")
         self.assertIn("订单号", "".join(p.get("text", "") for p in packets))
         self.assertEqual(model.requests, [])
+        self.assistant.mcp.call_tool.assert_not_awaited()
+
+    async def test_policy_graph_uses_reranked_evidence_and_preserves_source_and_live_rule(self) -> None:
+        from app.main import create_tools
+        from app.policy_retrieval import KeywordRetriever
+        from app.reranker import DashScopeReranker, RerankSettings
+
+        provider_calls = []
+
+        async def provider(request: httpx.Request) -> httpx.Response:
+            provider_calls.append(request)
+            return httpx.Response(200, json={"output": {"results": [{"index": 1, "relevance_score": 0.9}]}})
+
+        java = AsyncMock()
+        policy = {"version": 12, "policy": "当前权威规则，不属于候选摘要"}
+
+        async def java_get(path, *args):
+            return (
+                policy
+                if path.endswith("refund-policy")
+                else [{"id": 8, "title": "购票规则", "content": "购票规则：儿童票以影院活动为准。", "version": "v2"}]
+            )
+
+        java.get.side_effect = java_get
+        retriever = KeywordRetriever(
+            documents=[Document(page_content="购票规则：请在放映前完成购票。", metadata={"source": "local.md"})]
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(provider)) as client:
+            reranker = DashScopeReranker(RerankSettings(top_n=1), client=client, key_loader=lambda: "sk-test")
+            self.assistant.tools = create_tools(java, retriever, reranker)
+            self.assistant.model = ScriptedModel(
+                [decision("query_ticket_policy", {"question": "购票规则"}), AIMessage(content="查询完成")],
+                answer="规则已查询。",
+            )
+            result = await self.assistant.chat(ChatRequest(user_id=2, session_id="rerank", question="购票规则"))
+        self.assertEqual(len(provider_calls), 1)
+        self.assertEqual(result.sources[0]["id"], 8)
+        self.assertEqual(result.sources[0]["version"], "v2")
+        observations = [message for message in self.assistant.model.requests[1] if isinstance(message, ToolMessage)]
+        self.assertIn("儿童票以影院活动为准", observations[0].content)
+        self.assertIn("当前权威规则", observations[0].content)
+        self.assertNotIn("请在放映前完成购票", observations[0].content)
         self.assistant.mcp.call_tool.assert_not_awaited()
 
     async def test_invented_screening_in_assistant_history_cannot_authorize_seat_query(self) -> None:

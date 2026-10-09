@@ -38,6 +38,8 @@ cinema-ticketing-backend/cinema-ai/.venv/Scripts/python.exe -m pip install -r ci
 
 内部 Agent 已切换为 **Qwen3.7 Flash**，模型 ID `qwen3.7-flash`，通过阿里云百炼兼容接口调用。服务端默认从 `API/qwen.txt` 读取一个密钥，支持纯密钥或附带标签的文本；环境变量 `QWEN_API_KEY` / `DASHSCOPE_API_KEY` 优先于文件。密钥文件仍由 Git 忽略。Docker 将该文件只读挂载到 Agent，网关不使用 Qwen 密钥。
 
+规则知识检索已接入 `qwen3.7-text-rerank`，复用现有 Qwen 密钥。候选合并、配置、重启和故障回退见 [Rerank 运行说明](agent-rerank-dashscope.md)。
+
 配置示例见 `cinema-ticketing-backend/cinema-ai/.env.example`，可复制为同目录 `.env`：
 
 - `QWEN_MODEL`：默认 `qwen3.7-flash`。
