@@ -1,0 +1,35 @@
+.sales-report-admin { padding-block: 44px 80px; }
+.report-simulation { padding: 7px 12px; border: 1px solid #785c37; color: #f3cc8a; font-size: 12px; }
+.report-filters { display: flex; flex-wrap: wrap; align-items: end; gap: 14px; margin: 26px 0; }
+.report-filters label { display: grid; gap: 8px; color: #acbacc; font-size: 12px; flex: 1; min-width: 145px; }
+.report-filters input, .report-filters select { width: 100%; min-width: 0; padding: 11px; border: 1px solid #3b424b; color: #eef1f5; background: #171c23; font: inherit; color-scheme: dark; }
+.report-tabs { display: flex; border-bottom: 1px solid #343b43; margin-bottom: 24px; }
+.report-tabs button { background: transparent; border: 0; border-bottom: 2px solid transparent; padding: 14px 18px; color: #9aa9bc; }
+.report-tabs button.active { color: #fff; border-bottom-color: #ec5c52; }
+.report-toolbar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; color: #a9b6c8; font-size: 12px; margin-bottom: 20px; }
+.report-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border-block: 1px solid #343b43; }
+.report-metrics > div { display: grid; gap: 12px; padding: 24px 18px; border-right: 1px solid #343b43; }
+.report-metrics > div:last-child { border-right: 0; }
+.report-metrics span { font-size: 12px; color: #a9b6c8; }
+.report-metrics strong { font-size: clamp(20px, 2.5vw, 32px); font-weight: 600; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.report-metrics small { font-size: 12px; color: #a9b6c8; font-weight: 400; }
+.report-explanation, .report-updated { font-size: 12px; line-height: 1.8; color: #a9b6c8; margin: 18px 0 24px; }
+.sales-report-admin h3 { font-size: 16px; margin: 28px 0 14px; }
+.sales-report-admin h3 small { color: #a9b6c8; font-size: 12px; font-weight: 400; margin-left: 8px; }
+.report-table-wrap { overflow: auto; border: 1px solid #343b43; max-height: 560px; }
+.report-table { width: 100%; border-collapse: collapse; min-width: 760px; text-align: left; font-size: 12px; }
+.report-table th { position: sticky; top: 0; background: #22272f; color: #a9b6c8; font-weight: 500; }
+.report-table th, .report-table td { padding: 15px 18px; border-bottom: 1px solid #343b43; vertical-align: top; }
+.report-table td { color: #e6eaf0; overflow-wrap: anywhere; max-width: 300px; }
+.report-table td small { display: block; margin-top: 5px; color: #9aa9bc; }
+.report-table .report-empty { text-align: center; padding: 38px 20px; color: #a9b6c8; }
+.report-error { color: #ff9e96; padding: 12px; border-left: 2px solid #ec5c52; background: #231c20; }
+.report-state { padding: 48px 20px; text-align: center; color: #a9b6c8; }
+@media (max-width: 640px) {
+  .sales-report-admin { width: calc(100% - 32px); padding-top: 30px; }
+  .report-metrics { grid-template-columns: 1fr; }
+  .report-metrics > div { border-right: 0; border-bottom: 1px solid #343b43; padding: 18px 12px; }
+  .report-metrics > div:last-child { border-bottom: 0; }
+  .report-metrics strong { font-size: 28px; }
+  .report-tabs button { padding-inline: 12px; }
+}

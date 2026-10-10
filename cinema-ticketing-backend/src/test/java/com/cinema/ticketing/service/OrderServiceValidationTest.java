@@ -9,6 +9,7 @@ import org.springframework.jdbc.core.RowMapper;
 import org.springframework.dao.DataAccessResourceFailureException;
 
 import java.util.List;
+import java.time.LocalDateTime;
 
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.mockito.Mockito.mock;
@@ -36,7 +37,7 @@ class OrderServiceValidationTest {
     void databaseOutageIsNotReportedAsMissingScreeningOrOrder() {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         OrderService service = new OrderService(jdbc, mock(StringRedisTemplate.class), mock(OrderMessagePublisher.class));
-        when(jdbc.queryForObject(anyString(), any(RowMapper.class), eq(1L)))
+        when(jdbc.queryForObject(anyString(), any(RowMapper.class), eq(1L), any(LocalDateTime.class), any(LocalDateTime.class)))
                 .thenThrow(new DataAccessResourceFailureException("database unavailable"));
         assertThrows(DataAccessResourceFailureException.class,
                 () -> service.lockSeats("owner", 1L, List.of(10L)));

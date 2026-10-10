@@ -92,12 +92,12 @@ final class MovieScheduleEditor {
                 throw new BusinessException(400, "场次不属于当前影片或提交了重复场次");
             }
             if (old != null && unchanged(slot, old)) continue;
-            if (old != null && hasOrders(slot.id())) throw new BusinessException(409, "场次已有订单，不能修改影厅、时间、票价或状态");
+            if (old != null && hasSalesCommitment(slot.id())) throw new BusinessException(409, "场次已有订单或已固定可售容量，不能修改影厅、时间、票价或状态");
             validate(slot, movie);
         }
         for (long oldId : existing.keySet()) {
             if (!retained.contains(oldId)) {
-                if (hasOrders(oldId)) throw new BusinessException(409, "场次已有订单，不能删除");
+                if (hasSalesCommitment(oldId)) throw new BusinessException(409, "场次已有订单或已固定可售容量，不能删除");
                 jdbc.update("DELETE FROM screening WHERE id=? AND movie_id=?", oldId, movieId);
             }
         }
@@ -145,9 +145,10 @@ final class MovieScheduleEditor {
         if (outside != null && outside > 0) throw new BusinessException(400, "未来场次必须完整位于影片上架周期内，请同时调整周期或场次");
     }
 
-    private boolean hasOrders(long id) {
+    private boolean hasSalesCommitment(long id) {
         // A locking read sees orders committed while this transaction waited for the screening lock.
-        return !jdbc.queryForList("SELECT id FROM ticket_order WHERE screening_id=? ORDER BY id LIMIT 1 FOR UPDATE", id).isEmpty();
+        return !jdbc.queryForList("SELECT id FROM ticket_order WHERE screening_id=? ORDER BY id LIMIT 1 FOR UPDATE", id).isEmpty()
+                || !jdbc.queryForList("SELECT screening_id FROM screening_capacity_snapshot WHERE screening_id=? FOR UPDATE", id).isEmpty();
     }
 
     private void validate(Slot slot, Map<String, Object> movie) {

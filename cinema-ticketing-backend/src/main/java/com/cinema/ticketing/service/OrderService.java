@@ -64,6 +64,7 @@ public class OrderService {
         Screening screening = screening(screeningId);
         lockAvailableSeats(screening.hallId(), seatIds);
         validateSeats(screeningId, screening.hallId(), seatIds);
+        ScreeningCapacity.capture(jdbcTemplate, screeningId, screening.hallId());
         List<String> keys = seatIds.stream()
                 .map(seatId -> lockKey(screeningId, seatId))
                 .toList();
@@ -87,6 +88,7 @@ public class OrderService {
         lockAvailableSeats(screening.hallId(), seatIds);
         validateNoActiveOrder(request.screeningId(), seatIds);
         validateLockOwnership(request.screeningId(), seatIds, owner);
+        ScreeningCapacity.capture(jdbcTemplate, request.screeningId(), screening.hallId());
 
         String orderNo = "O" + UUID.randomUUID().toString().replace("-", "").substring(0, 24).toUpperCase();
         BigDecimal totalAmount = screening.price().multiply(BigDecimal.valueOf(seatIds.size()));
@@ -123,7 +125,7 @@ public class OrderService {
             throw new BusinessException(409, "订单已超时，请重新选座下单");
         }
         // paid_at 同理：库生成的 CURRENT_TIMESTAMP 走的是数据库时区，返回给前端会差几个小时
-        LocalDateTime paidAt = LocalDateTime.now();
+        LocalDateTime paidAt = LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai"));
         try {
             jdbcTemplate.update("INSERT INTO payment_transaction (payment_no, order_id, amount, status, paid_at) "
                             + "VALUES (?, ?, ?, 'SUCCESS', ?)",
@@ -165,8 +167,8 @@ public class OrderService {
             throw new BusinessException(409, "订单状态已变化，请刷新后重试");
         }
         jdbcTemplate.update("UPDATE order_item SET ticket_status = 'REFUNDED' WHERE order_id = ?", order.id());
-        jdbcTemplate.update("INSERT INTO refund_record (order_id, amount, reason, status) VALUES (?, ?, ?, 'REFUNDED')",
-                order.id(), order.totalAmount(), reason);
+        jdbcTemplate.update("INSERT INTO refund_record (order_id, amount, reason, status, refunded_at) VALUES (?, ?, ?, 'REFUNDED', ?)",
+                order.id(), order.totalAmount(), reason, LocalDateTime.now(java.time.ZoneId.of("Asia/Shanghai")));
         return findOrder(userId, orderNo);
     }
 
@@ -354,6 +356,8 @@ public class OrderService {
     }
 
     private void lockAvailableSeats(long hallId, List<Long> seatIds) {
+        // Serialize layout changes and the first capacity snapshot using the same hall lock.
+        jdbcTemplate.queryForList("SELECT id FROM hall WHERE id=? FOR UPDATE", Long.class, hallId);
         String placeholders = String.join(",", seatIds.stream().map(id -> "?").toList());
         List<Object> parameters = new ArrayList<>();
         parameters.add(hallId);

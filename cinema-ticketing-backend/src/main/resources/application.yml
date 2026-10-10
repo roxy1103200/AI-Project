@@ -69,6 +69,9 @@ management:
 auth:
   initialize-schema: ${AUTH_INITIALIZE_SCHEMA:true}
 
+reports:
+  initialize-schema: ${REPORTS_INITIALIZE_SCHEMA:true}
+
 ai:
   service-url: ${AI_SERVICE_URL:http://localhost:8000}
   internal-token: ${AI_INTERNAL_TOKEN:local-internal-token}

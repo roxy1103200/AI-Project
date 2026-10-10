@@ -111,7 +111,10 @@ public class HallSeatService {
             if(codes.contains(code)) throw new BusinessException(409,"座位编号 "+code+" 已被其他位置使用，请先调整编号");
             additions.add(new Object[]{id,row,column,code});
         }
-        if(!additions.isEmpty()) jdbc.batchUpdate("INSERT INTO seat(hall_id,row_no,column_no,seat_code,seat_type,status) VALUES(?,?,?,?,'STANDARD','AVAILABLE')",additions);
+        if(!additions.isEmpty()) {
+            requireCapacityMutable(id);
+            jdbc.batchUpdate("INSERT INTO seat(hall_id,row_no,column_no,seat_code,seat_type,status) VALUES(?,?,?,?,'STANDARD','AVAILABLE')",additions);
+        }
         return additions.size();
     }
 
@@ -130,6 +133,7 @@ public class HallSeatService {
         }
         if(count("SELECT COUNT(*) FROM seat WHERE hall_id=? AND (id<>? OR ? IS NULL) AND ((row_no=? AND column_no=?) OR seat_code=?)",
                 hallId,seatId,seatId,input.row(),input.column(),input.code().trim())>0) throw new BusinessException(409,"座位位置或编号已被使用");
+        if(seatId==null) requireCapacityMutable(hallId);
         if(seatId==null) jdbc.update("INSERT INTO seat(hall_id,row_no,column_no,seat_code,seat_type,status) VALUES(?,?,?,?,?,?)",
                 hallId,input.row(),input.column(),input.code().trim(),input.type(),input.status());
         else jdbc.update("UPDATE seat SET row_no=?,column_no=?,seat_code=?,seat_type=?,status=? WHERE id=?",
@@ -157,6 +161,7 @@ public class HallSeatService {
 
     private void requireMutableSeats(long hallId,List<Long> ids,boolean structural) {
         if(ids.isEmpty()) return;
+        requireCapacityMutable(hallId);
         String placeholders=String.join(",",Collections.nCopies(ids.size(),"?"));
         List<Object> arguments=new ArrayList<>(ids);
         String sql=structural ? "SELECT COUNT(*) FROM order_item WHERE seat_id IN ("+placeholders+")"
@@ -177,6 +182,12 @@ public class HallSeatService {
         if(keys.isEmpty()) return;
         var values=redis.opsForValue().multiGet(keys);
         if(values!=null&&values.stream().anyMatch(Objects::nonNull)) throw new BusinessException(409,"座位正被观众锁定，请稍后再修改");
+    }
+    private void requireCapacityMutable(long hallId) {
+        if (!jdbc.queryForList("SELECT cap.screening_id FROM screening_capacity_snapshot cap JOIN screening s ON s.id=cap.screening_id "
+                + "WHERE s.hall_id=? AND s.status='SCHEDULED' AND s.end_time>? LIMIT 1", hallId, LocalDateTime.now()).isEmpty()) {
+            throw new BusinessException(409, "影厅存在已锁定可售容量的未结束场次，请在场次结束后调整座位布局");
+        }
     }
     private void requireNoFutureScreenings(long hallId) {
         if(count("SELECT COUNT(*) FROM screening WHERE hall_id=? AND status='SCHEDULED' AND end_time>?",hallId,LocalDateTime.now())>0)
