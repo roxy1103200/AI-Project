@@ -1,5 +1,7 @@
 # 方案 B：Dify Chatbot + 独立 AI 网关
 
+内部 Agent 已支持仅在本地或预发开启 LangSmith 节点、模型和工具追踪；配置、云端回读验证及“回答未完成”的定位步骤见 [LangSmith 追踪说明](agent-langsmith-tracing.md)。
+
 已接入两个独立聊天入口；Dify 使用云端 Chatbot 官方 API。首页右下角保留“智能 Agent”窗口，左侧增加 Dify 小悬浮球。两者的会话、历史、授权和反馈独立，详见 [聊天隔离说明](ai-chat-isolation.md)。
 
 ## 请求路径

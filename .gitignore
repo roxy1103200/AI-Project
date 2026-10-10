@@ -12,4 +12,8 @@ docker-compose.yml
 **/.venv/
 **/__pycache__/
 **/.png
+/langsmith(tracing)/
+!/langsmith(tracing)/
+/langsmith(tracing)/*
+!/langsmith(tracing)/.gitkeep
 AAA.pem

@@ -266,14 +266,21 @@ async def agent_events(
         answer_size = 0
         async for packet in read_events(upstream):
             kind = packet.get("type")
-            if kind == "delta":
+            if kind == "trace":
+                try:
+                    trace_id = str(uuid.UUID(str(packet.get("trace_id", ""))))
+                except ValueError:
+                    continue
+                record.context["trace_id"] = trace_id
+                LOGGER.info("AI gateway agent trace_id=%s message_id=%s", trace_id, record.message_id)
+            elif kind == "delta":
                 text = str(packet.get("text", ""))
                 answer_size += len(text)
                 if answer_size > MAX_ANSWER_SIZE:
                     raise ValueError("Agent answer exceeded size limit")
                 yield event("delta", text=text)
             elif kind == "context":
-                record.context = {
+                record.context.update({
                     key: packet.get(key)
                     for key in (
                         "intent",
@@ -283,7 +290,7 @@ async def agent_events(
                         "entities",
                         "tool_calls",
                     )
-                }
+                })
                 yield event("context", normalized_question=str(packet.get("normalized_question", ""))[:1000])
             elif kind == "status":
                 yield event("status", message=str(packet.get("message", ""))[:200])

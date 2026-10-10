@@ -7,12 +7,14 @@
 执行顺序：
 
 1. 并行读取本地规则知识、Java 已发布知识、Java 当前退票规则。
-2. 本地关键词召回最多 20 个片段；Java 知识接口最多返回 10 篇文档，再切成片段。两类知识统一采用 500 字符切片、80 字符重叠。
+2. 本地关键词召回最多 20 个片段；Java 对自然语言问题提取主题词、中文词组及退款/退票等同义词，参数化检索最多 60 个已发布候选，按标题和正文匹配选最多 20 篇，再切成片段。两类知识统一采用 500 字符切片、80 字符重叠。
 3. 合并片段并按内容去重，以关键词相关程度排序，默认保留最多 30 个候选。
 4. 将本轮问题和候选片段发送到百炼，按照返回的相关性分数排序，默认选前 4 个作为回答依据。
 5. 把选中片段、对应来源和当前退票规则一起交给回答模型。
 
 当前退票规则通过独立的 `policy` 字段保留，不参与重排和裁剪。知识片段保留来源、版本、数据库文档 ID（如有），并增加稳定的 `chunk_id`；云端重排成功后增加 `rerank_score`。来源与片段通过返回的候选索引对应，云端不能替换原始片段内容。
+
+自 2026-10-10 起，Java 按 `cutoff_minutes` 统一生成截止说明，对已存在的冲突正文在读取时归一化，新发布规则写入统一文本。回答模型以实时数值和订单资格为准，检索片段不能覆盖它们。
 
 本地知识目录：`cinema-ticketing-backend/cinema-ai/knowledge/`，当前读取其中的 `cinema_faq.md`、`purchase_guide.md` 和 `refund_policy.md`。只读取该目录直接包含的 Markdown 文件，在 Agent 启动时加载；修改后需要重启 Agent。
 
@@ -45,7 +47,7 @@ cd E:\development\AI-Project\cinema-ticketing-backend
 .\start-ai-local.ps1 -Service agent
 ```
 
-完整网站问答需要 Java、MCP 和网关已正常运行。本次改动不要求重新构建 Java 或前端。启动脚本加载 Agent 目录下的 `.env`，已有进程环境变量优先；修改配置后须重启。
+完整网站问答需要 Java、MCP 和网关已正常运行。2026-10-10 的召回和规则一致性修复需要重新构建并重启 Java 与内部 Agent；仅修改重排开关时只需重启 Agent。启动脚本加载 Agent 目录下的 `.env`，已有进程环境变量优先。
 
 可独立检查百炼连接，无须启动 Java 或 MCP：
 
@@ -85,4 +87,6 @@ Rerank status=fallback reason=http_429 candidates=... elapsed_ms=...
 
 已完成同版本重排开关的 96 次真实业务任务对照，以及 12 题、48 次规则证据排序专项，详见 [2026-10-09 真实评测](agent-rerank-evaluation-2026-10-09.md)。小规模有答案专项的首位证据命中率由 90% 提升到 100%，端到端严格成功率未提升。发现实时规则正文与数值字段冲突、自然语言数据库知识召回为空等问题；建议先修复，再扩充至 50～100 个规则问题（近义表达、相似干扰、版本冲突、无答案）复测。
 
-主要实现位置：`app/policy_retrieval.py`（候选构建）、`app/reranker.py`（百炼客户端和回退）、`app/main.py`（工具接入与资源关闭）、`scripts/check_rerank.py`（真实连通检查），均位于 `cinema-ticketing-backend/cinema-ai/` 下。
+2026-10-10 修复及复测状态见[修复说明](agent-reliability-fixes-2026-10-10.md)。
+
+主要实现位置：`app/policy_retrieval.py`（候选构建）、`app/reranker.py`（百炼客户端和回退）、`app/main.py`（工具接入与资源关闭）、`scripts/check_rerank.py`（真实连通检查），均位于 `cinema-ticketing-backend/cinema-ai/` 下。Java 数据库召回位于 `service/KnowledgeSearchService.java`。

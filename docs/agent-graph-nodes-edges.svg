@@ -1,0 +1,163 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1510" viewBox="0 0 1440 1510" role="img" aria-labelledby="graph-title graph-desc">
+  <title id="graph-title">影院内部 Agent：LangGraph 节点与条件边</title>
+  <desc id="graph-desc">依据 2026-10-10 react_agent.py：START 到 prepare。prepare 在需澄清时到 clarify，在问候时到 respond，其余到 agent。clarify 到 respond。agent 在 pending_calls 非空时到 tools，否则到 respond。tools 在有 error 或 answer 时到 respond，否则携 ToolMessage 返回 agent。respond 到 END。共五个业务节点、两个起止标记、十条有向边。</desc>
+  <defs>
+    <marker id="arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="#64748b"/></marker>
+    <marker id="loop-arrow" markerWidth="9" markerHeight="9" refX="8" refY="4.5" orient="auto"><path d="M0 0 L9 4.5 L0 9 Z" fill="#087f78"/></marker>
+    <style>
+      text { font-family: 'Microsoft YaHei','Noto Sans CJK SC','PingFang SC',sans-serif; fill: #182a3b; }
+      .heading { font-size: 30px; font-weight: 700; }
+      .subtitle { font-size: 16px; fill: #526477; }
+      .node-title { font-size: 23px; font-weight: 700; }
+      .body { font-size: 17px; fill: #475b70; }
+      .small { font-size: 15px; fill: #526477; }
+      .code { font-family: Consolas,'Microsoft YaHei',monospace; font-size: 16px; }
+      .section { font-size: 19px; font-weight: 700; }
+      .node { fill: #fff; stroke: #b4c1ce; stroke-width: 1.5; }
+      .loop-node { fill: #edf8f5; stroke: #087f78; stroke-width: 2; }
+      .edge { fill: none; stroke: #64748b; stroke-width: 2; marker-end: url(#arrow); stroke-linejoin: round; }
+      .loop { fill: none; stroke: #087f78; stroke-width: 2.8; marker-end: url(#loop-arrow); stroke-linejoin: round; }
+      .label { font-size: 15px; fill: #475b70; }
+      .loop-label { font-size: 16px; fill: #087f78; font-weight: 600; }
+      .label-bg { fill: #f7f9fc; }
+    </style>
+  </defs>
+
+  <rect width="1440" height="1510" fill="#f7f9fc"/>
+  <text x="48" y="55" class="heading">影院内部 Agent · 节点与边关系</text>
+  <text x="48" y="87" class="subtitle">按当前源码绘制 · 5 个业务节点 / 10 条有向边 · 核心循环 agent ⇄ tools</text>
+  <text x="1392" y="55" text-anchor="end" class="small">2026-10-10</text>
+  <path d="M48 112 H1392" stroke="#d5dee7"/>
+
+  <!-- Graph edges. Each path is one declared or conditional graph edge. -->
+  <g id="edge-start-prepare" data-from="START" data-to="prepare"><path d="M625 210 V270" class="edge"/></g>
+  <g id="edge-prepare-clarify" data-from="prepare" data-to="clarify">
+    <path d="M385 350 H200 V540" class="edge"/>
+    <rect x="76" y="429" width="248" height="58" rx="6" class="label-bg"/>
+    <text x="200" y="452" text-anchor="middle" class="code">needs_clarification</text>
+    <text x="200" y="475" text-anchor="middle" class="label">为真 · 优先级最高</text>
+  </g>
+  <g id="edge-prepare-agent" data-from="prepare" data-to="agent">
+    <path d="M625 420 V540" class="edge"/>
+    <text x="645" y="482" class="label">无需澄清，且非问候</text>
+  </g>
+  <g id="edge-prepare-respond" data-from="prepare" data-to="respond">
+    <path d="M385 305 H40 V1250 H390" class="edge"/>
+    <rect x="65" y="246" width="275" height="53" rx="6" class="label-bg"/>
+    <text x="77" y="267" class="code">intent == "chat"</text>
+    <text x="77" y="291" class="label">无需澄清的问候直接回复</text>
+  </g>
+  <g id="edge-clarify-respond" data-from="clarify" data-to="respond">
+    <path d="M200 640 V1180 H390" class="edge"/>
+    <rect x="93" y="771" width="214" height="52" rx="6" class="label-bg"/>
+    <text x="200" y="793" text-anchor="middle" class="label">answer = clarification</text>
+    <text x="200" y="816" text-anchor="middle" class="label">固定边 · 本轮返回追问</text>
+  </g>
+  <g id="edge-agent-tools" data-from="agent" data-to="tools">
+    <path d="M625 700 V850" class="loop"/>
+    <text x="646" y="768" class="loop-label">pending_calls 非空</text>
+    <text x="646" y="794" class="label">模型或降级逻辑提出工具调用</text>
+  </g>
+  <g id="edge-agent-respond" data-from="agent" data-to="respond">
+    <path d="M430 620 H350 V1210 H390" class="edge"/>
+    <rect x="248" y="1080" width="204" height="55" rx="6" class="label-bg"/>
+    <text x="350" y="1103" text-anchor="middle" class="label">pending_calls 为空</text>
+    <text x="350" y="1126" text-anchor="middle" class="label">已完成 / 达到预算 / 无后续调用</text>
+  </g>
+  <g id="edge-tools-agent" data-from="tools" data-to="agent">
+    <path d="M820 930 H975 V620 H820" class="loop"/>
+    <rect x="864" y="731" width="188" height="97" rx="6" class="label-bg"/>
+    <text x="958" y="756" text-anchor="middle" class="loop-label">无 error / answer</text>
+    <text x="958" y="782" text-anchor="middle" class="label">ToolMessage 交回模型</text>
+    <text x="958" y="808" text-anchor="middle" class="label">真实结果 / 可修正错误</text>
+  </g>
+  <g id="edge-tools-respond" data-from="tools" data-to="respond">
+    <path d="M625 1010 V1140" class="edge"/>
+    <text x="646" y="1055" class="label">存在 error 或 answer</text>
+    <text x="646" y="1082" class="label">ask_user / 致命校验错误</text>
+  </g>
+  <g id="edge-respond-end" data-from="respond" data-to="END"><path d="M625 1290 V1340" class="edge"/></g>
+
+  <!-- The seven actual graph nodes, including START and END. -->
+  <g id="node-start">
+    <rect x="470" y="150" width="310" height="60" rx="30" class="node"/>
+    <text x="625" y="188" text-anchor="middle" class="section">START · 开始本轮请求</text>
+  </g>
+  <g id="node-prepare">
+    <rect x="385" y="270" width="480" height="150" rx="12" class="node"/>
+    <text x="412" y="307" class="node-title">prepare · 问题准备</text>
+    <text x="412" y="340" class="body">意图识别、同义归一化、实体与参数检查</text>
+    <text x="412" y="368" class="body">build_tasks() 建立本轮子任务清单</text>
+    <text x="412" y="396" class="body">按条件召回已确认偏好，构建模型上下文</text>
+  </g>
+  <g id="node-clarify">
+    <rect x="70" y="540" width="260" height="100" rx="12" class="node"/>
+    <text x="200" y="578" text-anchor="middle" class="node-title">clarify · 澄清</text>
+    <text x="200" y="611" text-anchor="middle" class="body">生成追问，等待用户补充</text>
+  </g>
+  <g id="node-agent">
+    <rect x="430" y="540" width="390" height="160" rx="12" class="loop-node"/>
+    <text x="455" y="578" class="node-title">agent · 决策下一步</text>
+    <text x="455" y="611" class="body">检查任务完成情况与剩余预算</text>
+    <text x="455" y="640" class="body">模型原生 tool_calls 选择只读工具</text>
+    <text x="455" y="669" class="body">遗漏任务补查 / 模型失败确定性降级</text>
+  </g>
+  <g id="node-tools">
+    <rect x="430" y="850" width="390" height="160" rx="12" class="loop-node"/>
+    <text x="455" y="888" class="node-title">tools · 执行与校验</text>
+    <text x="455" y="921" class="body">工具白名单、参数来源与重复调用检查</text>
+    <text x="455" y="950" class="body">MCP / Java / 规则检索 → 真实结果</text>
+    <text x="455" y="979" class="body">结果契约与账户归属校验 → ToolMessage</text>
+  </g>
+  <g id="node-respond">
+    <rect x="390" y="1140" width="470" height="150" rx="12" class="node"/>
+    <text x="416" y="1177" class="node-title">respond · 生成最终答复</text>
+    <text x="416" y="1210" class="body">追问或错误直接输出；有证据才回答业务事实</text>
+    <text x="416" y="1239" class="body">模型生成 / 事实模板，并说明未完成子任务</text>
+    <text x="416" y="1268" class="body">流式输出最终答复，此节点没有回边</text>
+  </g>
+  <g id="node-end">
+    <rect x="470" y="1340" width="310" height="60" rx="30" class="node"/>
+    <text x="625" y="1378" text-anchor="middle" class="section">END · 本轮结束</text>
+  </g>
+
+  <!-- Context only: these panels are not additional LangGraph nodes. -->
+  <path d="M1072 150 V1400" stroke="#d5dee7"/>
+  <text x="1100" y="175" class="section">入口与返回</text>
+  <text x="1100" y="210" class="code">/ai/chat → ainvoke()</text>
+  <text x="1100" y="239" class="code">/ai/live → astream()</text>
+  <text x="1100" y="272" class="body">两接口共用同一张已编译状态图</text>
+  <text x="1100" y="302" class="body">网站：网关鉴权 → 内部服务令牌</text>
+  <text x="1100" y="332" class="body">返回：SSE → 网关 → 浏览器</text>
+  <path d="M1100 364 H1390" stroke="#d5dee7"/>
+
+  <text x="1100" y="402" class="section">工具节点内可用能力</text>
+  <text x="1100" y="439" class="code">search_movies</text><text x="1100" y="464" class="small">影片资料 / 上映 / 实际排期</text>
+  <text x="1100" y="500" class="code">search_screenings</text><text x="1100" y="525" class="small">场次、影院与票价</text>
+  <text x="1100" y="561" class="code">query_seats</text><text x="1100" y="586" class="small">真实场次的实时座位快照</text>
+  <text x="1100" y="622" class="code">query_order</text><text x="1100" y="647" class="small">本人订单状态与当前退票资格</text>
+  <text x="1100" y="683" class="code">query_ticket_policy</text><text x="1100" y="708" class="small">实时规则与来源检索</text>
+  <text x="1100" y="744" class="code">recommend_movies</text><text x="1100" y="769" class="small">按明确偏好查询推荐</text>
+  <text x="1100" y="805" class="code">ask_user</text><text x="1100" y="830" class="small">追问控制工具 → tools → respond</text>
+  <path d="M1100 862 H1390" stroke="#d5dee7"/>
+
+  <text x="1100" y="903" class="section">预算与终止条件 · 默认值</text>
+  <text x="1100" y="941" class="body">实际业务调用最多 4 次（可调）</text>
+  <text x="1100" y="972" class="body">无效调用最多 3 次（可调）</text>
+  <text x="1100" y="1003" class="body">模型决策轮数上限 8 次</text>
+  <text x="1100" y="1034" class="body">单次决策 20s · 整轮请求 80s</text>
+  <text x="1100" y="1065" class="small">任务完成检查位于 agent / tools 内</text>
+  <text x="1100" y="1092" class="small">未独立声明为图节点</text>
+  <path d="M1100 1124 H1390" stroke="#d5dee7"/>
+
+  <text x="1100" y="1164" class="section">读图说明</text>
+  <path d="M1100 1202 H1144" class="edge"/><text x="1162" y="1208" class="body">进入、分支或结束</text>
+  <path d="M1100 1242 H1144" class="loop"/><text x="1162" y="1248" class="body">ReAct 工具调用闭环</text>
+  <text x="1100" y="1294" class="small">clarify 为准备阶段的追问分支；</text>
+  <text x="1100" y="1321" class="small">ask_user 为循环中的工具调用。</text>
+  <text x="1100" y="1357" class="small">工具始终使用服务端注入的用户身份。</text>
+
+  <path d="M48 1430 H1392" stroke="#d5dee7"/>
+  <text x="48" y="1462" class="small">源码：cinema-ticketing-backend/cinema-ai/app/react_agent.py · 图展示常规业务查询路径。</text>
+  <text x="48" y="1488" class="small">/ai/live 的记忆保存确认、显式记忆读取可在进入图前直接返回；这些入口快捷分支不属于上述五个图节点。</text>
+</svg>

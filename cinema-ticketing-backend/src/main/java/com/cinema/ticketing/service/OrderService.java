@@ -174,7 +174,9 @@ public class OrderService {
         try {
             Map<String, Object> row = jdbcTemplate.queryForMap(
                     "SELECT cutoff_minutes, content FROM refund_policy WHERE enabled = TRUE ORDER BY id DESC LIMIT 1");
-            return new RefundPolicy(((Number) row.get("cutoff_minutes")).longValue(), String.valueOf(row.get("content")));
+            Number cutoff = (Number) row.get("cutoff_minutes");
+            return new RefundPolicy(cutoff.longValue(),
+                    com.cinema.ticketing.common.RefundPolicyText.render(cutoff, String.valueOf(row.get("content"))));
         } catch (org.springframework.dao.EmptyResultDataAccessException exception) {
             throw new BusinessException(503, "退票规则暂不可用，请稍后重试");
         }

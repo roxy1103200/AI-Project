@@ -2,7 +2,9 @@ package com.cinema.ticketing.controller;
 
 import com.cinema.ticketing.common.BusinessException;
 import com.cinema.ticketing.common.JdbcTimes;
+import com.cinema.ticketing.common.RefundPolicyText;
 import com.cinema.ticketing.service.AiMovieQueryService;
+import com.cinema.ticketing.service.KnowledgeSearchService;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
@@ -164,22 +166,16 @@ public class InternalAiController {
     @GetMapping("/refund-policy")
     public Map<String, Object> refundPolicy(@RequestHeader("X-Internal-Token") String token) {
         verify(token);
-        return jdbcTemplate.queryForMap(
+        return RefundPolicyText.normalize(jdbcTemplate.queryForMap(
                 "SELECT policy_version version, content policy, cutoff_minutes, 'refund_policy'"
-                    + " source FROM refund_policy WHERE enabled = TRUE ORDER BY id DESC LIMIT 1");
+                    + " source FROM refund_policy WHERE enabled = TRUE ORDER BY id DESC LIMIT 1"), "policy");
     }
 
     @GetMapping("/knowledge/search")
     public List<Map<String, Object>> knowledgeSearch(
             @RequestHeader("X-Internal-Token") String token, @RequestParam String query) {
         verify(token);
-        String keyword = "%" + query.trim() + "%";
-        return jdbcTemplate.queryForList(
-                "SELECT id, title, content, document_type, version "
-                        + "FROM knowledge_document WHERE status = 'PUBLISHED' "
-                        + "AND (title LIKE ? OR content LIKE ?) ORDER BY id DESC LIMIT 10",
-                keyword,
-                keyword);
+        return new KnowledgeSearchService(jdbcTemplate).search(query);
     }
 
     @PostMapping("/recommendations")

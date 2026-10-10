@@ -184,7 +184,8 @@ class OrderServiceCoreFlowTest {
         when(resultSet.getBigDecimal("price")).thenReturn(price);
         when(resultSet.getObject("start_time", LocalDateTime.class)).thenReturn(startTime);
         doAnswer(invocation -> ((RowMapper<?>) invocation.getArgument(1)).mapRow(resultSet, 0))
-                .when(jdbcTemplate).queryForObject(startsWith("SELECT hall_id"), any(RowMapper.class), eq(screeningId));
+                .when(jdbcTemplate).queryForObject(startsWith("SELECT hall_id"), any(RowMapper.class), eq(screeningId),
+                        any(LocalDateTime.class), any(LocalDateTime.class));
     }
 
     private void stubOrderSnapshot(String orderNo, String status, LocalDateTime startTime) throws Exception {

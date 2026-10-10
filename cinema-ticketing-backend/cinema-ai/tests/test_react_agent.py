@@ -127,7 +127,8 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         observations = [message for message in model.requests[1] if isinstance(message, ToolMessage)]
         self.assertEqual(len(observations), 1)
         self.assertIn('"id": 12', observations[0].content)
-        self.assertEqual(sum(isinstance(message, ToolMessage) for message in model.requests[-1]), 3)
+        self.assertEqual(sum(isinstance(message, ToolMessage) for message in model.requests[-1]), 2)
+        self.assertEqual(len(model.requests), 3)  # No additional decision after the final seat result.
         self.assertEqual(
             [p for p in packets if p["type"] == "context"][-1]["tool_calls"],
             ["search_screenings", "query_seats", "query_seats"],
@@ -151,7 +152,9 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
             "answer_context": ["退票规则"],
             "sources": [{"source": "rules.md"}],
         }
-        result = await self.assistant.chat(ChatRequest(user_id=9, session_id="refund", question="OTEST12 能退票吗"))
+        result = await self.assistant.chat(
+            ChatRequest(user_id=9, session_id="refund", question="OTEST12 能退票吗，再查退票规则")
+        )
         self.assertEqual(result.tool_calls, ["query_order", "query_ticket_policy"])
         self.assertTrue(result.data["order"]["can_refund"])
         self.assertEqual(result.sources, [{"source": "rules.md"}])
@@ -202,10 +205,11 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(provider_calls), 1)
         self.assertEqual(result.sources[0]["id"], 8)
         self.assertEqual(result.sources[0]["version"], "v2")
-        observations = [message for message in self.assistant.model.requests[1] if isinstance(message, ToolMessage)]
-        self.assertIn("儿童票以影院活动为准", observations[0].content)
-        self.assertIn("当前权威规则", observations[0].content)
-        self.assertNotIn("请在放映前完成购票", observations[0].content)
+        # Completion is checked immediately; no second decision request is needed.
+        self.assertEqual(len(self.assistant.model.requests), 1)
+        self.assertIn("儿童票以影院活动为准", result.data["answer_context"][0])
+        self.assertIn("当前权威规则", result.data["policy"]["policy"])
+        self.assertNotIn("请在放映前完成购票", result.data["answer_context"][0])
         self.assistant.mcp.call_tool.assert_not_awaited()
 
     async def test_invented_screening_in_assistant_history_cannot_authorize_seat_query(self) -> None:
@@ -237,7 +241,7 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(packets[-1]["type"], "complete")
         self.assertEqual([p for p in packets if p["type"] == "context"][-1]["tool_calls"], ["query_order"])
 
-    async def test_duplicate_queries_consume_budget_without_repeating_upstream(self) -> None:
+    async def test_completed_task_stops_before_duplicate_decision(self) -> None:
         self.assistant.workflow.max_tool_calls = 2
         model = ScriptedModel(
             [
@@ -249,8 +253,8 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assistant.mcp.call_tool.return_value = {"status": "ISSUED"}
         packets = await self.packets("OTEST12 的状态")
         self.assistant.mcp.call_tool.assert_awaited_once()
-        self.assertEqual(len(model.requests), 2)
-        self.assertIn("查询上限", "".join(p.get("text", "") for p in packets))
+        self.assertEqual(len(model.requests), 1)
+        self.assertNotIn("查询上限", "".join(p.get("text", "") for p in packets))
 
     async def test_oversized_batch_stops_at_call_budget(self) -> None:
         self.assistant.workflow.max_tool_calls = 2
@@ -279,8 +283,9 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_model_cannot_answer_business_question_without_any_tool_evidence(self) -> None:
         self.assistant.model = ScriptedModel([AIMessage(content="你的订单已经支付成功。")])
+        self.assistant.mcp.call_tool.side_effect = CinemaQueryError("business_auth_failed", "订单查询归属校验失败")
         packets = await self.packets("OTEST12 的状态")
-        self.assertTrue(any(p.get("code") == "agent_no_evidence" for p in packets))
+        self.assertTrue(any(p.get("code") == "business_auth_failed" for p in packets))
         self.assertFalse(any("支付成功" in p.get("text", "") for p in packets))
 
     async def test_partial_evidence_cannot_generate_unqueried_order_facts(self) -> None:
@@ -289,11 +294,11 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
             answer="订单已支付。",
         )
         self.assistant.model = model
-        self.assistant.mcp.call_tool.return_value = [{"id": 3, "title": "测试电影"}]
+        self.assistant.mcp.call_tool.side_effect = CinemaQueryError("business_auth_failed", "订单查询归属校验失败")
         packets = await self.packets("OTEST12 的状态")
         answer = "".join(p.get("text", "") for p in packets)
         self.assertNotIn("订单已支付", answer)
-        self.assertIn("尚未完成查询本人订单", answer)
+        self.assertTrue(any(p.get("code") == "business_auth_failed" for p in packets))
 
     async def test_mismatched_order_owner_never_becomes_model_evidence(self) -> None:
         self.assistant.model = ScriptedModel([decision("query_order", {"order_no": "OTEST12"})])

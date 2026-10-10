@@ -5,6 +5,8 @@ import logging
 import httpx
 from openai import APIConnectionError, APIStatusError, APITimeoutError
 
+from app.tracing import current_trace_id, record_failure
+
 LOGGER = logging.getLogger("uvicorn.error")
 
 
@@ -18,13 +20,26 @@ class CinemaQueryError(Exception):
 
 def describe_failure(exception: Exception, stage: str) -> tuple[str, str]:
     """Log only error type/status and return a stable, user-readable failure."""
+    # MCP transport task groups can wrap the original HTTP exception.
+    while isinstance(exception, ExceptionGroup):
+        exception = exception.exceptions[0]
     status = getattr(exception, "status_code", None)
     if isinstance(exception, httpx.HTTPStatusError):
         status = exception.response.status_code
-    LOGGER.warning("Agent failure stage=%s type=%s status=%s", stage, type(exception).__name__, status)
-    # MCP transport task groups can wrap the original HTTP exception.
-    if isinstance(exception, ExceptionGroup):
-        return describe_failure(exception.exceptions[0], stage)
+    LOGGER.warning(
+        "Agent failure stage=%s type=%s status=%s trace_id=%s",
+        stage,
+        type(exception).__name__,
+        status,
+        current_trace_id(),
+    )
+    code, message = _failure_details(exception, status)
+    record_failure(stage, exception, code, status)
+    return code, message
+
+
+def _failure_details(exception: Exception, status: int | None) -> tuple[str, str]:
+    """Map upstream exceptions to the existing public error contract."""
     if isinstance(exception, CinemaQueryError):
         return exception.code, str(exception)
     if isinstance(exception, (APITimeoutError, httpx.TimeoutException, TimeoutError)):

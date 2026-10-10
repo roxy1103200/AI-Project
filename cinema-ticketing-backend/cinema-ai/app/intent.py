@@ -44,6 +44,7 @@ class QuestionPlan(BaseModel):
     screening_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
     screening_id: int | None = Field(default=None, gt=0)
     order_no: str = Field(default="", max_length=64)
+    order_nos: list[str] = Field(default_factory=list, max_length=20)
     preference: str = Field(default="", max_length=120)
     movie_scope: Literal["catalog", "showing", "scheduled"] = "catalog"
     screening_scope: Literal["scheduled", "bookable"] = "bookable"
@@ -175,20 +176,20 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
         return QuestionPlan(intent="chat", normalized_question=normalized, confidence=1)
     request_text = re.sub(r"《[^》]+》", "", normalized)
     order_match = ORDER_PATTERN.search(request_text)
-    if order_match:
+    if order_match or any(word in request_text for word in ("订单", "出票", "支付状态", "我的票", "购票记录")):
         intent = "refund" if any(word in request_text for word in ("退票", "能退", "可退")) else "order"
-    elif any(word in request_text for word in ("订单", "出票", "支付状态", "我的票", "购票记录")):
-        intent = "order"
     elif any(word in request_text for word in ("退票", "退改")):
-        intent = "policy" if any(word in request_text for word in ("规则", "多久", "提前", "须知")) else "refund"
+        intent = (
+            "policy" if any(word in request_text for word in ("规则", "多久", "提前", "须知", "条件")) else "refund"
+        )
     elif any(word in request_text for word in ("座位", "选座", "座位图", "空座")):
         intent = "seats"
+    elif any(word in request_text for word in ("规则", "须知", "优惠", "会员")):
+        intent = "policy"
     elif intent == "screenings" or movie_scope != "catalog":
         pass
     elif any(word in request_text for word in ("推荐", "喜欢", "适合")):
         intent = "recommend"
-    elif any(word in request_text for word in ("规则", "须知", "优惠", "会员")):
-        intent = "policy"
     elif any(word in request_text for word in ("电影", "影片", "导演", "主演", "片长", "上映")) or "《" in question:
         intent = "movies"
     else:
@@ -200,6 +201,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
         normalized_question=normalized,
         confidence=0.8 if intent != "unsupported" else 0.4,
         order_no=order_match.group() if order_match else "",
+        order_nos=list(dict.fromkeys(match.group() for match in ORDER_PATTERN.finditer(request_text))),
         movie_query=title.group(1) if title else "",
         screening_date=explicit_date(question, today),
         screening_id=int(screening_match.group(1)) if screening_match else None,
@@ -239,6 +241,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             plan.movie_query = plan.movie_query or prior.movie_query
             plan.cinema_query = plan.cinema_query or prior.cinema_query
             plan.order_no = plan.order_no or prior.order_no
+            plan.order_nos = plan.order_nos or prior.order_nos
             plan.preference = plan.preference or prior.preference
             plan.screening_id = plan.screening_id or prior.screening_id
             if "下一页" in question:
@@ -326,14 +329,22 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         plan.page = rules.page
         if not rules.screening_date:
             plan.screening_date = None
-    if rules.screening_date:
-        plan.screening_date = rules.screening_date
+    plan.screening_date = rules.screening_date
     if rules.movie_query:
         plan.movie_query = rules.movie_query
+    if (
+        (rules.intent == "seats" and (rules.screening_id or rules.movie_query or rules.screening_date))
+        or (rules.intent == "recommend" and "推荐" in question)
+        or (rules.intent == "policy" and any(word in question for word in ("规则", "须知", "条件")))
+    ):
+        plan.intent = rules.intent
+        plan.confidence = max(plan.confidence, rules.confidence)
     if general_listing(question) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()):
         plan.movie_query = ""
         plan.cinema_query = ""
         plan.preference = ""
+    if re.search(r"(?:所有|全部)(?:的)?(?:电影|影片)", re.sub(r"《[^》]+》", "", question)):
+        plan.movie_query = ""
     user_text = (
         "\n".join(message.get("content", "") for message in history if message.get("role") == "user") + "\n" + question
     )
@@ -347,20 +358,30 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
             setattr(plan, field, "")
     if fixed_lookup and plan.preference and plan.preference not in normalize_question(user_text):
         plan.preference = rules.preference
+    # Identifiers are extracted from user text, independently of model completeness.
+    plan.order_nos = rules.order_nos
+    if plan.order_nos:
+        plan.order_no = plan.order_nos[0]
+        plan.intent = rules.intent
+        plan.confidence = max(plan.confidence, rules.confidence)
     if plan.order_no and plan.order_no.lower() not in user_text.lower():
         plan.order_no = ""
     if plan.order_no and not ORDER_PATTERN.fullmatch(plan.order_no):
         plan.order_no = ""
     if plan.screening_id not in {int(match.group(1)) for match in SCREENING_PATTERN.finditer(user_text)}:
         plan.screening_id = None
+    invalid_date = ""
     if plan.screening_date:
         try:
             datetime.strptime(plan.screening_date, "%Y-%m-%d")
         except ValueError:
+            invalid_date = plan.screening_date
             plan.screening_date = None
             plan.confidence = 0
     clarification = ""
-    if plan.intent in ("order", "refund") and not plan.order_no:
+    if invalid_date:
+        clarification = f"日期 {invalid_date} 不存在，请提供有效日期，例如 2026-10-10。"
+    elif plan.intent in ("order", "refund") and not plan.order_no:
         clarification = "请提供要查询的订单号，我会查询你本人订单的状态或退票资格。"
     elif plan.intent == "seats" and not plan.screening_id:
         clarification = "请提供要查询的场次编号，例如：查询场次 12 的座位。也可以先查询影片场次。"

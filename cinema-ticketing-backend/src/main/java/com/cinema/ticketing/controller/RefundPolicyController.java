@@ -2,6 +2,7 @@ package com.cinema.ticketing.controller;
 
 import com.cinema.ticketing.common.ApiResponse;
 import com.cinema.ticketing.common.BusinessException;
+import com.cinema.ticketing.common.RefundPolicyText;
 import com.cinema.ticketing.service.AuthService;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Min;
@@ -27,17 +28,21 @@ public class RefundPolicyController {
         auth.requireAdmin(token);
         var rows = jdbc.queryForList("SELECT id,policy_version,cutoff_minutes,content FROM refund_policy WHERE enabled=TRUE ORDER BY id DESC LIMIT 1");
         if (rows.isEmpty()) throw new BusinessException(503, "当前没有启用的退票规则");
-        return ApiResponse.success(rows.getFirst());
+        return ApiResponse.success(RefundPolicyText.normalize(rows.getFirst(), "content"));
     }
 
     @PutMapping
     @Transactional
     public ApiResponse<Void> update(@RequestHeader("X-Auth-Token") String token, @Valid @RequestBody PolicyInput input) {
         auth.requireAdmin(token);
+        String content = RefundPolicyText.normalizeDescription(input.cutoffMinutes(), input.content());
+        if (content.isBlank()) content = RefundPolicyText.render(input.cutoffMinutes(), "").trim();
+        if (content.length() > 1000) throw new BusinessException(400, "规则说明过长，请缩短后保存");
         jdbc.queryForList("SELECT id FROM refund_policy ORDER BY id FOR UPDATE");
         jdbc.update("UPDATE refund_policy SET enabled=FALSE WHERE enabled=TRUE");
         jdbc.update("INSERT INTO refund_policy(policy_version,cutoff_minutes,content,enabled) VALUES(?,?,?,TRUE)",
-                UUID.randomUUID().toString().replace("-", ""), input.cutoffMinutes(), input.content().trim());
+                UUID.randomUUID().toString().replace("-", ""), input.cutoffMinutes(),
+                content);
         return ApiResponse.success(null);
     }
 

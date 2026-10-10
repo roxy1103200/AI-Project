@@ -4,14 +4,14 @@ import json
 from pathlib import Path
 from typing import Any
 
+from evaluation.metrics import judge
+
 
 def reviewed_rows(directory: Path) -> list[dict[str, Any]]:
     """Require a reason and unique exact trial key for every published correction."""
     rows = [json.loads(line) for line in (directory / "trials.jsonl").read_text(encoding="utf-8").splitlines()]
     path = directory / "review.json"
-    if not path.exists():
-        return rows
-    review = json.loads(path.read_text(encoding="utf-8"))
+    review = json.loads(path.read_text(encoding="utf-8")) if path.exists() else {"corrections": []}
     changes = {}
     for correction in review["corrections"]:
         key = (correction["case_id"], correction["variant"], correction["repetition"])
@@ -32,4 +32,14 @@ def reviewed_rows(directory: Path) -> list[dict[str, Any]]:
             row["score"]["original_automated_score"] = row["automated_score"]
     if found != set(changes):
         raise ValueError("Review refers to a trial that was not run")
+    cases_path = directory / "cases.json"
+    if cases_path.exists():
+        cases = {case["id"]: case for case in json.loads(cases_path.read_text(encoding="utf-8"))}
+        for row in rows:
+            dimensions = judge(cases[row["case_id"]], row)
+            for field in ("extra_tool_calls", "has_extra_tool_calls"):
+                row["score"][field] = dimensions[field]
+            row["score"]["answer_correct"] = (
+                row["score"]["factual_checks_pass"] and row["completed"] and not row["errors"]
+            )
     return rows

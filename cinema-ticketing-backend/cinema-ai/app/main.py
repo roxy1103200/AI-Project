@@ -25,6 +25,7 @@ from app.policy_retrieval import KeywordRetriever, load_retriever, policy_candid
 from app.query_answers import movie_answer, screening_answer
 from app.react_agent import AgentState, CinemaReAct, initial_state
 from app.reranker import DashScopeReranker
+from app.tracing import AgentTracing
 
 INTERNAL_API_TOKEN = os.getenv("AI_INTERNAL_TOKEN", "local-internal-token")
 
@@ -106,6 +107,7 @@ class Assistant:
     """Serve chat and SSE using the same authenticated read-only ReAct graph."""
 
     def __init__(self) -> None:
+        self.tracing = AgentTracing()
         self.client = JavaApiClient()
         from app.memory import UserMemory
 
@@ -134,6 +136,15 @@ class Assistant:
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         """Run a normal request through the same graph used by live streaming."""
+        with self.tracing.turn(request.user_id, request.session_id, request.question, "chat") as turn:
+            response, error_code = await self._chat(request)
+            turn.observe({"type": "context", "intent": response.intent, "tool_calls": response.tool_calls})
+            # The structured graph can return a business error without raising an exception.
+            turn.observe({"type": "error", "code": error_code} if error_code else {"type": "complete"})
+            return response
+
+    async def _chat(self, request: ChatRequest) -> tuple[ChatResponse, str]:
+        """Execute the structured request inside its tracing scope."""
         session_key = f"{request.user_id}:{request.session_id}"
         state = initial_state(request.user_id, request.session_id, request.question, self.sessions[session_key])
         async with asyncio.timeout(80):
@@ -144,15 +155,26 @@ class Assistant:
             {"role": "assistant", "content": answer},
         ]
         self.sessions[session_key] = self.sessions[session_key][-10:]
-        return ChatResponse(
+        response = ChatResponse(
             answer=answer,
             intent=result.get("intent", "fallback"),
             data=result.get("result"),
             sources=result.get("retrieved_docs", []),
             tool_calls=result.get("tool_calls", []),
         )
+        return response, result.get("error_code", "agent_error") if result.get("error") else ""
 
     async def live(self, request: LiveChatRequest) -> AsyncIterator[str]:
+        """Keep tracing open until SSE completion, failure, timeout or cancellation."""
+        with self.tracing.turn(request.user_id, request.session_id, request.question, "live") as turn:
+            if turn.run:
+                yield _live_event("trace", trace_id=str(turn.trace_id))
+            async with asyncio.timeout(80), aclosing(self._live(request)) as packets:
+                async for packet in packets:
+                    turn.observe(json.loads(packet.removeprefix("data: ").strip()))
+                    yield packet
+
+    async def _live(self, request: LiveChatRequest) -> AsyncIterator[str]:
         """Translate shared graph events to the existing gateway SSE protocol."""
         from app.memory import memory_proposal
 
@@ -201,6 +223,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     finally:
         await assistant.reranker.aclose()
         await assistant.client.aclose()
+        try:
+            async with asyncio.timeout(5):
+                await asyncio.to_thread(assistant.tracing.flush)
+        except TimeoutError:
+            pass
 
 
 app = FastAPI(title="Cinema AI Assistant", version="0.2.0", lifespan=lifespan)
@@ -213,9 +240,9 @@ def verify_internal_token(x_internal_token: str = Header(default="")) -> None:
 
 
 @app.get("/health")
-async def health() -> dict[str, str]:
+async def health() -> dict[str, Any]:
     """Return AI service health status."""
-    return {"status": "UP"}
+    return {"status": "UP", "tracing": assistant.tracing.status()}
 
 
 @app.post("/ai/chat", response_model=ChatResponse, dependencies=[Depends(verify_internal_token)])
@@ -291,8 +318,8 @@ async def live(request: LiveChatRequest) -> StreamingResponse:
 
     async def events() -> AsyncIterator[str]:
         try:
-            async with asyncio.timeout(80):
-                async for packet in assistant.live(request):
+            async with aclosing(assistant.live(request)) as packets:
+                async for packet in packets:
                     yield packet
         except Exception as exception:
             code, message = describe_failure(exception, "live_generation")

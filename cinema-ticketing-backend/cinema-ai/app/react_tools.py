@@ -1,6 +1,7 @@
 """Model-visible read-only tools and checks at the Agent execution boundary."""
 
 import json
+import re
 from datetime import date
 from typing import Annotated, Any, Literal
 
@@ -9,6 +10,7 @@ from pydantic import BaseModel, ConfigDict, Field, ValidationError
 from app.failures import CinemaQueryError
 from app.intent import ORDER_PATTERN, SCREENING_PATTERN, normalize_question
 from app.query_answers import valid_movie_result, valid_screening_result
+from app.task_progress import progress
 
 Keyword = Annotated[str, Field(max_length=120)]
 
@@ -24,7 +26,9 @@ class MovieArguments(ToolArguments):
 
     query: Keyword = ""
     movie_scope: Literal["catalog", "showing", "scheduled"] = "catalog"
-    screening_date: date | None = None
+    screening_date: date | None = Field(
+        default=None, description="YYYY-MM-DD；不限定日期时使用 JSON null，不要传字符串 None。"
+    )
     cinema_query: Keyword = ""
     showing_only: bool = False
     page: int = Field(default=1, ge=1, le=10000)
@@ -36,7 +40,9 @@ class ScreeningArguments(ToolArguments):
 
     movie_query: Keyword = ""
     cinema_query: Keyword = ""
-    screening_date: date | None = None
+    screening_date: date | None = Field(
+        default=None, description="YYYY-MM-DD；不限定日期时使用 JSON null，不要传字符串 None。"
+    )
     query_scope: Literal["scheduled", "bookable"] = "bookable"
     showing_only: bool = False
 
@@ -115,8 +121,19 @@ def validate_arguments(
     """Validate tool schema, immutable query constraints, and identifier provenance."""
     if name not in ARGUMENT_MODELS:
         raise CinemaQueryError("invalid_tool_call", "只能调用已开放的只读查询工具。")
+    # Providers may serialize a missing optional date as text. Canonicalize only
+    # empty sentinels; real dates still have to match the user's task below.
+    if name in ("search_movies", "search_screenings"):
+        supplied_date = supplied.get("screening_date")
+        if isinstance(supplied_date, str) and supplied_date.strip().lower() in ("", "none", "null"):
+            supplied = {**supplied, "screening_date": None}
     arguments = dict(supplied)
     entities = state["entities"]
+    if name == "ask_user" and isinstance(supplied.get("question"), str):
+        if "订单号" in supplied["question"] and entities.get("order_nos"):
+            raise CinemaQueryError("invalid_tool_call", "用户已提供订单号，请逐一查询，无需重复索要。")
+        if "日期" in supplied["question"] and entities.get("screening_date"):
+            raise CinemaQueryError("invalid_tool_call", "用户已提供有效日期，请使用该日期查询。")
     constraints: dict[str, Any] = {}
     if name == "search_movies" and state["intent"] == "movies":
         constraints = {
@@ -136,9 +153,40 @@ def validate_arguments(
                 constraints[key] = entities[key]
     if name in ("search_movies", "search_screenings"):
         constraints["screening_date"] = entities["screening_date"]
+    if "tasks" in state and name != "ask_user":
+        requested = [task for task in progress(state) if task["name"] == name and task["status"] in ("pending", "done")]
+        if not requested:
+            raise CinemaQueryError("invalid_tool_call", "用户未要求此项查询，请完成尚未完成的子任务。")
+        if name == "query_order" and isinstance(supplied.get("order_no"), str):
+            for item in requested:
+                if supplied["order_no"].lower() == item["arguments"]["order_no"].lower():
+                    supplied = {**supplied, "order_no": item["arguments"]["order_no"]}
+                    arguments["order_no"] = supplied["order_no"]
+                    break
+        task = next(
+            (
+                item
+                for item in requested
+                if all(key not in supplied or supplied[key] == value for key, value in item["arguments"].items())
+            ),
+            requested[0],
+        )
+        constraints = dict(task["arguments"])
+        # Parameters inferred from unquoted prose can be refined using user/evidence provenance below.
+        for key in ("query", "movie_query", "cinema_query", "preference"):
+            if key in supplied and key in constraints:
+                literal_title = entities["movie_query"] and f"《{entities['movie_query']}》" in "".join(
+                    item["content"] for item in state["messages"] if item["role"] == "user"
+                )
+                if key in ("cinema_query", "preference") or not literal_title:
+                    all_movies = key in ("query", "movie_query") and re.search(
+                        r"(?:所有|全部)(?:的)?(?:电影|影片)", state["question"]
+                    )
+                    if not all_movies:
+                        constraints[key] = supplied[key]
     for key, value in constraints.items():
         if key in supplied and supplied[key] != value:
-            raise CinemaQueryError("invalid_tool_call", f"不能改变用户已经确认的查询条件：{key}。")
+            raise CinemaQueryError("invalid_tool_call", f"查询参数与当前子任务要求不一致：{key}。")
         arguments[key] = value
     try:
         arguments = ARGUMENT_MODELS[name].model_validate(arguments).model_dump(mode="json")

@@ -4,6 +4,7 @@ mcp==1.28.0
 # Newer sse-starlette releases require Starlette versions outside FastAPI 0.115.x.
 sse-starlette==2.2.1
 langchain-core==0.3.58
+langsmith==0.3.45
 langgraph==0.3.34
 langchain-openai==0.3.16
 langchain-text-splitters==0.3.8

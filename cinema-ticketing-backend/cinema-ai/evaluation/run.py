@@ -237,6 +237,7 @@ async def trial(
         "answer": "",
         "completed": False,
         "ttft_ms": None,
+        "context_events": [],
     }
     token = ACTIVE.set(row)
     assistant = module.assistant
@@ -258,6 +259,15 @@ async def trial(
                     row["answer"] += packet["text"]
                 elif packet["type"] == "error":
                     row["errors"].append({"code": packet.get("code", "agent_error")})
+                elif packet["type"] == "context":
+                    row["invalid_call_count"] = packet.get("invalid_call_count", 0) or 0
+                    row["task_progress"] = packet.get("task_progress", [])
+                    row["context_events"].append(
+                        {
+                            key: packet.get(key)
+                            for key in ("intent", "normalized_question", "confidence", "intent_source", "entities")
+                        }
+                    )
                 elif packet["type"] == "complete":
                     row["completed"] = True
     except Exception as exc:
@@ -266,6 +276,9 @@ async def trial(
         row["total_ms"] = (time.perf_counter() - started) * 1000
         ACTIVE.reset(token)
     row["score"] = judge(case, row)
+    if row["context_events"]:
+        row["detected_intent"] = row["context_events"][0].get("intent")
+        row["detected_entities"] = row["context_events"][0].get("entities")
     return row
 
 
@@ -288,6 +301,7 @@ async def run(options: argparse.Namespace) -> None:
     load_dotenv(AI_ROOT / ".env")
     os.environ["MEMORY_ENABLED"] = "false"
     os.environ["AGENT_MAX_TOOL_CALLS"] = "4"
+    os.environ["AGENT_MAX_INVALID_CALLS"] = "3"
     directory = Path(options.output).resolve()
     directory.mkdir(parents=True, exist_ok=True)
     from app.model_config import create_model
@@ -328,6 +342,8 @@ async def run(options: argparse.Namespace) -> None:
             "concurrency": 1,
             "memory_enabled": False,
             "tool_budget": 4,
+            "tool_budget_unit": "executed_business_calls",
+            "invalid_retry_budget": 3,
             "data_mode": "real_java_mysql_redis",
             "timing_boundary": "Assistant.live application SSE; excludes gateway/auth/browser",
             "price_source": PRICE_SOURCE,
@@ -336,6 +352,9 @@ async def run(options: argparse.Namespace) -> None:
             "prices_per_million": {"input": 0.2, "output": 0.8, "cached_input": 0.04},
             "manifest_sha256": hashlib.sha256((directory / "cases.json").read_bytes()).hexdigest(),
             "snapshot_sha256": hashlib.sha256((directory / "snapshot.json").read_bytes()).hexdigest(),
+            "java_jar_sha256": hashlib.sha256(
+                (BACKEND_ROOT / "target/cinema-ticketing-backend-0.0.1-SNAPSHOT.jar").read_bytes()
+            ).hexdigest(),
         }
         (directory / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         if options.prepare_only:
@@ -355,8 +374,13 @@ async def run(options: argparse.Namespace) -> None:
             metadata["rerank_settings"] = asdict(current.assistant.reranker.settings)
             saved = directory / "measured-source"
             hashes = {}
-            for path in sorted([*(AI_ROOT / "app").glob("*.py"), *(AI_ROOT / "knowledge").glob("*.md")]):
-                relative = path.relative_to(AI_ROOT)
+            measured_paths = [
+                *(AI_ROOT / "app").glob("*.py"),
+                *(AI_ROOT / "knowledge").glob("*.md"),
+                *(BACKEND_ROOT / "src/main/java").rglob("*.java"),
+            ]
+            for path in sorted(measured_paths):
+                relative = path.relative_to(REPO_ROOT)
                 target = saved / relative
                 target.parent.mkdir(parents=True, exist_ok=True)
                 content = path.read_bytes()
@@ -375,7 +399,12 @@ async def run(options: argparse.Namespace) -> None:
         def observe_validation(name: str, arguments: dict[str, Any], state: dict[str, Any]) -> dict[str, Any]:
             observed = {"name": name, "arguments": arguments, "accepted": False}
             ACTIVE.get()["validation"].append(observed)
-            result = original_validate(name, arguments, state)
+            try:
+                result = original_validate(name, arguments, state)
+            except Exception as exc:
+                observed["error_code"] = getattr(exc, "code", type(exc).__name__)
+                observed["reason"] = str(exc)
+                raise
             observed["accepted"] = True
             return result
 

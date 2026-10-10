@@ -100,6 +100,7 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.upstream_requests: list[httpx.Request] = []
         self.agent_session_id = ""
         self.agent_memory_suggestion = False
+        self.agent_trace_id = ""
         self.revoke_during_stream = False
         app.state.stores = self.stores
         app.state.client = app.state.internal_client = self.upstream
@@ -151,6 +152,13 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
 
                 return httpx.Response(200, stream=RevokedStream(), headers={"Content-Type": "text/event-stream"})
             content = 'data: {"type":"delta","text":"AGENT ONLY"}\n\ndata: {"type":"complete"}\n\n'
+            if self.agent_trace_id:
+                content = (
+                    'data: {"type":"trace","trace_id":"invalid"}\n\n'
+                    + 'data: ' + json.dumps({"type": "trace", "trace_id": self.agent_trace_id}) + '\n\n'
+                    + 'data: {"type":"context","intent":"movies","normalized_question":"电影"}\n\n'
+                    + content
+                )
             if self.agent_memory_suggestion:
                 content = (
                     'data: {"type":"memory_suggestion","content":"喜欢科幻","category":"GENRE","userId":999}\n\n'
@@ -213,6 +221,18 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(json.loads(dify_call.content)["conversation_id"], "")
         session = await self.stores["agent"].load(self.info["agent"]["sessionId"])
         self.assertEqual(session.conversation_id, "")
+
+    async def test_trace_id_is_persisted_and_not_forwarded_to_browser(self) -> None:
+        self.agent_trace_id = str(uuid.uuid4())
+        response = await self.turn("agent", "电影")
+        self.assertNotIn(self.agent_trace_id, response.text)
+        self.assertNotIn('"type": "trace"', response.text)
+        session = await self.stores["agent"].load(self.info["agent"]["sessionId"])
+        messages = await self.stores["agent"].history(session)
+        message = next(item for item in messages if item["role"] == "assistant")
+        record = await self.stores["agent"].snapshot(message["id"])
+        self.assertEqual(record.context["trace_id"], self.agent_trace_id)
+        self.assertEqual(record.context["intent"], "movies")
 
     async def test_memory_suggestion_is_agent_only_and_has_no_owner_override(self) -> None:
         self.agent_memory_suggestion = True
