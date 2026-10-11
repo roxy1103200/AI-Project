@@ -14,6 +14,8 @@ import logging
 import os
 # 导入当前步骤使用的模块或类型。
 import re
+# SQLite 仅保存本地会话与目录的对应关系，支持服务重启及多个进程同时归档。
+import sqlite3
 # 导入当前步骤使用的模块或类型。
 import threading
 # 导入当前步骤使用的模块或类型。
@@ -127,6 +129,12 @@ COUNTERS = frozenset(
         "invalid_call_count",
         # 补充当前表达式的 `"model_turn_count"` 参数或元素。
         "model_turn_count",
+        "model_call_count",
+        "reflection_call_count",
+        "step_count",
+        "input_tokens",
+        "output_tokens",
+        "usage_missing_calls",
         # 补充当前表达式的 `"failure_count"` 参数或元素。
         "failure_count",
         # 补充当前表达式的 `"input_characters"` 参数或元素。
@@ -165,6 +173,7 @@ SAFE_METADATA = frozenset(
         "channel",
         # 补充当前表达式的 `"stage"` 参数或元素。
         "stage",
+        "agent_stage",
         # 补充当前表达式的 `"exception_type"` 参数或元素。
         "exception_type",
         # 补充当前表达式的 `"ls_provider"` 参数或元素。
@@ -338,6 +347,31 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
     # 继续构造当前业务表达式或数据结构。
     }:
         summary["finish_reason"] = payload["finish_reason"]
+    for key in ("finish_reason", "stop_reason"):
+        value = payload.get(key)
+        if isinstance(value, str) and value in {
+            "complete", "tool_limit", "retry_limit", "model_fallback", "simple_verified",
+            "done_verified", "done_code_checked", "max_steps", "model_budget", "token_budget",
+            "timeout", "duplicate_call", "stalled", "verifier_incomplete", "reflection_fallback",
+            "direct", "needs_user", "no_evidence", "simple_failed", "query_contract_mismatch",
+            "business_auth_failed",
+        }:
+            summary[key] = value
+    for key, allowed in (
+        ("route", {"simple", "react", "direct"}),
+        ("reflection_status", {
+            "not_run", "no_evidence", "unavailable", "incomplete", "needs_work", "rejected", "passed", "failed",
+        }),
+    ):
+        if isinstance(payload.get(key), str) and payload[key] in allowed:
+            summary[key] = payload[key]
+    if type(payload.get("circuit_open")) is bool:
+        summary["circuit_open"] = payload["circuit_open"]
+    if isinstance(payload.get("token_usage"), dict):
+        summary.update({
+            key: value for key, value in payload["token_usage"].items()
+            if key in COUNTERS and type(value) is int and 0 <= value <= 10**9
+        })
     # 检查 `if isinstance(payload.get("tool_calls"), list)`，据此选择当前处理分支。
     if isinstance(payload.get("tool_calls"), list):
         summary["tool_calls"] = [name for name in payload["tool_calls"] if isinstance(name, str) and name in TOOL_NAMES]
@@ -431,8 +465,94 @@ def _run_fields(values: dict[str, Any]) -> dict[str, Any]:
 
 
 # 声明当前处理单元及其入口。
+# 在持有进程内锁和 SQLite 写锁期间，统一管理会话索引与日志追加。
+@contextmanager
+def _archive_index() -> Iterator[sqlite3.Connection]:
+    """Serialize local archive writes across threads and Agent processes."""
+    # 只在实际启用追踪时建立归档根目录。
+    TRACE_ARCHIVE_ROOT.mkdir(parents=True, exist_ok=True)
+    # 同一进程的线程先排队，避免重复争抢数据库写锁。
+    with TRACE_ARCHIVE_LOCK:
+        # 写锁等待最多四分之一秒，归档故障不应长时间阻塞问答。
+        connection = sqlite3.connect(TRACE_ARCHIVE_ROOT / ".archive-index.sqlite3", timeout=0.25)
+        # 无论归档成功还是失败都关闭连接，释放文件与数据库锁。
+        try:
+            # 提前取得写锁，让多个进程的目录注册和文件追加也按顺序执行。
+            connection.execute("BEGIN IMMEDIATE")
+            # 会话散列唯一，目录记录第一次追踪时间，后续轮次沿用该目录。
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS sessions "
+                "(session_ref TEXT PRIMARY KEY, directory TEXT NOT NULL UNIQUE, started_at TEXT NOT NULL)"
+            )
+            # 每轮追踪保存根 UUID，延迟到达的节点事件据此找到所属会话。
+            connection.execute(
+                "CREATE TABLE IF NOT EXISTS traces (trace_id TEXT PRIMARY KEY, session_ref TEXT NOT NULL)"
+            )
+            # 将持有写锁的连接交给目录注册或日志追加逻辑。
+            yield connection
+            # 完整完成本次操作后才提交索引。
+            connection.commit()
+        # 连接关闭会自动回滚尚未提交的索引变更。
+        finally:
+            # 即使磁盘或序列化操作失败，也释放数据库锁。
+            connection.close()
+
+
+# 在根 span 创建之前注册本轮所属的用户会话，避免异步回调丢失归属。
+def _register_archive_session(user_id: int, session_ref: str, trace_id: UUID) -> None:
+    """Persist a session's first trace directory and register this turn's root UUID."""
+    # 使用北京时间记录会话首次在内部 Agent 产生追踪的时刻。
+    started = datetime.now(CHINA_TIMEZONE)
+    # 下划线替代 Windows 禁止的冒号，短散列区分同一分钟内的不同会话。
+    relative_directory = (
+        f"{started:%Y_%m_%d}/{user_id}_{started:%Y_%m_%d_%H_%M}_{session_ref[:12]}"
+    )
+    # 归档故障只记录类型，不影响正常问答或云端追踪。
+    try:
+        # 数据库锁保证同时到达的同一会话只采用一个首次时间。
+        with _archive_index() as connection:
+            # 已存在的会话保持原目录，跨日期及服务重启也能继续追加。
+            connection.execute(
+                "INSERT INTO sessions(session_ref, directory, started_at) VALUES (?, ?, ?) "
+                "ON CONFLICT(session_ref) DO NOTHING",
+                (session_ref, relative_directory, started.isoformat()),
+            )
+            # 为本轮 UUID 绑定会话，所有子节点共享这个根 UUID。
+            connection.execute(
+                "INSERT INTO traces(trace_id, session_ref) VALUES (?, ?)", (str(trace_id), session_ref)
+            )
+            # 获取索引中实际采用的首次目录和首次时间。
+            row = connection.execute(
+                "SELECT directory, started_at FROM sessions WHERE session_ref = ?", (session_ref,)
+            ).fetchone()
+            # 拼接完全由本模块生成的相对目录。
+            directory = TRACE_ARCHIVE_ROOT / row[0]
+            # 在写入会话说明或生命周期事件前创建用户会话目录。
+            directory.mkdir(parents=True, exist_ok=True)
+            # 会话说明仅保存在本地，用户 ID 不加入 LangSmith 上传元数据。
+            manifest = directory / "session.json"
+            # 已有会话的首次时间保持不变。
+            if not manifest.exists():
+                # 保存可用于定位会话的身份与时间摘要，不保存原始会话 ID 或对话。
+                manifest.write_text(
+                    json.dumps(
+                        {"user_id": user_id, "session_ref": session_ref, "started_at": row[1]},
+                        ensure_ascii=False,
+                        indent=2,
+                    ) + "\n",
+                    encoding="utf-8",
+                )
+        # 日志同时给出本轮 UUID 与归档位置，便于与网关错误日志对照。
+        LOGGER.info("Local trace archive trace_id=%s directory=%s", trace_id, directory)
+    # 文件系统或索引不可用时仍继续模型与工具执行。
+    except (OSError, sqlite3.Error) as exc:
+        # 避免将异常正文中的路径、参数或业务信息扩散到日志。
+        LOGGER.warning("Local trace session unavailable type=%s", type(exc).__name__)
+
+
+# 将节点、模型和工具的生命周期事件追加到根追踪所属的会话目录。
 def _archive_run(event: str, values: dict[str, Any], run_type: Any = "") -> None:
-    """Append a sanitized span lifecycle event to today's local JSONL trace file."""
+    """Append a sanitized span event to its registered user session's JSONL file."""
     # 进入对应的循环、异常处理或资源管理分支。
     try:
         # 为 `trace_id` 保存当前步骤所需的值。
@@ -490,19 +610,28 @@ def _archive_run(event: str, values: dict[str, Any], run_type: Any = "") -> None
         # 设置当前结构中的 `events` 字段。
         "events": values.get("events", []),
     }
-    # 为 `day_directory` 保存当前步骤所需的值。
-    day_directory = TRACE_ARCHIVE_ROOT / datetime.now(CHINA_TIMEZONE).strftime("%Y_%m_%d")
     # 进入对应的循环、异常处理或资源管理分支。
     try:
-        # 进入对应的循环、异常处理或资源管理分支。
-        with TRACE_ARCHIVE_LOCK:
-            # 继续构造当前业务表达式或数据结构。
-            day_directory.mkdir(parents=True, exist_ok=True)
-            # 进入对应的循环、异常处理或资源管理分支。
-            with (day_directory / "traces.jsonl").open("a", encoding="utf-8") as archive:
+        # 查询持久化索引，后台回调无需依赖当前请求的 ContextVar。
+        with _archive_index() as connection:
+            # 根 UUID 能把延迟结束及跨午夜的子节点事件送回原会话目录。
+            row = connection.execute(
+                "SELECT sessions.directory FROM traces JOIN sessions USING(session_ref) WHERE trace_id = ?",
+                (trace_id,),
+            ).fetchone()
+            # 没有业务会话的直接 SDK 调用单独按根 UUID 归档。
+            relative_directory = row[0] if row else (
+                f"{datetime.now(CHINA_TIMEZONE):%Y_%m_%d}/_unassigned_{trace_id}"
+            )
+            # 每个会话拥有独立的日志文件，多轮回答通过 trace_id 区分。
+            directory = TRACE_ARCHIVE_ROOT / relative_directory
+            # 允许异常诊断产生的无会话追踪也创建独立目录。
+            directory.mkdir(parents=True, exist_ok=True)
+            # 在同一写锁内追加完整一行，避免不同进程混写 JSON。
+            with (directory / "traces.jsonl").open("a", encoding="utf-8") as archive:
                 archive.write(json.dumps(archived, ensure_ascii=False, default=str) + "\n")
     # 进入对应的循环、异常处理或资源管理分支。
-    except OSError as exc:
+    except (OSError, sqlite3.Error) as exc:
         # 执行当前异步调用或运行状态记录。
         LOGGER.warning("Local trace archive unavailable type=%s", type(exc).__name__)
 
@@ -594,6 +723,7 @@ class TraceTurn:
     tool_calls: list[str] = field(default_factory=list)
     # 设置当前结构中的 `intent` 字段。
     intent: str = ""
+    workflow: dict[str, Any] = field(default_factory=dict)
 
     # 声明当前处理单元及其入口。
     def observe(self, packet: dict[str, Any]) -> None:
@@ -620,6 +750,9 @@ class TraceTurn:
             self.intent = summary.get("intent", self.intent)
             # 为 `self.tool_calls` 保存当前步骤所需的值。
             self.tool_calls = summary.get("tool_calls", self.tool_calls)
+            self.workflow.update({
+                key: value for key, value in summary.items() if key not in {"field_count", "intent", "tool_calls"}
+            })
 
     # 声明当前处理单元及其入口。
     def finish(self) -> None:
@@ -643,6 +776,7 @@ class TraceTurn:
                     "failure_count": self.failure_count,
                     # 设置当前结构中的 `tool_calls` 字段。
                     "tool_calls": self.tool_calls,
+                    **self.workflow,
                 },
                 # 为 `error` 保存当前步骤所需的值。
                 error=self.error_code or None,
@@ -741,6 +875,10 @@ class AgentTracing:
         token = CURRENT_TURN.set(turn)
         # 为 `session_ref` 保存当前步骤所需的值。
         session_ref = hashlib.sha256(f"{user_id}:{session_id}".encode()).hexdigest()
+        # 关闭追踪时不建立目录；启用时在创建根 span 前持久化用户会话归属。
+        if self.client is not None:
+            # 本地用户 ID 只用于目录和说明文件，上传仍使用会话散列。
+            _register_archive_session(user_id, session_ref, turn.trace_id)
         # 进入对应的循环、异常处理或资源管理分支。
         try:
             # 进入对应的循环、异常处理或资源管理分支。

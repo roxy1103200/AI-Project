@@ -74,3 +74,18 @@ class EvaluationMetricsTests(unittest.TestCase):
         self.assertEqual(summary["usage_missing_calls"], 1)
         self.assertEqual(summary["avg_model_calls"], 2)
         self.assertEqual(summary["avg_total_tokens"], 1100)
+
+    def test_route_reflection_and_circuit_counts_are_reported(self) -> None:
+        row = {
+            **self.row, "route": "simple", "stop_reason": "simple_verified", "reflection_status": "passed",
+            "model_calls": [{"stage": "reflection", "usage": None}], "score": judge(self.case, self.row),
+        }
+        stopped = {
+            **row, "route": "react", "stop_reason": "max_steps", "circuit_open": True,
+            "reflection_status": "not_run", "model_calls": [],
+        }
+        summary = summarize([row, stopped])
+        self.assertEqual(summary["route_counts"], {"simple": 1, "react": 1, "direct": 0})
+        self.assertEqual(summary["stop_reason_counts"], {"max_steps": 1, "simple_verified": 1})
+        self.assertEqual(summary["circuit_breaker_rate"], 0.5)
+        self.assertEqual(summary["avg_reflection_calls"], 0.5)

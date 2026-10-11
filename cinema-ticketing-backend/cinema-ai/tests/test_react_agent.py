@@ -47,23 +47,39 @@ def screening(screening_id: int) -> dict:
 
 
 class ScriptedModel:
-    """Capture each decision context; generate a separate final answer stream."""
+    """Capture separately billed decision and reflection calls without a provider."""
 
     def __init__(self, decisions: list[AIMessage], answer: str = "查到场次及座位，状态为查询时快照。") -> None:
         self.decisions = list(decisions)
         self.answer = answer
         self.requests: list[list[BaseMessage]] = []
         self.schemas: list[dict] = []
+        self.reflection_requests: list[list[BaseMessage]] = []
+        self.reflection_response: AIMessage | Exception = AIMessage(content='{"verdict":"pass"}')
+
+    def bind(self, **_: object) -> "ScriptedModel":
+        """Keep provider configuration separate from the scripted response sequence."""
+        return self
 
     def bind_tools(self, schemas: list[dict], **_: object) -> "ScriptedModel":
         """Match the existing ChatOpenAI tool-binding interface."""
         self.schemas = schemas
         return self
 
-    async def ainvoke(self, messages: list[BaseMessage]) -> AIMessage:
+    async def ainvoke(self, messages: list[BaseMessage], **kwargs: object) -> AIMessage:
         """Consume one decision in order and retain the actual observations."""
-        self.requests.append(list(messages))
-        return self.decisions.pop(0)
+        config = kwargs.get("config", {})
+        if config.get("metadata", {}).get("agent_stage") == "reflection":
+            self.reflection_requests.append(list(messages))
+            if isinstance(self.reflection_response, Exception):
+                raise self.reflection_response
+            response = self.reflection_response
+        else:
+            self.requests.append(list(messages))
+            response = self.decisions.pop(0)
+        return response.model_copy(
+            update={"usage_metadata": {"input_tokens": 100, "output_tokens": 20, "total_tokens": 120}}
+        )
 
     async def astream(self, _: list[BaseMessage]) -> AsyncIterator[AIMessageChunk]:
         """Emit real async answer chunks instead of replaying planning messages."""
@@ -133,7 +149,10 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
             [p for p in packets if p["type"] == "context"][-1]["tool_calls"],
             ["search_screenings", "query_seats", "query_seats"],
         )
-        self.assertEqual("".join(p["text"] for p in packets if p["type"] == "delta"), model.answer)
+        answer = "".join(p["text"] for p in packets if p["type"] == "delta")
+        self.assertIn("场次 12", answer)
+        self.assertIn("场次 13", answer)
+        self.assertEqual(len(model.reflection_requests), 1)
         self.assertEqual(packets[-1]["type"], "complete")
         self.assertNotIn("内部规划", json.dumps(packets, ensure_ascii=False))
 
@@ -206,8 +225,10 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.sources[0]["id"], 8)
         self.assertEqual(result.sources[0]["version"], "v2")
         # Completion is checked immediately; no second decision request is needed.
-        self.assertEqual(len(self.assistant.model.requests), 1)
+        self.assertEqual(len(self.assistant.model.requests), 0)
+        self.assertEqual(len(self.assistant.model.reflection_requests), 1)
         self.assertIn("儿童票以影院活动为准", result.data["answer_context"][0])
+        self.assertIn("儿童票以影院活动为准", result.answer)
         self.assertIn("当前权威规则", result.data["policy"]["policy"])
         self.assertNotIn("请在放映前完成购票", result.data["answer_context"][0])
         self.assistant.mcp.call_tool.assert_not_awaited()
@@ -236,7 +257,8 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         self.assistant.mcp.call_tool.return_value = {"status": "ISSUED"}
-        packets = await self.packets("OTEST12 的状态")
+        with patch("app.react_agent.select_route", return_value=("react", "test_validation")):
+            packets = await self.packets("OTEST12 的状态")
         self.assistant.mcp.call_tool.assert_awaited_once_with("query_order", {"order_no": "OTEST12"}, user_id=2)
         self.assertEqual(packets[-1]["type"], "complete")
         self.assertEqual([p for p in packets if p["type"] == "context"][-1]["tool_calls"], ["query_order"])
@@ -253,7 +275,8 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assistant.mcp.call_tool.return_value = {"status": "ISSUED"}
         packets = await self.packets("OTEST12 的状态")
         self.assistant.mcp.call_tool.assert_awaited_once()
-        self.assertEqual(len(model.requests), 1)
+        self.assertEqual(len(model.requests), 0)
+        self.assertEqual(len(model.reflection_requests), 1)
         self.assertNotIn("查询上限", "".join(p.get("text", "") for p in packets))
 
     async def test_oversized_batch_stops_at_call_budget(self) -> None:
@@ -314,7 +337,9 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_concurrent_graph_requests_keep_tool_observations_and_identity_separate(self) -> None:
         class OrderModel(ScriptedModel):
-            async def ainvoke(self, messages: list[BaseMessage]) -> AIMessage:
+            async def ainvoke(self, messages: list[BaseMessage], **kwargs: object) -> AIMessage:
+                if kwargs.get("config", {}).get("metadata", {}).get("agent_stage") == "reflection":
+                    return await super().ainvoke(messages, **kwargs)
                 if isinstance(messages[-1], ToolMessage):
                     return AIMessage(content="查询完成")
                 content = json.loads(messages[1].content)

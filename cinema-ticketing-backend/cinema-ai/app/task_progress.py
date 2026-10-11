@@ -3,6 +3,7 @@
 # 导入当前步骤使用的模块或类型。
 # isort: off
 import re
+
 # 导入当前步骤使用的模块或类型。
 from typing import Any
 
@@ -11,122 +12,87 @@ from app.intent import SCREENING_PATTERN, rule_plan
 # isort: on
 
 # 为 `FACT_WORDS` 保存当前步骤所需的值。
-FACT_WORDS = ("导演", "片长", "主演", "演员", "简介", "资料", "上映日期", "上映时间")
+FACT_WORDS = ("导演", "片长", "时长", "多长", "谁导", "主演", "演员", "简介", "资料", "上映日期", "上映时间")
 # 为 `SEAT_WORDS` 保存当前步骤所需的值。
-SEAT_WORDS = ("座位", "空座", "选座", "余座")
+SEAT_WORDS = ("座位", "空座", "空位", "选座", "余座", "还有座", "剩几个座")
 
 
 # 声明当前处理单元及其入口。
 def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
-    """Decompose explicit requests while keeping dates/scopes local to each query."""
+    """Combine one understanding result with explicit outcome and dependency rules."""
     question, entities = state["question"], state["entities"]
-    # 为 `text` 保存当前步骤所需的值。
     text = re.sub(r"《[^》]+》", "", question)
-    # 为 `rules` 保存当前步骤所需的值。
     rules = rule_plan(question, state["messages"][:-1])
-    # 设置当前结构中的 `tasks` 字段。
+    requested = set(state.get("requested_intents", []))
     tasks: list[dict[str, Any]] = []
 
-    # 声明当前处理单元及其入口。
     def add(name: str, arguments: dict[str, Any], label: str) -> None:
-        tasks.append({"name": name, "arguments": arguments, "label": label})
+        if any(task["name"] == name and task["arguments"] == arguments for task in tasks):
+            return
+        tasks.append({"id": f"task-{len(tasks) + 1}", "name": name, "arguments": arguments, "label": label})
 
-    # 为 `order_nos` 保存当前步骤所需的值。
     order_nos = entities.get("order_nos") or ([entities["order_no"]] if entities["order_no"] else [])
-    # 检查 `if state["intent"] in ("order", "refund") or order_nos`，据此选择当前处理分支。
     if state["intent"] in ("order", "refund") or order_nos:
-        # 进入对应的循环、异常处理或资源管理分支。
         for number in order_nos:
-            # 调用 `add` 执行当前业务操作。
             add("query_order", {"order_no": number}, f"查询订单 {number}")
-    # 为 `facts` 保存当前步骤所需的值。
     facts = any(word in text for word in FACT_WORDS)
-    # 为 `seats` 保存当前步骤所需的值。
-    seats = state["intent"] == "seats" or any(word in text for word in SEAT_WORDS)
-    # 为 `explicit_ids` 保存当前步骤所需的值。
+    seats = state["intent"] == "seats" or "seats" in requested or any(word in text for word in SEAT_WORDS)
     explicit_ids = list(dict.fromkeys(int(match[1]) for match in SCREENING_PATTERN.finditer(question)))
-    # 检查 `if not explicit_ids and entities["screening_id"]`，据此选择当前处理分支。
     if not explicit_ids and entities["screening_id"]:
-        # 为 `explicit_ids` 保存当前步骤所需的值。
         explicit_ids = [entities["screening_id"]]
-    # 为 `slots` 保存当前步骤所需的值。
+    slot_words = ("场次", "排期", "排片", "票价", "多少钱", "哪几场", "几场", "最低价", "最便宜")
     slots = (
         state["intent"] == "screenings"
-        # 调用 `or` 执行当前业务操作。
+        or "screenings" in requested
         or (seats and not explicit_ids)
-        # 调用 `or` 执行当前业务操作。
-        or (facts and any(word in text for word in ("场次", "排期", "排片", "票价")))
-        # 调用 `or` 执行当前业务操作。
+        or (facts and any(word in text for word in slot_words))
         or (
-            # 继续构造当前业务表达式或数据结构。
             not explicit_ids
             and state["intent"] != "movies"
-            and any(word in text for word in ("场次", "票价"))
-            and any(word in text for word in ("查", "找", "比较"))
+            and any(word in text for word in slot_words)
+            and any(word in text for word in ("查", "找", "比较", "看看", "瞅"))
         )
     )
-    # 检查 `if facts or (state["intent"] == "movies" and not slots)`，据此选择当前处理分支。
-    if facts or (state["intent"] == "movies" and not slots):
-        # 为 `args` 保存当前步骤所需的值。
-        args = {
-            # 设置当前结构中的 `query` 字段。
-            "query": entities["movie_query"] or entities["preference"],
-            # 设置当前结构中的 `movie_scope` 字段。
-            "movie_scope": "catalog" if facts else rules.movie_scope,
-            # 设置当前结构中的 `screening_date` 字段。
-            "screening_date": None if facts else entities["screening_date"],
-            # 设置当前结构中的 `cinema_query` 字段。
-            "cinema_query": "" if facts else entities["cinema_query"],
-            # 设置当前结构中的 `showing_only` 字段。
-            "showing_only": False if facts else rules.showing_only,
-            # 设置当前结构中的 `page` 字段。
-            "page": entities["page"],
-        }
-        # 调用 `add` 执行当前业务操作。
-        add("search_movies", args, "查询影片资料" if facts else "查询影片列表")
-    # 检查 `if slots`，据此选择当前处理分支。
+    titles = list(dict.fromkeys(re.findall(r"《([^》]+)》", question)))
+    movie_queries = titles if len(titles) > 1 else [entities["movie_query"] or entities["preference"]]
+    if facts or "movies" in requested or (state["intent"] == "movies" and not slots):
+        for query in movie_queries:
+            add(
+                "search_movies",
+                {
+                    "query": query,
+                    "movie_scope": "catalog" if facts else rules.movie_scope,
+                    "screening_date": None if facts else entities["screening_date"],
+                    "cinema_query": "" if facts else entities["cinema_query"],
+                    "showing_only": False if facts else rules.showing_only,
+                    "page": entities["page"],
+                },
+                "查询影片资料" if facts else "查询影片列表",
+            )
     if slots:
-        # 调用 `add` 执行当前业务操作。
-        add(
-            # 补充当前表达式的 `"search_screenings"` 参数或元素。
-            "search_screenings",
-            # 继续构造当前业务表达式或数据结构。
-            {
-                # 设置当前结构中的 `movie_query` 字段。
-                "movie_query": entities["movie_query"],
-                # 设置当前结构中的 `cinema_query` 字段。
-                "cinema_query": entities["cinema_query"],
-                # 设置当前结构中的 `screening_date` 字段。
-                "screening_date": entities["screening_date"],
-                # 设置当前结构中的 `query_scope` 字段。
-                "query_scope": rules.screening_scope,
-                # 设置当前结构中的 `showing_only` 字段。
-                "showing_only": rules.showing_only,
-            },
-            # 补充当前表达式的 `"查询场次与票价"` 参数或元素。
-            "查询场次与票价",
-        )
-    # 检查 `if seats`，据此选择当前处理分支。
+        for query in titles if len(titles) > 1 else [entities["movie_query"]]:
+            add(
+                "search_screenings",
+                {
+                    "movie_query": query,
+                    "cinema_query": entities["cinema_query"],
+                    "screening_date": entities["screening_date"],
+                    "query_scope": rules.screening_scope,
+                    "showing_only": rules.showing_only,
+                },
+                "查询场次与票价",
+            )
     if seats:
-        # 检查 `if explicit_ids`，据此选择当前处理分支。
         if explicit_ids:
-            # 进入对应的循环、异常处理或资源管理分支。
             for screening_id in explicit_ids:
-                # 调用 `add` 执行当前业务操作。
                 add("query_seats", {"screening_id": screening_id}, f"查询场次 {screening_id} 的座位")
-        # 进入对应的循环、异常处理或资源管理分支。
         else:
-            # 调用 `add` 执行当前业务操作。
             add("query_seats", {}, "查询指定场次的座位")
-    # 检查 `if state["intent"] == "recommend"`，据此选择当前处理分支。
-    if state["intent"] == "recommend":
-        # 调用 `add` 执行当前业务操作。
+    if state["intent"] == "recommend" or "recommend" in requested:
         add("recommend_movies", {"preference": entities["preference"]}, "按偏好推荐电影")
-    # 检查 `if state["intent"] == "policy" or any(word in text for word in ("规则", "须知", "政策"))`，据此选择当前处理分支。
-    if state["intent"] == "policy" or any(word in text for word in ("规则", "须知", "政策")):
-        # 调用 `add` 执行当前业务操作。
+    policy_words = ("规则", "须知", "政策", "退票期限", "退票截止", "提前多久", "最晚多久", "啥时候不能退")
+    if state["intent"] == "policy" or "policy" in requested or any(word in text for word in policy_words):
         add("query_ticket_policy", {}, "检索当前票务规则")
-    # 将当前计算结果返回给调用方。
     return tasks
 
 
@@ -182,7 +148,7 @@ def progress(state: dict[str, Any]) -> list[dict[str, Any]]:
             and all(
                 # 继续构造当前业务表达式或数据结构。
                 (
-                    key in ("query", "movie_query", "cinema_query", "preference")
+                    (item.get("task_id") is not None and item.get("task_id") == task.get("id"))
                     or str(item["arguments"].get(key, "")).lower() == str(value).lower()
                 )
                 # 进入对应的循环、异常处理或资源管理分支。
@@ -237,6 +203,7 @@ def progress(state: dict[str, Any]) -> list[dict[str, Any]]:
                                 # 补充当前表达式的 `**task` 参数或元素。
                                 **task,
                                 # 设置当前结构中的 `arguments` 字段。
+                                "id": f"{task['id']}:{number}",
                                 "arguments": {"screening_id": number},
                                 # 设置当前结构中的 `label` 字段。
                                 "label": f"查询场次 {number} 的座位",
@@ -284,3 +251,37 @@ def next_call(state: dict[str, Any]) -> dict[str, Any] | None:
             return {"name": task["name"], "args": args}
     # 将当前计算结果返回给调用方。
     return None
+
+
+def select_route(state: dict[str, Any]) -> tuple[str, str]:
+    """Route from existing plan data without paying for a second classifier call."""
+    if state.get("needs_clarification") or state["intent"] == "chat":
+        return "direct", "clarification" if state.get("needs_clarification") else "chat"
+    tasks = state.get("tasks", [])
+    if len(tasks) != 1:
+        return "react", "multiple_tasks" if tasks else "uncertain_plan"
+    if tasks[0]["name"] == "query_seats" and not tasks[0]["arguments"].get("screening_id"):
+        return "react", "discovery_dependency"
+    if len(re.findall(r"《[^》]+》", state["question"])) > 1:
+        return "react", "multiple_entities"
+    if re.search(r"顺便|再帮我|再查|再看|同时|一并|分别|对比|比较|先.{0,80}再", state["question"]):
+        return "react", "composite_expression"
+    if state["confidence"] < 0.8:
+        return "react", "uncertain_plan"
+    return "simple", "single_complete_task"
+
+
+def matching_task(state: dict[str, Any], name: str, arguments: dict[str, Any]) -> dict[str, Any] | None:
+    """Associate validated evidence with one pending task, keeping record ownership."""
+    candidates = [item for item in progress(state) if item["name"] == name and item["status"] == "pending"]
+    exact = next(
+        (
+            item
+            for item in candidates
+            if all(
+                str(arguments.get(key, "")).lower() == str(value).lower() for key, value in item["arguments"].items()
+            )
+        ),
+        None,
+    )
+    return exact or (candidates[0] if len(candidates) == 1 else None)

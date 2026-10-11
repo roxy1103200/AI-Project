@@ -43,11 +43,12 @@ from app.model_config import create_model
 # 导入当前步骤使用的模块或类型。
 from app.policy_retrieval import KeywordRetriever, load_retriever, policy_candidates
 # 导入当前步骤使用的模块或类型。
-from app.query_answers import movie_answer, screening_answer
+from app.query_answers import movie_answer, policy_answer, screening_answer
 # 导入当前步骤使用的模块或类型。
 from app.react_agent import AgentState, CinemaReAct, initial_state
 # 导入当前步骤使用的模块或类型。
 from app.reranker import DashScopeReranker
+from app.task_progress import progress
 # 导入当前步骤使用的模块或类型。
 from app.tracing import AgentTracing
 # isort: on
@@ -171,6 +172,18 @@ class ChatResponse(BaseModel):
     sources: list[dict[str, Any]] = Field(default_factory=list)
     # 设置当前结构中的 `tool_calls` 字段。
     tool_calls: list[str] = Field(default_factory=list)
+    route: str = "direct"
+    route_reason: str = ""
+    stop_reason: str = ""
+    circuit_open: bool = False
+    step_count: int = 0
+    tool_call_count: int = 0
+    invalid_call_count: int = 0
+    model_call_count: int = 0
+    reflection_call_count: int = 0
+    reflection_status: str = "not_run"
+    token_usage: dict[str, Any] = Field(default_factory=dict)
+    pending_tasks: list[str] = Field(default_factory=list)
 
 
 # 声明当前处理单元及其入口。
@@ -235,7 +248,7 @@ class Assistant:
         with self.tracing.turn(request.user_id, request.session_id, request.question, "chat") as turn:
             # 继续构造当前业务表达式或数据结构。
             response, error_code = await self._chat(request)
-            turn.observe({"type": "context", "intent": response.intent, "tool_calls": response.tool_calls})
+            turn.observe({"type": "context", **response.model_dump(exclude={"answer", "data", "sources"})})
             # The structured graph can return a business error without raising an exception.
             turn.observe({"type": "error", "code": error_code} if error_code else {"type": "complete"})
             # 将当前计算结果返回给调用方。
@@ -275,6 +288,16 @@ class Assistant:
             sources=result.get("retrieved_docs", []),
             # 为 `tool_calls` 保存当前步骤所需的值。
             tool_calls=result.get("tool_calls", []),
+            **{
+                key: result[key]
+                for key in (
+                    "route", "route_reason", "stop_reason", "circuit_open", "step_count",
+                    "tool_call_count", "invalid_call_count", "model_call_count",
+                    "reflection_call_count", "reflection_status", "token_usage",
+                )
+                if key in result
+            },
+            pending_tasks=[item["id"] for item in progress(result) if item["status"] not in ("done", "empty")],
         )
         # 将当前计算结果返回给调用方。
         return response, result.get("error_code", "agent_error") if result.get("error") else ""
@@ -454,7 +477,7 @@ def _live_event(kind: str, **payload: Any) -> str:
 
 # 声明当前处理单元及其入口。
 def _business_answer(state: AgentState) -> str:
-    """Render actual business rows when no internal model key is configured."""
+    """Render authoritative facts before a model may check the final answer."""
     data, intent = state.get("result"), state["intent"]
     # 检查 `if intent == "chat"`，据此选择当前处理分支。
     if intent == "chat":
@@ -462,10 +485,7 @@ def _business_answer(state: AgentState) -> str:
         return "你好，我是影院实时助手，可以查询影片场次、你的订单和当前退票资格。你想查询什么？"
     # 检查 `if intent == "policy"`，据此选择当前处理分支。
     if intent == "policy":
-        # 为 `policy` 保存当前步骤所需的值。
-        policy = data.get("policy", {})
-        # 将当前计算结果返回给调用方。
-        return f"当前退票规则（版本 {policy.get('version', '未知')}）：\n{policy.get('policy', '')}"
+        return policy_answer(data)
     # 检查 `if intent == "seats"`，据此选择当前处理分支。
     if intent == "seats":
         # 将当前计算结果返回给调用方。
@@ -478,7 +498,7 @@ def _business_answer(state: AgentState) -> str:
         status = {"UNPAID": "待支付", "PAID": "已支付", "ISSUED": "已出票", "CANCELLED": "已取消", "REFUNDED": "已退款"}
         # 将当前计算结果返回给调用方。
         return (
-            f"订单：{order.get('order_no', '')}\n影片：{order.get('movie_title', '')}\n"
+            f"订单：{order.get('order_no') or state.get('entities', {}).get('order_no', '')}\n影片：{order.get('movie_title', '')}\n"
             f"状态：{status.get(order.get('status'), order.get('status', '未知'))}\n"
             f"开场：{order.get('start_time', '')}（北京时间）\n金额：¥{order.get('total_amount', '')}\n"
             f"座位：{'、'.join(item.get('seat_code', '') for item in order.get('items', []))}\n"

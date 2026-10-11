@@ -57,7 +57,7 @@ def judge(case: dict[str, Any], result: dict[str, Any]) -> dict[str, Any]:
         pattern for pattern in case.get("answer_forbidden", []) if re.search(pattern, answer, re.IGNORECASE)
     ]
     # A requested numeric-only seat count is a valid answer in both old and new runs.
-    if (case.get("numeric_only") or case["id"] in ("S06", "S07")) and re.fullmatch(
+    if (case.get("numeric_only") or case.get("id") in ("S06", "S07")) and re.fullmatch(
         r"\s*\d+\s*[。.]?\s*", result["answer"]
     ):
         expected_counts = re.findall(r"\(\?<!\\d\)(\d+)\(\?!\\d\)", " ".join(case["answer_checks"]))
@@ -114,7 +114,9 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "tool_correct_rate": sum(row["score"]["tool_correct"] for row in rows) / len(rows),
         "answer_correct_rate": sum(
             row["score"].get(
-                "answer_correct", row["score"]["factual_checks_pass"] and row["completed"] and not row["errors"]
+                "answer_correct",
+                row["score"].get("factual_checks_pass", row["score"].get("task_success", False))
+                and row["completed"] and not row["errors"],
             )
             for row in rows
         )
@@ -122,7 +124,7 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "extra_tool_task_rate": sum(row["score"].get("has_extra_tool_calls", False) for row in rows) / len(rows),
         "extra_tool_call_rate": sum(row["score"].get("extra_tool_calls", 0) for row in rows)
         / max(1, sum(len(row["tools"]) for row in rows)),
-        "rejected_task_rate": sum(row["score"]["rejected_calls"] > 0 for row in rows) / len(rows),
+        "rejected_task_rate": sum(row["score"].get("rejected_calls", 0) > 0 for row in rows) / len(rows),
         "completed": sum(row["completed"] and not row["errors"] for row in rows),
         "ttft_n": len(first),
         "ttft_p50_ms": percentile(first, 0.5),
@@ -133,6 +135,19 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         "success_total_p95_ms": percentile([row["total_ms"] for row in success_rows], 0.95),
         "avg_model_calls": len(model_calls) / len(rows),
         "avg_business_tools": mean(len(row["tools"]) for row in rows),
+        "route_counts": {
+            route: sum(row.get("route") == route for row in rows) for route in ("simple", "react", "direct")
+        },
+        "stop_reason_counts": {
+            reason: sum(row.get("stop_reason") == reason for row in rows)
+            for reason in sorted({row.get("stop_reason") for row in rows if row.get("stop_reason")})
+        },
+        "circuit_breaker_rate": sum(bool(row.get("circuit_open")) for row in rows) / len(rows),
+        "avg_reflection_calls": sum(call.get("stage") == "reflection" for call in model_calls) / len(rows),
+        "reflection_status_counts": {
+            status: sum(row.get("reflection_status") == status for row in rows)
+            for status in sorted({row.get("reflection_status") for row in rows if row.get("reflection_status")})
+        },
         "avg_input_tokens": sum(usage["input_tokens"] for usage in known) / len(rows),
         "avg_output_tokens": sum(usage["output_tokens"] for usage in known) / len(rows),
         "avg_total_tokens": sum(usage["total_tokens"] for usage in known) / len(rows),

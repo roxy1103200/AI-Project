@@ -20,7 +20,27 @@ LANGSMITH_WORKSPACE_ID=
 
 当前本地 `.env` 已按 US 地址开启追踪。环境变量优先于 `.env`。允许的环境为 `local/development/dev/test/staging/preprod`；未配置环境时视为生产，生产环境即使设置 `LANGSMITH_TRACING=true` 也不会开启本模块的追踪。关闭时设置 `LANGSMITH_TRACING=false`。
 
-本地追踪文件存放在项目根目录 `langsmith(tracing)/YYYY_MM_DD/`，按北京时间生成日期目录，例如 `langsmith(tracing)/2026_10_10/`。`traces.jsonl` 逐条追加 span 创建和结束事件，`verification.json` 保存最近一次云端链路验证结果。上传和落盘均只保留脱敏摘要。
+本地追踪按用户会话归档，时间使用北京时间。例如用户 `9` 的会话首次在内部 Agent 产生追踪的时间为 2026-10-11 14:24，则目录如下：
+
+```text
+langsmith(tracing)/
+├── .archive-index.sqlite3
+└── 2026_10_11/
+    ├── 9_2026_10_11_14_24_a1b2c3d4e5f6/
+    │   ├── session.json
+    │   └── traces.jsonl
+    └── 9_2026_10_11_14_24_789abcdef012/
+        ├── session.json
+        └── traces.jsonl
+```
+
+目录格式为 `用户ID_YYYY_MM_DD_HH_MM_会话散列前12位`。Windows 不允许文件夹名称含冒号，时间使用下划线；末尾短编号用于区分同一用户在同一分钟开始的不同会话。日期与时间代表该会话首次产生内部 Agent 追踪的时刻，不代表 Dify 开始聊天的时间。
+
+同一会话的多轮回答追加到同一个 `traces.jsonl`，每轮通过 `trace_id` 区分，节点、模型和工具事件都跟随所属根追踪。同一会话跨午夜、重新建立 Agent 实例或重启服务后仍沿用首次目录；新会话使用新的目录。`.archive-index.sqlite3` 是本地目录索引，记录会话散列、首次时间及根追踪 UUID 的对应关系，无需额外数据库服务；保留该索引才能在重启后继续识别已有目录。索引写锁也用于协调多个 Agent 进程的日志追加。归档不可用时记录脱敏警告，问答和云端追踪继续执行。
+
+`session.json` 保存本地用户 ID、会话散列和首次追踪时间。用户 ID 仅用于本地目录和说明文件，云端仍只收到会话散列；本地日志和云端追踪的输入输出仍为脱敏摘要，不保存完整对话或原始会话 ID。没有业务会话归属的直接 SDK 追踪放到当天 `_unassigned_根追踪UUID/` 目录。旧版已生成的每日汇总日志保留原位置，新产生的追踪采用会话目录。
+
+应用本次会话目录改动只需重启内部 Agent。此前首次接入追踪所需的网关重启步骤见下文。
 
 修改配置后重启内部 Agent；首次应用这次代码改动也需要重启 AI 网关，用来记录追踪关联编号。Java、MCP 和前端无需因这次改动而重启。已有其他服务可继续运行，在项目根目录执行：
 
@@ -66,7 +86,7 @@ Agent `/health` 的 `tracing.enabled` 只表示本地配置生效，不代表云
 
 脚本先核验云端项目访问权限，再上传一条成功和一条工具失败的合成追踪，回读所有后代节点，核对模型/工具/节点关系、最终错误码以及私有诊断文本没有上传。模型使用本地模拟实现，不调用 Qwen、Java、MCP 或数据库。
 
-当天验证报告写入 `langsmith(tracing)/YYYY_MM_DD/verification.json`，与本地追踪追加日志 `traces.jsonl` 放在一起。只有 `verified=true` 才表示云端上传与回读都成功；失败报告只含阶段、异常类型和 HTTP 状态，不输出密钥或远端错误正文。
+当天验证报告写入 `langsmith(tracing)/YYYY_MM_DD/verification.json`，保存最近一次云端链路验证结果。脚本产生的合成追踪按用户 `1`、会话 `synthetic-langsmith-check` 归入对应会话目录，验证报告中的追踪 UUID 可与会话日志对照。该合成会话也沿用首次目录。只有 `verified=true` 才表示云端上传与回读都成功；失败报告只含阶段、异常类型和 HTTP 状态，不输出密钥或远端错误正文。
 
 2026-10-10 已使用更新后的 US 密钥完成上传和回读验证：成功、工具失败两条追踪各含 8 个记录，节点、模型、工具耗时可读，失败根记录为 `business_unavailable`，私有诊断文本未上传。本地日归档记录了 32 个 span 生命周期事件。此次验证采用合成流程，实际 Qwen 问答需要在重启 Agent 和网关后继续观察。
 

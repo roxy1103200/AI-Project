@@ -3,7 +3,11 @@
 import asyncio
 import json
 import os
+import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
+from datetime import datetime
+from pathlib import Path
 from typing import TypedDict
 from unittest.mock import patch
 from uuid import uuid4
@@ -14,7 +18,7 @@ from langgraph.graph import END, START, StateGraph
 from langsmith import Client
 
 from app.failures import describe_failure
-from app.tracing import AgentTracing, MetadataOnlyClient, SdkLogFilter, current_trace_id, tool_span
+from app.tracing import CHINA_TIMEZONE, AgentTracing, MetadataOnlyClient, SdkLogFilter, current_trace_id, tool_span
 
 SECRET = "PRIVATE-ORDER-13800138000-sk-dummy-secret"
 
@@ -33,6 +37,10 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.environment = patch.dict(os.environ, {"LANGSMITH_TRACING": "false", "AI_ENVIRONMENT": "test"})
         self.environment.start()
+        self.archive = tempfile.TemporaryDirectory()
+        self.archive_root = Path(self.archive.name)
+        self.archive_patch = patch("app.tracing.TRACE_ARCHIVE_ROOT", self.archive_root)
+        self.archive_patch.start()
         self.client = MetadataOnlyClient(api_key="test-key", auto_batch_tracing=False, info={})
         self.create = patch.object(Client, "_create_run")
         self.update = patch.object(Client, "_update_run")
@@ -44,6 +52,101 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
         self.update.stop()
         self.create.stop()
         self.environment.stop()
+        self.archive_patch.stop()
+        self.archive.cleanup()
+
+    def test_sessions_separate_users_and_conversations_started_in_the_same_minute(self) -> None:
+        tracing = AgentTracing()
+        tracing.client = self.client
+        started = datetime(2026, 10, 11, 14, 24, tzinfo=CHINA_TIMEZONE)
+        with patch("app.tracing.datetime") as clock:
+            clock.now.return_value = started
+            for user_id, session in ((9, "first"), (9, "second"), (10, "first")):
+                with tracing.turn(user_id, session, SECRET, "live") as turn:
+                    turn.observe({"type": "complete"})
+        manifests = sorted(self.archive_root.glob("2026_10_11/*/session.json"))
+        self.assertEqual(len(manifests), 3)
+        self.assertEqual(len({manifest.parent.name for manifest in manifests}), 3)
+        self.assertEqual(sorted(json.loads(path.read_text())["user_id"] for path in manifests), [9, 9, 10])
+        for manifest in manifests:
+            self.assertRegex(manifest.parent.name, r"^(9|10)_2026_10_11_14_24_[a-f0-9]{12}$")
+            events = [json.loads(line) for line in (manifest.parent / "traces.jsonl").read_text().splitlines()]
+            self.assertEqual({event["event"] for event in events}, {"run_created", "run_updated"})
+            self.assertEqual(len({event["trace_id"] for event in events}), 1)
+            self.assertNotIn(SECRET, json.dumps(events))
+        outbound = json.dumps([call.args[0] for call in self.created.call_args_list], default=str)
+        self.assertNotIn("user_id", outbound)
+        self.assertNotIn("archive", outbound)
+
+    def test_session_directory_survives_new_agent_instance_and_midnight(self) -> None:
+        first = AgentTracing()
+        first.client = self.client
+        with patch("app.tracing.datetime") as clock:
+            clock.now.return_value = datetime(2026, 10, 11, 23, 59, tzinfo=CHINA_TIMEZONE)
+            with first.turn(9, "private-session", SECRET, "live") as turn:
+                turn.observe({"type": "complete"})
+            second = AgentTracing()
+            second.client = self.client
+            clock.now.return_value = datetime(2026, 10, 12, 0, 1, tzinfo=CHINA_TIMEZONE)
+            with second.turn(9, "private-session", SECRET, "chat") as turn:
+                turn.observe({"type": "complete"})
+        logs = list(self.archive_root.glob("*/*/traces.jsonl"))
+        self.assertEqual(len(logs), 1)
+        self.assertEqual(logs[0].parents[1].name, "2026_10_11")
+        events = [json.loads(line) for line in logs[0].read_text().splitlines()]
+        self.assertEqual(len({event["trace_id"] for event in events}), 2)
+        manifest = json.loads(logs[0].with_name("session.json").read_text())
+        self.assertEqual(manifest["started_at"], "2026-10-11T23:59:00+08:00")
+
+    def test_delayed_background_events_return_to_the_original_session(self) -> None:
+        tracing = AgentTracing()
+        tracing.client = self.client
+        with tracing.turn(9, "first", SECRET, "live") as first:
+            first.observe({"type": "complete"})
+        with tracing.turn(10, "second", SECRET, "live") as second:
+            second.observe({"type": "complete"})
+        child_id = uuid4()
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            executor.submit(
+                self.client.create_run, "tools", {}, "tool", id=child_id,
+                trace_id=first.trace_id, parent_run_id=first.trace_id,
+            ).result()
+            executor.submit(self.client.update_run, child_id, trace_id=first.trace_id).result()
+        logs = list(self.archive_root.glob("*/*/traces.jsonl"))
+        self.assertEqual(len(logs), 2)
+        for log in logs:
+            events = [json.loads(line) for line in log.read_text().splitlines()]
+            expected = first.trace_id if log.parent.name.startswith("9_") else second.trace_id
+            self.assertEqual({event["trace_id"] for event in events}, {str(expected)})
+            child_events = [event for event in events if event["run_id"] == str(child_id)]
+            self.assertEqual(len(child_events), 2 if expected == first.trace_id else 0)
+
+    def test_simultaneous_turns_share_one_session_directory_and_complete_json_lines(self) -> None:
+        def answer(_: int) -> None:
+            tracing = AgentTracing()
+            tracing.client = self.client
+            with tracing.turn(9, "same-session", SECRET, "live") as turn:
+                turn.observe({"type": "complete"})
+
+        with ThreadPoolExecutor(max_workers=4) as executor:
+            list(executor.map(answer, range(8)))
+        logs = list(self.archive_root.glob("*/*/traces.jsonl"))
+        self.assertEqual(len(logs), 1)
+        events = [json.loads(line) for line in logs[0].read_text().splitlines()]
+        self.assertEqual(len(events), 16)
+        self.assertEqual(len({event["trace_id"] for event in events}), 8)
+
+    def test_archive_failure_does_not_interrupt_answer_or_cloud_upload(self) -> None:
+        tracing = AgentTracing()
+        tracing.client = self.client
+        with (
+            patch("app.tracing._archive_index", side_effect=OSError("unavailable")),
+            tracing.turn(9, "private-session", SECRET, "live") as turn,
+        ):
+            turn.observe({"type": "complete"})
+        self.assertEqual(turn.status, "completed")
+        self.assertEqual(self.created.call_count, 1)
+        self.assertEqual(self.updated.call_count, 1)
 
     def test_production_and_unset_environment_never_create_a_client(self) -> None:
         for environment in ("production", "prod", ""):
@@ -66,6 +169,7 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
         self.created.assert_not_called()
         self.updated.assert_not_called()
         self.assertEqual(current_trace_id(), "none")
+        self.assertEqual(list(self.archive_root.iterdir()), [])
 
     def test_workspace_id_is_sent_as_tenant_header(self) -> None:
         workspace_id = str(uuid4())
@@ -161,6 +265,14 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue({"prepare", "agent", "tools", "respond", "FakeListChatModel", "tool.search_movies"} <= names)
         self.assertTrue(all(str(run["trace_id"]) == str(root_id) for run in payloads))
         self.assertNotIn(SECRET, json.dumps(payloads, default=str))
+        logs = list(self.archive_root.glob("*/*/traces.jsonl"))
+        self.assertEqual(len(logs), 1)
+        events = [json.loads(line) for line in logs[0].read_text().splitlines()]
+        self.assertEqual({event["trace_id"] for event in events}, {str(root_id)})
+        self.assertEqual(
+            {event["run_id"] for event in events if event["event"] == "run_created"},
+            {str(run["id"]) for run in payloads},
+        )
 
     def test_caught_error_and_missing_stream_completion_are_visible(self) -> None:
         tracing = AgentTracing()
@@ -184,6 +296,24 @@ class TracingTests(unittest.IsolatedAsyncioTestCase):
             raise TimeoutError(SECRET)
         result = self.updated.call_args.args[0]
         self.assertEqual(result["error"], "query_timeout")
+        self.assertNotIn(SECRET, json.dumps(result, default=str))
+
+    def test_workflow_outcome_and_usage_survive_privacy_filter(self) -> None:
+        tracing = AgentTracing()
+        tracing.client = self.client
+        with tracing.turn(9, "private-session", SECRET, "live") as turn:
+            turn.observe({
+                "type": "context", "route": "react", "stop_reason": "max_steps", "step_count": 5,
+                "circuit_open": True, "reflection_call_count": 0, "reflection_status": "not_run",
+                "model_call_count": 6, "pending_tasks": [SECRET], "reflection_findings": {"detail": SECRET},
+                "token_usage": {"input_tokens": 200, "output_tokens": 50, "total_tokens": 250},
+            })
+            turn.observe({"type": "complete"})
+        result = self.updated.call_args.args[0]
+        self.assertEqual(result["outputs"]["stop_reason"], "max_steps")
+        self.assertEqual(result["outputs"]["step_count"], 5)
+        self.assertEqual(result["outputs"]["total_tokens"], 250)
+        self.assertTrue(result["outputs"]["circuit_open"])
         self.assertNotIn(SECRET, json.dumps(result, default=str))
 
     async def test_actual_live_stream_reports_failure_and_cancellation(self) -> None:

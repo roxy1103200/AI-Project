@@ -43,7 +43,7 @@ flowchart LR
 - **Redis：** 保存登录会话、目录缓存、短期座位锁、AI 会话、限流额度和流式生成锁。
 - **RabbitMQ：** 通过延迟消息异步触发未支付订单取消；定时对账任务补偿过期订单。
 - **FastAPI AI 网关：** 维护聊天会话，调用 Dify 或内部 Agent，执行限流和 SSE 流式转发。
-- **LangChain + LangGraph Agent：** 校验问题与参数，缺少信息时追问；通过 ReAct 循环选择白名单内的只读工具，根据真实结果继续查询或生成答复。普通聊天与网站流式聊天共用状态图，每轮默认最多尝试 4 次工具调用；知识检索包含本地 Markdown 关键词检索和 Java 数据库知识查询。
+- **LangChain + LangGraph Agent：** 校验问题与参数，缺少信息时追问；简单问题走单次只读查询，组合任务走 todo + 有界 ReAct，两条链路在输出前最多执行一次 Reflection。普通聊天与网站流式聊天共用状态图，组合任务最多 5 步、默认 4 次业务工具调用、3 次无效调用，触发熔断后保留已确认结果；知识检索包含本地 Markdown 关键词检索和 Java 数据库知识查询。
 - **Docker Compose + Nginx：** 编排数据库、中间件和应用服务，并统一提供前端、业务 API 与 AI 网关入口。
 
 ## 核心业务流程
@@ -166,6 +166,7 @@ mvn test
 - [当前业务流程与实现边界](docs/business-logic.md)
 - [AI 网关、Dify 与内部 Agent 配置](docs/dify-agent-setup.md)
 - [Agent ReAct 工具循环与流程图](docs/agent-react-flow.md)
+- [Agent 轻重分流、Reflection 与硬熔断](docs/react-reflection-circuit-breaker-guide.md)
 - [内部 Agent Python 代码全量说明](docs/internal-agent-python-code-explanation.md)
 - [Dify 与 Agent 聊天隔离及更新说明](docs/ai-chat-isolation.md)
 - [内部 Agent 长期记忆接入方案：MySQL + Chroma](docs/agent-long-term-memory-chroma.md)

@@ -74,7 +74,7 @@ Agent 不直连 MySQL，不生成任意 SQL，也没有锁座、下单、支付�
 
 ### 追踪和模块边界
 
-- [`tracing.py`](../cinema-ticketing-backend/cinema-ai/app/tracing.py)：LangSmith 和本地追踪归档。`load_langsmith_key()` 读取服务端密钥；`summarize_payload()`、`_metadata()`、`_run_fields()` 将输入输出改写成允许上传的脱敏摘要；`MetadataOnlyClient` 在 SDK 创建/更新 span 时执行过滤；`TraceTurn` 接收节点、模型、工具、完成/失败/取消事件；`AgentTracing` 管理每轮 trace 的创建、状态、刷新和错误记录；`tool_span()` 为工具调用补充耗时。追踪按配置只在本地/预发环境开启，并写到根目录 `langsmith(tracing)/YYYY_MM_DD/`。默认不上传原始问题、历史、答案、订单或工具参数。
+- [`tracing.py`](../cinema-ticketing-backend/cinema-ai/app/tracing.py)：LangSmith 和本地追踪归档。`load_langsmith_key()` 读取服务端密钥；`summarize_payload()`、`_metadata()`、`_run_fields()` 将输入输出改写成允许上传的脱敏摘要；`MetadataOnlyClient` 在 SDK 创建/更新 span 时执行过滤；`TraceTurn` 接收节点、模型、工具、完成/失败/取消事件；`AgentTracing` 管理每轮 trace 的创建、状态、刷新和错误记录；`tool_span()` 为工具调用补充耗时。追踪按配置只在本地/预发环境开启，并写到根目录 `langsmith(tracing)/YYYY_MM_DD/用户ID_YYYY_MM_DD_HH_MM_会话短编号/`。`_register_archive_session()` 与 `_archive_index()` 保存本地会话目录索引，使多轮回答、延迟事件以及服务重启后继续产生的追踪进入原会话目录。用户 ID 仅保存在本地目录和会话说明中；默认不上传原始问题、历史、答案、订单或工具参数。
 - [`__init__.py`](../cinema-ticketing-backend/cinema-ai/app/__init__.py)：标记 `app` 为 Python 包，没有额外业务行为。
 
 ## 4. 评估代码：`cinema-ai/evaluation/`

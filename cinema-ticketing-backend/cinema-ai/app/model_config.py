@@ -91,7 +91,7 @@ def create_model() -> ChatOpenAI | None:
         # 为 `timeout` 保存当前步骤所需的值。
         timeout=30,
         # 为 `max_retries` 保存当前步骤所需的值。
-        max_retries=1,
+        max_retries=0,
         # 为 `extra_body` 保存当前步骤所需的值。
         extra_body={"enable_thinking": thinking},
         # 为 `stream_usage` 保存当前步骤所需的值。

@@ -73,7 +73,22 @@ cd E:\development\AI-Project\cinema-ticketing-backend\cinema-ai
 
 评测中的 `rerank_calls` 分别记录关闭、跳过、真实云端成功、回退，以及原生 usage、候选与来源、实际选中片段。报告按聊天和重排分别记账，并显示合计模型请求、Token 与估算费用。native usage 缺失不会当作免费调用。此处价格仅适用于本轮北京地域 `qwen3.7-text-rerank`。
 
-## 当前运行服务与循环排查
+## 轻重分流与 Reflection 扩样评测（2026-10-11）
+
+新增 `workflow_cases` 与 `workflow_eval`：从提前准备的真实业务快照生成 72 组语义场景，每组标准和口语各一种表达，共 144 题；当前工作流每题执行两轮，共 288 次真实模型任务。包括 48 条组合问题，并检查多影片、多订单的事实对应关系。模型数据发送需获得对应范围授权。
+
+```powershell
+.venv\Scripts\python.exe -m evaluation.workflow_cases --prepared ..\target\agent-evaluation\reflection-base-prepared-20261011 --output ..\target\agent-evaluation\reflection-expanded-cases-20261011
+.venv\Scripts\python.exe -m evaluation.workflow_eval --manifest ..\target\agent-evaluation\reflection-expanded-cases-20261011\cases.json --output ..\target\agent-evaluation\reflection-expanded-20261011
+```
+
+新入口只执行当前工作流；按题号和轮次保留已完成任务，续跑时检查题集和被测源码哈希，不重复执行已完成任务。Java/MCP 在独立端口运行，并在配置服务地址后才初始化 Assistant。
+
+`summary.json` 同时给出标准/口语、预标任务类型、实际路由和轮次分组；`loop_audit` 检查 Simple 的 1 步/1 工具/2 次聊天调用以及重链路的 5 步/4 工具/8 次聊天调用，反思最多一次、无效调用最多三次。费用含真实 Rerank 用量，采用留存价格估算。
+
+关键事实率是冻结检查项及对象对应关系的验收率，仍不是完整语义审计；组合任务允许的主意图集合与严格唯一主意图两种分数分别报告。288 次执行只有 72 组语义场景，不应当作 288 个独立业务样本。结果见项目文档 `docs/agent-reflection-expanded-evaluation-2026-10-11.md`。
+
+## 当前运行服务与循环排查（旧入口）
 
 `runtime_check` 直接请求已运行的内部 Agent，不启动替代实例、不重启业务服务，串行保存 SSE 事件、工具计数和任务进度。默认检查 8 道普通、组合、澄清问题，可用 `--case-ids` 选择已有题号。请求沿用项目 Qwen 配置；更换输出目录以保留已有诊断。
 

@@ -268,6 +268,24 @@ def movie_answer(data: Any, question: str = "") -> str:
 
 
 # 声明当前处理单元及其入口。
+def policy_answer(data: dict[str, Any]) -> str:
+    """Render live refund authority and non-refund knowledge without mixing their scope."""
+    policy = data.get("policy", {})
+    sections = [f"当前退票规则（版本 {policy.get('version', '未知')}）：\n{policy.get('policy', '')}"]
+    cutoff = policy.get("cutoff_minutes")
+    if type(cutoff) is int and cutoff >= 0:
+        sections.append(f"实时退票截止参数：开场前 {cutoff} 分钟；具体订单资格以订单查询为准。")
+    # Refund passages can be stale; only the live policy is authoritative for refunds.
+    contexts = [
+        text for text in data.get("answer_context", [])
+        if isinstance(text, str) and text.strip()
+        and not any(word in text for word in ("退票", "退款", "退钱", "退费", "退订"))
+    ]
+    if contexts:
+        sections.append("检索到的票务说明：\n" + "\n".join(contexts))
+    return "\n\n".join(sections)
+
+
 def screening_answer(data: list[dict[str, Any]], entities: dict[str, Any]) -> str:
     """An empty bookable list must never be described as an empty schedule."""
     # 为 `day` 保存当前步骤所需的值。

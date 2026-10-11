@@ -51,14 +51,15 @@ class ObservedModel:
 
     async def ainvoke(self, *args: Any, **kwargs: Any) -> Any:
         """Count attempted logical model calls, including ones that fail."""
-        call = {"stage": self.stage, "usage": None, "error": None}
+        stage = kwargs.get("config", {}).get("metadata", {}).get("agent_stage", self.stage)
+        call = {"stage": stage, "usage": None, "error": None}
         ACTIVE.get()["model_calls"].append(call)
         started = time.perf_counter()
         try:
             result = await self.inner.ainvoke(*args, **kwargs)
             call["usage"] = result.usage_metadata
             call["resolved_model"] = result.response_metadata.get("model_name")
-            if self.stage == "decision":
+            if stage == "decision":
                 ACTIVE.get()["proposals"].extend(result.tool_calls)
             return result
         except BaseException as exc:
@@ -262,6 +263,13 @@ async def trial(
                 elif packet["type"] == "context":
                     row["invalid_call_count"] = packet.get("invalid_call_count", 0) or 0
                     row["task_progress"] = packet.get("task_progress", [])
+                    for key in (
+                        "route", "route_reason", "stop_reason", "circuit_open", "step_count",
+                        "tool_call_count", "model_call_count", "reflection_call_count",
+                        "reflection_status", "token_usage", "pending_tasks",
+                    ):
+                        if key in packet:
+                            row[key] = packet[key]
                     row["context_events"].append(
                         {
                             key: packet.get(key)

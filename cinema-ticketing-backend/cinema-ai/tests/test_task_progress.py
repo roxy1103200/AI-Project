@@ -104,7 +104,7 @@ class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
         ]
         result = await self.invoke("分别查询 OTEST12 和 OTEST13 两个订单的状态")
         self.assertEqual(result["tool_calls"], ["query_order", "query_order"])
-        self.assertEqual(result["finish_reason"], "complete")
+        self.assertEqual(result["finish_reason"], "done_verified")
         self.assertEqual(len(self.assistant.model.requests), 2)
 
     async def test_catalogue_scope_does_not_inherit_screening_date_or_showing(self) -> None:
@@ -135,7 +135,7 @@ class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
         result = await self.invoke("查询《测试电影》今天实际场次和第一场座位")
         self.assertEqual(result["tool_call_count"], 2)
         self.assertEqual(result["invalid_call_count"], 1)
-        self.assertEqual(result["finish_reason"], "complete")
+        self.assertEqual(result["finish_reason"], "done_verified")
 
     async def test_repeated_invalid_calls_are_bounded_without_upstream_queries(self) -> None:
         self.assistant.workflow.max_invalid_calls = 2
@@ -164,7 +164,7 @@ class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
         )
         self.assistant.mcp.call_tool.return_value = {"status": "ISSUED"}
         result = await self.invoke("查询 OTEST12 OTEST13 OTEST14 OTEST15 四个订单")
-        self.assertEqual(result["finish_reason"], "complete")
+        self.assertEqual(result["finish_reason"], "done_verified")
         self.assertNotIn("查询上限", result["answer"])
 
     async def test_multiple_unselected_screenings_require_user_choice(self) -> None:
@@ -178,7 +178,7 @@ class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assistant.model = ScriptedModel([decision("search_screenings", {})])
         self.assistant.mcp.call_tool.return_value = []
         result = await self.invoke("查《测试电影》今天的第一场座位")
-        self.assertEqual(result["finish_reason"], "complete")
+        self.assertEqual(result["finish_reason"], "done_verified")
         self.assertEqual([item["status"] for item in progress(result)], ["done", "empty"])
 
     async def test_first_screening_cannot_be_replaced_by_another_valid_id(self) -> None:

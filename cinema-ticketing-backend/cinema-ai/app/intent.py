@@ -27,7 +27,11 @@ Intent = Literal["chat", "movies", "screenings", "seats", "order", "refund", "po
 # 为 `ORDER_PATTERN` 保存当前步骤所需的值。
 ORDER_PATTERN = re.compile(r"(?<![A-Za-z0-9])[Oo][A-Za-z0-9]{5,63}(?![A-Za-z0-9])")
 # 为 `SCREENING_PATTERN` 保存当前步骤所需的值。
-SCREENING_PATTERN = re.compile(r"场次\s*(?:编号|ID|id|号)?\s*[:：#]?\s*([1-9][0-9]{0,18})(?![0-9])")
+SCREENING_PATTERN = re.compile(
+    r"(?:场次\s*(?:编号|ID|id|号)?\s*[:：#]?\s*"
+    r"|(?<![0-9共前有])(?=[1-9][0-9]{0,18}\s*(?:这(?:一)?场|号场|场次)))"
+    r"([1-9][0-9]{0,18})(?![0-9])(?:\s*(?:这(?:一)?场|号场|场次))?"
+)
 # 为 `logger` 保存当前步骤所需的值。
 logger = logging.getLogger("uvicorn.error")
 # 为 `BEIJING_TIME` 保存当前步骤所需的值。
@@ -95,6 +99,9 @@ class QuestionPlan(BaseModel):
     showing_only: bool = False
     # 设置当前结构中的 `page` 字段。
     page: int = Field(default=1, ge=1, le=10000)
+    requested_intents: list[Literal["movies", "screenings", "seats", "order", "refund", "policy", "recommend"]] = Field(
+        default_factory=list, max_length=8
+    )
 
 
 # 声明当前处理单元及其入口。
@@ -157,7 +164,7 @@ def listing_kind(question: str) -> tuple[str, str, str, bool]:
     # 为 `scheduled` 保存当前步骤所需的值。
     scheduled = any(word in text for word in ("排期", "排片", "放映的电影", "放映哪些电影", "放映安排"))
     # 为 `showing` 保存当前步骤所需的值。
-    showing = "上映" in text or "热映" in text
+    showing = any(word in text for word in ("上映", "热映", "还在放", "正在放"))
     # 为 `detail` 保存当前步骤所需的值。
     detail = any(word in text for word in ("场次", "几点", "时间", "票价", "多少钱", "什么时候放"))
     # 为 `booking` 保存当前步骤所需的值。
@@ -338,7 +345,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             "policy" if any(word in request_text for word in ("规则", "多久", "提前", "须知", "条件")) else "refund"
         )
     # 检查 `elif any(word in request_text for word in ("座位", "选座", "座位图", "空座"))`，据此选择当前处理分支。
-    elif any(word in request_text for word in ("座位", "选座", "座位图", "空座")):
+    elif any(word in request_text for word in ("座位", "选座", "座位图", "空座", "空位", "还有座")):
         # 为 `intent` 保存当前步骤所需的值。
         intent = "seats"
     # 检查 `elif any(word in request_text for word in ("规则", "须知", "优惠", "会员"))`，据此选择当前处理分支。
@@ -524,6 +531,9 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
             "screening_id 只能来自用户明确给出的场次编号，未给出填 null；例如场次 12 还有哪些座位→seats。\n"
             # 继续构造当前业务表达式或数据结构。
             f"当前北京时间日期={today.isoformat()}；日期转为 YYYY-MM-DD，未指定日期填 null，不臆造日期或影院。\n"
+            "requested_intents 按用户所有查询要求填写，可包含多个查询类型，不要只提取主意图。"
+            "例如查最低票价并问退票期限→[screenings,policy]；查导演及各场空位→[movies,screenings,seats]。"
+            "多个问题复用同一次理解；未要求的查询不要加入。"
             "所有字段必须输出，缺少实体用空字符串；confidence 表示理解置信度，不确定时降低。\n"
             # 继续构造当前业务表达式或数据结构。
             f"JSON 字段规范：{json.dumps(QuestionPlan.model_json_schema(), ensure_ascii=False)}"
@@ -734,7 +744,8 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         # 设置当前结构中的 `intent_source` 字段。
         "intent_source": source,
         # 设置当前结构中的 `entities` 字段。
-        "entities": plan.model_dump(exclude={"intent", "normalized_question", "confidence"}),
+        "entities": plan.model_dump(exclude={"intent", "normalized_question", "confidence", "requested_intents"}),
+        "requested_intents": plan.requested_intents,
         # 设置当前结构中的 `clarification` 字段。
         "clarification": clarification,
     }
