@@ -133,6 +133,7 @@ COUNTERS = frozenset(
         "model_call_count",
         "reflection_call_count",
         "step_count",
+        "l1_duration_ms",
         "input_tokens",
         "output_tokens",
         "usage_missing_calls",
@@ -375,9 +376,25 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
         "invalid_date", "greeting", "unsupported_transaction", "policy_source_unavailable",
         "missing_order_no", "missing_screening_id", "missing_date", "explicit_order",
         "explicit_screening", "explicit_movie_fields", "ticket_policy", "explicit_screening_date",
-        "validated_local_classifier", "none",
+        "validated_local_classifier", "glm_high_confidence", "none",
     }:
         summary["preflight_reason"] = payload["preflight_reason"]
+    if type(payload.get("l1_attempted")) is bool:
+        summary["l1_attempted"] = payload["l1_attempted"]
+    if isinstance(payload.get("l1_status"), str) and payload["l1_status"] in {"not_attempted", "accepted", "rejected", "unavailable", "budget_open", "cooldown", "busy", "rate_limited", "timeout"}:
+        summary["l1_status"] = payload["l1_status"]
+    version = payload.get("runtime_version")
+    if isinstance(version, dict):
+        safe_version = {}
+        for key, allowed in (("experiment_id", {"glm-l1-v1"}), ("experiment_variant", {"A", "B"}), ("prompt_version", {"cinema-p1"}), ("rules_version", {"cost-r1"})):
+            if isinstance(version.get(key), str) and version[key] in allowed:
+                safe_version[key] = version[key]
+        for key in ("prompt_hash", "rules_hash", "configuration_hash"):
+            if isinstance(version.get(key), str) and re.fullmatch(r"[a-f0-9]{64}", version[key]):
+                safe_version[key] = version[key]
+        if type(version.get("l1_enabled")) is bool:
+            safe_version["l1_enabled"] = version["l1_enabled"]
+        summary["runtime_version"] = safe_version
     slots = payload.get("slot_summary")
     if isinstance(slots, dict):
         safe = {key: slots[key] for key in ("order_no", "screening_id", "movie_query", "cinema_query") if type(slots.get(key)) is bool}

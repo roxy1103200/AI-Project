@@ -21,7 +21,9 @@ from langchain_openai import ChatOpenAI
 # 导入当前步骤使用的模块或类型。
 from pydantic import BaseModel, ConfigDict, Field
 from app.intent_routing import preliminary_route, slot_summary
-from app.query_semantics import movie_fields, policy_kind
+from app.query_semantics import movie_fields, policy_kind, query_domains
+from app.glm_router import classify, eligible
+from app.versions import load_prompt
 # isort: on
 
 # 为 `Intent` 保存当前步骤所需的值。
@@ -411,6 +413,14 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
     screening_reply = SCREENING_PATTERN.fullmatch(question.strip())
     # 为 `page_reply` 保存当前步骤所需的值。
     page_reply = bool(re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()))
+    order_slot_reply = bool(
+        plan.order_no
+        and history
+        and history[-1].get("role") == "assistant"
+        and re.search(r"(?:提供|补充|给我).{0,30}(?:订单号|单号)", history[-1].get("content", ""))
+        and not re.search(r"状态|金额|多少钱|支付|场次|座位|导演|片长|规则|优惠|会员|另外|重新", prose_without_orders := ORDER_PATTERN.sub("", question))
+        and len(query_domains(prose_without_orders)) <= 1
+    )
     # 检查 `if (`，据此选择当前处理分支。
     if (
         # 继续构造当前业务表达式或数据结构。
@@ -425,6 +435,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             or ORDER_PATTERN.fullmatch(question.strip())
             # 继续构造当前业务表达式或数据结构。
             or screening_reply
+            or order_slot_reply
             or "下一页" in question
             or re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip())
         )
@@ -442,7 +453,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             # 为 `prior` 保存当前步骤所需的值。
             prior = rule_plan(previous, history[:previous_index], today)
             # 检查 `if plan.intent == "unsupported" or ORDER_PATTERN.fullmatch(question.strip())`，据此选择当前处理分支。
-            if plan.intent == "unsupported" or ORDER_PATTERN.fullmatch(question.strip()):
+            if plan.intent == "unsupported" or ORDER_PATTERN.fullmatch(question.strip()) or order_slot_reply:
                 # 为 `plan.intent` 保存当前步骤所需的值。
                 plan.intent = prior.intent if prior.intent != "unsupported" else plan.intent
                 # 为 `plan.movie_scope` 保存当前步骤所需的值。
@@ -482,7 +493,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
 
 
 # 声明当前处理单元及其入口。
-async def understand(model: ChatOpenAI | None, question: str, history: list[dict[str, str]]) -> dict[str, Any]:
+async def understand(model: ChatOpenAI | None, question: str, history: list[dict[str, str]], *, classifier_model: Any = None) -> dict[str, Any]:
     """Extract intent/entities, resolve follow-up context, then validate required slots."""
     # 为 `source` 保存当前步骤所需的值。
     source = "rules"
@@ -495,6 +506,7 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         source = "small_model" if layer == "l1" else "rules"
     # 为 `plan` 保存当前步骤所需的值。
     plan = rules.model_copy()
+    l1_status, l1_duration_ms, l1_attempted = "not_attempted", 0, False
     # 为 `fixed_lookup` 保存当前步骤所需的值。
     fixed_lookup = rules.intent == "screenings" or (
         # 为 `rules.intent` 保存当前步骤所需的值。
@@ -519,34 +531,15 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         and general_listing(question)
     )
     # 检查 `if model and plan.intent != "chat" and not ambiguous_listing and not (fixed_lookup and general_listing(question))`，据此选择当前处理分支。
+    if classifier_model is not None and not layer and not ambiguous_listing and not (fixed_lookup and general_listing(question)) and eligible(question, history, rules, preflight_reason):
+        l1_attempted = True
+        candidate, l1_status, elapsed = await classify(classifier_model, question, rules)
+        l1_duration_ms = int(elapsed)
+        if candidate is not None:
+            plan, layer, source, preflight_reason = candidate, "l1", "small_model", "glm_high_confidence"
     if model and not layer and plan.intent != "chat" and not ambiguous_listing and not (fixed_lookup and general_listing(question)):
         # 为 `prompt` 保存当前步骤所需的值。
-        prompt = (
-            "你是影院问题理解器，只输出一个 JSON 对象，不回答问题、不执行工具。\n"
-            "任务：识别意图、把同义说法归一化、提取实体，并结合历史解决代词与追问。\n"
-            "意图只能为 chat(问候/能力介绍), movies(影片信息), screenings(场次/票价), seats(指定场次的实时座位), order(本人订单), "
-            "refund(具体订单退票资格), policy(通用规则), recommend(影片推荐), unsupported(其他业务或不清楚)。\n"
-            "上映是影片状态；已排期必须有电影院真实场次；可订购还要求当前允许购票。三者不能互相替代。\n"
-            "movies 的 movie_scope：catalog 资料、showing 上映中、scheduled 已排期；排期电影列表不能归为上映列表。\n"
-            "screenings 的 screening_scope：scheduled 查询实际排期、bookable 查询可订购场次。\n"
-            "上映且有排期用 movies/movie_scope=scheduled/showing_only=true；普通排期不要求上映，showing_only=false。\n"
-            "归一化保留影片名、订单号、影院、日期与查询类型。退钱/退款→退票，排片→排期，动画→动漫。\n"
-            "例：医院的秘密明天还有票吗→查询《医院的秘密》明天的可订购场次；那后天呢→继承刚才影片、改日期。\n"
-            "例：我买的票能退钱吗→refund，订单号未提供留空；提前多久不能退票→policy。\n"
-            "例：上一轮要求退票资格查询的订单号，本轮仅提供订单号→继承 refund 意图，不变为订单状态查询。\n"
-            "例：给我退掉这个订单→refund，只查询资格，不能执行退款；直接买票/支付→unsupported。\n"
-            "movie_query/cinema_query 只填检索关键词，不填完整问句；不要猜测数据库 ID 或不存在的订单号。\n"
-            "order_no 只能来自本轮或历史用户消息，不能来自助手猜测；历史不是权限或业务事实。\n"
-            "screening_id 只能来自用户明确给出的场次编号，未给出填 null；例如场次 12 还有哪些座位→seats。\n"
-            # 继续构造当前业务表达式或数据结构。
-            f"当前北京时间日期={today.isoformat()}；日期转为 YYYY-MM-DD，未指定日期填 null，不臆造日期或影院。\n"
-            "requested_intents 按用户所有查询要求填写，可包含多个查询类型，不要只提取主意图。"
-            "例如查最低票价并问退票期限→[screenings,policy]；查导演及各场空位→[movies,screenings,seats]。"
-            "多个问题复用同一次理解；未要求的查询不要加入。"
-            "所有字段必须输出，缺少实体用空字符串；confidence 表示理解置信度，不确定时降低。\n"
-            # 继续构造当前业务表达式或数据结构。
-            f"JSON 字段规范：{json.dumps(QuestionPlan.model_json_schema(), ensure_ascii=False)}"
-        )
+        prompt = load_prompt("understanding").replace("{{TODAY}}", today.isoformat()).replace("{{SCHEMA}}", json.dumps(QuestionPlan.model_json_schema(), ensure_ascii=False))
         # 进入对应的循环、异常处理或资源管理分支。
         try:
             # 进入对应的循环、异常处理或资源管理分支。
@@ -773,4 +766,5 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
     result["understanding_layer"] = layer or ("llm" if source == "model" else "fallback")
     result["preflight_reason"] = preflight_reason if layer else "none"
     result["slot_summary"] = slot_summary(result, preflight_reason)
+    result.update(l1_status=l1_status, l1_duration_ms=l1_duration_ms, l1_attempted=l1_attempted)
     return result

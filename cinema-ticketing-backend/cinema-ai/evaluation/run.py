@@ -212,6 +212,9 @@ def instrument(assistant: Any) -> None:
     """Attach observers to injected boundaries; keep all application decisions intact."""
     assistant.mcp = RecordedMcp(assistant.mcp)
     assistant.tools = {name: RecordedTool(name, tool) for name, tool in assistant.tools.items()}
+    classifier = getattr(assistant, "classifier_model", None)
+    if classifier is not None and not isinstance(classifier, ObservedModel):
+        assistant.classifier_model = ObservedModel(classifier, "glm_l1")
     if hasattr(assistant, "reranker"):
         from evaluation.rerank_metrics import observe_reranker
 
@@ -267,6 +270,7 @@ async def trial(
                         "route", "route_reason", "stop_reason", "circuit_open", "step_count",
                         "tool_call_count", "model_call_count", "reflection_call_count",
                         "reflection_status", "token_usage", "pending_tasks",
+                        "runtime_version", "l1_status", "l1_duration_ms", "l1_attempted", "slot_summary", "understanding_layer", "preflight_reason",
                     ):
                         if key in packet:
                             row[key] = packet[key]
@@ -308,10 +312,14 @@ async def run(options: argparse.Namespace) -> None:
     """Freeze cases, alternate paired versions, and checkpoint every paid trial."""
     load_dotenv(AI_ROOT / ".env")
     os.environ["MEMORY_ENABLED"] = "false"
+    os.environ["CLARIFICATION_FEEDBACK_ENABLED"] = "false"
     os.environ["AGENT_MAX_TOOL_CALLS"] = "4"
     os.environ["AGENT_MAX_INVALID_CALLS"] = "3"
     directory = Path(options.output).resolve()
     directory.mkdir(parents=True, exist_ok=True)
+    previous_metadata = json.loads((directory / "metadata.json").read_text(encoding="utf-8")) if (directory / "metadata.json").exists() else None
+    if options.baseline_mode == "glm-ab" and (directory / "trials.jsonl").exists() and previous_metadata is None:
+        raise ValueError("A/B resume refused: existing trials have no pinned metadata")
     from app.model_config import create_model
 
     model = create_model()
@@ -321,8 +329,25 @@ async def run(options: argparse.Namespace) -> None:
         if options.manifest:
             manifest = Path(options.manifest).resolve()
             cases = json.loads(manifest.read_text(encoding="utf-8"))
-            shutil.copyfile(manifest, directory / "cases.json")
-            shutil.copyfile(manifest.parent / "snapshot.json", directory / "snapshot.json")
+            snapshot = Path(options.snapshot).resolve() if options.snapshot else manifest.parent / "snapshot.json"
+            gold_metadata = manifest.parent / "metadata.json"
+            if gold_metadata.exists() and json.loads(gold_metadata.read_text(encoding="utf-8")).get("version") == "golden-v1":
+                frozen = json.loads(gold_metadata.read_text(encoding="utf-8"))
+                from app.intent import beijing_today
+
+                if beijing_today().isoformat() != frozen["frozen_business_date"]:
+                    raise ValueError("Frozen golden business date differs from today; rebuild date-sensitive acceptance")
+                if hashlib.sha256(manifest.read_bytes()).hexdigest() != frozen["cases_sha256"]:
+                    raise ValueError("Golden manifest hash changed; create a new version")
+                if hashlib.sha256(snapshot.read_bytes()).hexdigest() != frozen["snapshot_sha256"]:
+                    raise ValueError("Snapshot differs from frozen golden acceptance data")
+                if not options.bindings:
+                    raise ValueError("Golden live evaluation requires private --bindings")
+                from evaluation.golden_bindings import bind_cases
+
+                cases = bind_cases(cases, json.loads(Path(options.bindings).read_text(encoding="utf-8")), frozen)
+            (directory / "cases.json").write_text(json.dumps(cases, ensure_ascii=False, indent=2), encoding="utf-8")
+            shutil.copyfile(snapshot, directory / "snapshot.json")
         else:
             from evaluation.live_cases import prepare_live
 
@@ -338,6 +363,8 @@ async def run(options: argparse.Namespace) -> None:
             "variant_labels": (
                 {"baseline": "ReAct（重排关闭）", "react": "ReAct + Rerank"}
                 if options.baseline_mode == "rerank-off"
+                else {"baseline": "A：L0 + Qwen", "react": "B：L0 + GLM + Qwen fallback"}
+                if options.baseline_mode == "glm-ab"
                 else {"baseline": "旧流程", "react": "ReAct"}
             ),
             "current_ref": current_ref,
@@ -364,20 +391,36 @@ async def run(options: argparse.Namespace) -> None:
                 (BACKEND_ROOT / "target/cinema-ticketing-backend-0.0.1-SNAPSHOT.jar").read_bytes()
             ).hexdigest(),
         }
+        if options.baseline_mode == "glm-ab":
+            from app.versions import runtime_version
+
+            version = runtime_version(0, "evaluation")
+            metadata["deployment_fingerprints"] = {key: version[key] for key in ("experiment_id", "prompt_hash", "rules_hash", "configuration_hash")}
+            metadata["evaluation_sha256"] = {path.name: hashlib.sha256(path.read_bytes()).hexdigest() for path in sorted((AI_ROOT / "evaluation").glob("*.py"))}
+            if previous_metadata and any(previous_metadata.get(key) != metadata.get(key) for key in ("baseline_mode", "manifest_sha256", "snapshot_sha256", "java_jar_sha256", "deployment_fingerprints", "evaluation_sha256", "case_count", "repeats")):
+                raise ValueError("A/B resume refused: manifest, data, deployment or experiment changed")
+            from evaluation.verify_snapshot import verify
+
+            stability = await verify(directory)
+            if not stability["all_unchanged"]:
+                raise ValueError("Live business facts differ from frozen acceptance; rebuild a new golden version")
         (directory / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         if options.prepare_only:
             print(json.dumps({"prepared_cases": len(cases), "output": str(directory)}, ensure_ascii=True), flush=True)
             return
         current = importlib.import_module("app.main")
-        if options.baseline_mode == "rerank-off":
+        if options.baseline_mode == "glm-ab" and current.assistant.classifier_model is None:
+            raise ValueError("A/B evaluation requires configured and enabled GLM L1")
+        if options.baseline_mode in ("rerank-off", "glm-ab"):
             source = (AI_ROOT / "app/main.py").read_bytes()
             (directory / "baseline_main.py").write_bytes(source)
             baseline = types.ModuleType("evaluation_rerank_off_main")
             baseline.__file__ = str(AI_ROOT / "app/main.py")
             sys.modules[baseline.__name__] = baseline
             exec(compile(source, baseline.__file__, "exec"), baseline.__dict__)
-            baseline.assistant.reranker.settings = replace(baseline.assistant.reranker.settings, enabled=False)
-            current.assistant.reranker.settings = replace(current.assistant.reranker.settings, enabled=True)
+            if options.baseline_mode == "rerank-off":
+                baseline.assistant.reranker.settings = replace(baseline.assistant.reranker.settings, enabled=False)
+                current.assistant.reranker.settings = replace(current.assistant.reranker.settings, enabled=True)
             metadata["baseline_ref"] = current_ref
             metadata["rerank_settings"] = asdict(current.assistant.reranker.settings)
             saved = directory / "measured-source"
@@ -385,6 +428,8 @@ async def run(options: argparse.Namespace) -> None:
             measured_paths = [
                 *(AI_ROOT / "app").glob("*.py"),
                 *(AI_ROOT / "knowledge").glob("*.md"),
+                *(AI_ROOT / "prompts").rglob("*.txt"),
+                AI_ROOT / "config/agent_versions.json",
                 *(BACKEND_ROOT / "src/main/java").rglob("*.java"),
             ]
             for path in sorted(measured_paths):
@@ -433,7 +478,19 @@ async def run(options: argparse.Namespace) -> None:
                         for variant in variants:
                             if (case["id"], variant, repetition) in done:
                                 continue
-                            row = await trial(modules[variant], case, variant, repetition, model)
+                            if options.baseline_mode == "glm-ab":
+                                from evaluation.golden_bindings import experiment_arm
+
+                                with experiment_arm("A" if variant == "baseline" else "B"):
+                                    row = await trial(modules[variant], case, variant, repetition, model)
+                                for field in ("phrasing_style", "source_case_id", "expected_intent"):
+                                    row[field] = case.get(field)
+                                if "accepted_intents" in case:
+                                    from evaluation.workflow_eval import score_associations
+
+                                    score_associations(case, row)
+                            else:
+                                row = await trial(modules[variant], case, variant, repetition, model)
                             stream.write(json.dumps(row, ensure_ascii=False, default=str) + "\n")
                             stream.flush()
                             rows.append(row)
@@ -462,7 +519,16 @@ async def run(options: argparse.Namespace) -> None:
                 if hasattr(module.assistant, "reranker"):
                     await module.assistant.reranker.aclose()
                 await module.assistant.client.aclose()
+                classifier = getattr(module.assistant, "classifier_model", None)
+                if classifier is not None:
+                    classifier = classifier.inner if isinstance(classifier, ObservedModel) else classifier
+                    await classifier.root_async_client.close()
             await model.root_async_client.close()
+        if options.baseline_mode == "glm-ab":
+            stability = await verify(directory)
+            metadata["data_unchanged"] = stability["all_unchanged"]
+            metadata["deployment_unchanged"] = all((REPO_ROOT / relative).is_file() and hashlib.sha256((REPO_ROOT / relative).read_bytes()).hexdigest() == expected for relative, expected in metadata["measured_source_sha256"].items())
+            (directory / "metadata.json").write_text(json.dumps(metadata, ensure_ascii=False, indent=2), encoding="utf-8")
         print(json.dumps({"finished": len(rows), "output": str(directory)}, ensure_ascii=True), flush=True)
 
 
@@ -471,10 +537,12 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", required=True)
     parser.add_argument("--baseline-ref", default="039085e")
-    parser.add_argument("--baseline-mode", choices=("git", "rerank-off"), default="git")
+    parser.add_argument("--baseline-mode", choices=("git", "rerank-off", "glm-ab"), default="git")
     parser.add_argument("--repeats", type=int, default=2, choices=range(1, 6))
     parser.add_argument("--limit", type=int)
     parser.add_argument("--manifest")
+    parser.add_argument("--snapshot", help="Frozen business snapshot for an external manifest")
+    parser.add_argument("--bindings", help="Private placeholder-to-development-order bindings for golden cases")
     parser.add_argument("--prepare-only", action="store_true")
     logging.basicConfig(level=logging.ERROR)
     asyncio.run(run(parser.parse_args()))

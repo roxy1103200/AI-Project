@@ -106,7 +106,10 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
     model_calls = [call for row in rows for call in row["model_calls"]]
     known = [call["usage"] for call in model_calls if call["usage"] is not None]
     success_rows = [row for row in rows if row["score"]["task_success"]]
-    total_cost = sum(priced_usage(usage) for usage in known)
+    # The historical rate card is for Qwen; never apply it to GLM tokens.
+    priced = [call for call in model_calls if call.get("usage") is not None and call.get("stage") != "glm_l1"]
+    total_cost = sum(priced_usage(call["usage"]) for call in priced)
+    unpriced = sum(call.get("stage") == "glm_l1" for call in model_calls)
     return {
         "n": len(rows),
         "successes": len(success_rows),
@@ -155,6 +158,8 @@ def summarize(rows: list[dict[str, Any]]) -> dict[str, Any]:
         / len(rows),
         "usage_missing_calls": len(model_calls) - len(known),
         "estimated_total_cny": total_cost,
+        "cost_scope": "Qwen chat subtotal; GLM excluded, rerank separate" if unpriced else "Qwen chat; rerank separate",
+        "unpriced_model_calls": unpriced,
         "estimated_avg_cny": total_cost / len(rows),
         "estimated_cny_per_success": total_cost / len(success_rows) if success_rows else None,
     }

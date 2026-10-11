@@ -33,6 +33,22 @@ def validate_corpus(rows: list[dict[str, Any]]) -> dict[str, list[dict[str, Any]
     return dict(partitions)
 
 
+def reject_held_out(rows: list[dict[str, Any]], golden: Path) -> None:
+    """Keep frozen acceptance and unreviewed feedback out of classifier training."""
+    cases = json.loads(golden.read_text(encoding="utf-8"))
+    questions = {classifier_text(case["question"]) for case in cases}
+    groups = {case.get("source_case_id") for case in cases} - {None}
+    if any(
+        row.get("label_source") in ("frozen_independent_acceptance", "explicit_acceptance_definition")
+        or classifier_text(row["question"]) in questions
+        or row.get("scenario_id") in groups
+        for row in rows
+    ):
+        raise ValueError("Corpus overlaps frozen golden acceptance; collect independent scenarios")
+    if any(row.get("label_quality") == "silver" and row.get("review_status") != "reviewed" for row in rows):
+        raise ValueError("Unreviewed feedback cannot become training labels")
+
+
 def measure(model: Any, rows: list[dict[str, Any]], threshold: float) -> dict[str, Any]:
     """Evaluate accepted predictions, including per-class support and abstention."""
     accepted, correct = Counter(), Counter()
@@ -74,8 +90,10 @@ def main() -> None:
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--threshold", type=float, default=0.85)
     parser.add_argument("--audit-only", action="store_true")
+    parser.add_argument("--held-out", type=Path, default=Path(__file__).parent / "golden/v1/cases.json")
     options = parser.parse_args()
     rows = [json.loads(line) for line in options.corpus.read_text(encoding="utf-8").splitlines() if line.strip()]
+    reject_held_out(rows, options.held_out)
     partitions = validate_corpus(rows)
     if options.audit_only:
         print(json.dumps({split: len(items) for split, items in partitions.items()}))

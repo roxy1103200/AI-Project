@@ -15,7 +15,7 @@ from typing import Any
 from dotenv import load_dotenv
 
 from evaluation.metrics import summarize
-from evaluation.run import AI_ROOT, ACTIVE, instrument, services, trial
+from evaluation.run import ACTIVE, AI_ROOT, instrument, services, trial
 
 
 def grouped(rows: list[dict[str, Any]], field: str) -> dict[str, Any]:

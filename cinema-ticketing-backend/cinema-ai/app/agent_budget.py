@@ -134,11 +134,15 @@ class BudgetedModel:
         except asyncio.CancelledError:
             # Covers upstream extraction deadlines as well as a disconnected client.
             self.budget.missing_usage_calls += 1
-            self.budget.trip("timeout")
+            # A classifier's short local deadline permits primary-model fallback.
+            # The shared request deadline remains checked before every next call.
+            if self.stage != "glm_l1":
+                self.budget.trip("timeout")
             raise
         except TimeoutError:
             self.budget.missing_usage_calls += 1
-            self.budget.trip("timeout")
+            if self.stage != "glm_l1":
+                self.budget.trip("timeout")
             raise
         except Exception:
             self.budget.missing_usage_calls += 1

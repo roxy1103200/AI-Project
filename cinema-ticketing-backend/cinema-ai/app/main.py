@@ -45,6 +45,7 @@ from app.policy_retrieval import KeywordRetriever, load_retriever, policy_candid
 # 导入当前步骤使用的模块或类型。
 from app.query_answers import movie_answer, policy_answer, screening_answer
 from app.query_semantics import policy_kind
+from app.glm_router import create_glm_model
 # 导入当前步骤使用的模块或类型。
 from app.react_agent import AgentState, CinemaReAct, initial_state
 # 导入当前步骤使用的模块或类型。
@@ -189,6 +190,10 @@ class ChatResponse(BaseModel):
     slot_summary: dict[str, Any] = Field(default_factory=dict)
     understanding_layer: str = "fallback"
     preflight_reason: str = "none"
+    runtime_version: dict[str, Any] = Field(default_factory=dict)
+    l1_status: str = "not_attempted"
+    l1_duration_ms: int = 0
+    l1_attempted: bool = False
 
 
 # 声明当前处理单元及其入口。
@@ -218,6 +223,7 @@ class Assistant:
         self.sessions: dict[str, list[dict[str, str]]] = defaultdict(list)
         # 为 `self.model` 保存当前步骤所需的值。
         self.model = create_model()
+        self.classifier_model = create_glm_model()
         # 为 `self.workflow` 保存当前步骤所需的值。
         self.workflow = CinemaReAct(
             # 为 `model_provider` 保存当前步骤所需的值。
@@ -228,6 +234,7 @@ class Assistant:
             recall_memory=lambda user_id, question: self.memory.recall(user_id, question),
             # 为 `format_facts` 保存当前步骤所需的值。
             format_facts=lambda state: _business_answer(state),
+            classifier_provider=lambda: self.classifier_model,
         )
         # 为 `self.graph` 保存当前步骤所需的值。
         self.graph = self.workflow.graph
@@ -300,6 +307,7 @@ class Assistant:
                     "tool_call_count", "invalid_call_count", "model_call_count",
                     "reflection_call_count", "reflection_status", "token_usage",
                     "slot_summary", "understanding_layer", "preflight_reason",
+                    "runtime_version", "l1_status", "l1_duration_ms", "l1_attempted",
                 )
                 if key in result
             },
