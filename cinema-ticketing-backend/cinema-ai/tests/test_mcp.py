@@ -102,6 +102,10 @@ class CinemaMcpTests(unittest.IsolatedAsyncioTestCase):
                 ],
             )
         if path.startswith("/api/screenings/"):
+            if path.endswith("/13/seats"):
+                return httpx.Response(409, json={"detail": "SECRET upstream data"})
+            if path.endswith("/14/seats"):
+                return httpx.Response(200, json={"code": 404, "message": "SECRET upstream data"})
             return httpx.Response(
                 200,
                 json={
@@ -180,6 +184,13 @@ class CinemaMcpTests(unittest.IsolatedAsyncioTestCase):
                 "screeningDate": "2026-10-02",
             },
         )
+
+    async def test_unavailable_screening_returns_safe_terminal_error(self) -> None:
+        for screening_id in (13, 14):
+            with self.subTest(screening_id=screening_id), self.assertRaises(CinemaQueryError) as caught:
+                await self.client.call_tool("query_seats", {"screening_id": screening_id}, user_id=2)
+            self.assertEqual(caught.exception.code, "screening_unavailable")
+            self.assertNotIn("SECRET", str(caught.exception))
 
     async def test_seats_unwrap_live_booking_status(self) -> None:
         seats = await self.client.call_tool("query_seats", {"screening_id": 12}, user_id=2)

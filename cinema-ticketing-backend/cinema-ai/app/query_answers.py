@@ -3,6 +3,7 @@
 # 导入当前步骤使用的模块或类型。
 # isort: off
 from datetime import date, datetime
+from app.query_semantics import GENERAL_POLICY_WORDS, movie_fields
 # 导入当前步骤使用的模块或类型。
 from typing import Any
 # isort: on
@@ -245,7 +246,7 @@ def movie_answer(data: Any, question: str = "") -> str:
             )
         )
         # 检查 `if any(word in question for word in ("导演", "主演", "演员", "简介", "资料", "介绍", "上映日期"))`，据此选择当前处理分支。
-        if any(word in question for word in ("导演", "主演", "演员", "简介", "资料", "介绍", "上映日期")):
+        if movie_fields(question) or any(word in question for word in ("资料", "介绍")):
             # 继续构造当前业务表达式或数据结构。
             lines.extend(movie_details(movie))
         # 检查 `if scope == "scheduled" and any(word in question for word in ("片长", "时长")) and movie.get("duration")`，据此选择当前处理分支。
@@ -280,6 +281,7 @@ def policy_answer(data: dict[str, Any]) -> str:
         text for text in data.get("answer_context", [])
         if isinstance(text, str) and text.strip()
         and not any(word in text for word in ("退票", "退款", "退钱", "退费", "退订"))
+        and not any(word in text for word in GENERAL_POLICY_WORDS)
     ]
     if contexts:
         sections.append("检索到的票务说明：\n" + "\n".join(contexts))

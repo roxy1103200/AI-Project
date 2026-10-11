@@ -20,6 +20,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 # 导入当前步骤使用的模块或类型。
 from pydantic import BaseModel, ConfigDict, Field
+from app.intent_routing import preliminary_route, slot_summary
+from app.query_semantics import movie_fields, policy_kind
 # isort: on
 
 # 为 `Intent` 保存当前步骤所需的值。
@@ -102,6 +104,7 @@ class QuestionPlan(BaseModel):
     requested_intents: list[Literal["movies", "screenings", "seats", "order", "refund", "policy", "recommend"]] = Field(
         default_factory=list, max_length=8
     )
+    policy_kind: Literal["none", "ticket_policy", "general_policy", "mixed"] = "none"
 
 
 # 声明当前处理单元及其入口。
@@ -162,11 +165,14 @@ def listing_kind(question: str) -> tuple[str, str, str, bool]:
     # 为 `text` 保存当前步骤所需的值。
     text = re.sub(r"《[^》]+》", "", question)
     # 为 `scheduled` 保存当前步骤所需的值。
-    scheduled = any(word in text for word in ("排期", "排片", "放映的电影", "放映哪些电影", "放映安排"))
+    scheduled = any(word in text for word in ("排期", "排片", "排上了", "排啥场", "排了啥场", "排场", "放啥片", "放映的电影", "放映哪些电影", "放映安排"))
     # 为 `showing` 保存当前步骤所需的值。
     showing = any(word in text for word in ("上映", "热映", "还在放", "正在放"))
     # 为 `detail` 保存当前步骤所需的值。
     detail = any(word in text for word in ("场次", "几点", "时间", "票价", "多少钱", "什么时候放"))
+    detail = detail or bool(re.search(r"排(?:了)?[啥哪]场|排场|几号场|安排.*影院|电影院.*放[啥哪].*片", text))
+    if movie_fields(question) and not re.search(r"场次|排期|排场|票价|安排.*影院", text):
+        detail = False
     # 为 `booking` 保存当前步骤所需的值。
     booking = any(word in text for word in ("有票", "买票", "购票", "订票", "订购"))
     # 检查 `if booking`，据此选择当前处理分支。
@@ -337,15 +343,15 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
     # 检查 `if order_match or any(word in request_text for word in ("订单", "出票", "支付状态", "我的票", "购票记录"))`，据此选择当前处理分支。
     if order_match or any(word in request_text for word in ("订单", "出票", "支付状态", "我的票", "购票记录")):
         # 为 `intent` 保存当前步骤所需的值。
-        intent = "refund" if any(word in request_text for word in ("退票", "能退", "可退")) else "order"
+        intent = "refund" if any(word in request_text for word in ("退票", "能退", "可退", "退不", "还给退", "退回来")) else "order"
     # 检查 `elif any(word in request_text for word in ("退票", "退改"))`，据此选择当前处理分支。
-    elif any(word in request_text for word in ("退票", "退改")):
+    elif any(word in request_text for word in ("退票", "退改", "退不", "还给退", "退回来")):
         # 为 `intent` 保存当前步骤所需的值。
         intent = (
             "policy" if any(word in request_text for word in ("规则", "多久", "提前", "须知", "条件")) else "refund"
         )
     # 检查 `elif any(word in request_text for word in ("座位", "选座", "座位图", "空座"))`，据此选择当前处理分支。
-    elif any(word in request_text for word in ("座位", "选座", "座位图", "空座", "空位", "还有座")):
+    elif any(word in request_text for word in ("座位", "选座", "座位图", "空座", "空位", "还有座")) or re.search(r"(?:还剩|还空|空着|剩下).{0,5}(?:座|位)", request_text):
         # 为 `intent` 保存当前步骤所需的值。
         intent = "seats"
     # 检查 `elif any(word in request_text for word in ("规则", "须知", "优惠", "会员"))`，据此选择当前处理分支。
@@ -484,6 +490,9 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
     today = beijing_today()
     # 为 `rules` 保存当前步骤所需的值。
     rules = rule_plan(question, history, today)
+    layer, preflight_reason = preliminary_route(rules, question, history)
+    if layer:
+        source = "small_model" if layer == "l1" else "rules"
     # 为 `plan` 保存当前步骤所需的值。
     plan = rules.model_copy()
     # 为 `fixed_lookup` 保存当前步骤所需的值。
@@ -510,7 +519,7 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         and general_listing(question)
     )
     # 检查 `if model and plan.intent != "chat" and not ambiguous_listing and not (fixed_lookup and general_listing(question))`，据此选择当前处理分支。
-    if model and plan.intent != "chat" and not ambiguous_listing and not (fixed_lookup and general_listing(question)):
+    if model and not layer and plan.intent != "chat" and not ambiguous_listing and not (fixed_lookup and general_listing(question)):
         # 为 `prompt` 保存当前步骤所需的值。
         prompt = (
             "你是影院问题理解器，只输出一个 JSON 对象，不回答问题、不执行工具。\n"
@@ -728,13 +737,25 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         (plan.intent == "screenings" or plan.movie_scope == "scheduled")
         # 继续构造当前业务表达式或数据结构。
         and not plan.screening_date
-        and re.search(r"本周|下周|这周|本月|下个月|\d+[月号日]", re.sub(r"《[^》]+》", "", question))
+        and re.search(r"本周|下周|这周|本月|下个月|周末|最近|过几天|\d+[月号日]", re.sub(r"《[^》]+》", "", question))
     # 继续构造当前业务表达式或数据结构。
     ):
         # 为 `clarification` 保存当前步骤所需的值。
         clarification = "请补充具体场次日期，例如 2026-09-30，以便准确查询。"
+    if preflight_reason == "unsupported_transaction":
+        clarification = "当前助手只提供查询，不能直接下单或支付，请前往购票页面完成操作。"
+    elif preflight_reason == "policy_source_unavailable":
+        clarification = "目前尚未接入会员、优惠或积分数据，无法确认相关权益；请前往影院业务页面查询。可以查询当前退票规则。"
+    elif preflight_reason == "missing_date":
+        clarification = "请补充具体场次日期，以便准确查询，例如本周六的日期。"
+    if plan.intent == "seats" and not plan.screening_id and plan.confidence >= 0.65 and (
+        plan.movie_query or plan.cinema_query or plan.screening_date
+    ) and not invalid_date and preflight_reason != "missing_date":
+        clarification = ""
+    if plan.intent == "policy" or policy_kind(question) != "ticket_policy":
+        plan.policy_kind = policy_kind(question)
     # 将当前计算结果返回给调用方。
-    return {
+    result = {
         # 设置当前结构中的 `intent` 字段。
         "intent": plan.intent,
         # 设置当前结构中的 `normalized_question` 字段。
@@ -749,3 +770,7 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         # 设置当前结构中的 `clarification` 字段。
         "clarification": clarification,
     }
+    result["understanding_layer"] = layer or ("llm" if source == "model" else "fallback")
+    result["preflight_reason"] = preflight_reason if layer else "none"
+    result["slot_summary"] = slot_summary(result, preflight_reason)
+    return result

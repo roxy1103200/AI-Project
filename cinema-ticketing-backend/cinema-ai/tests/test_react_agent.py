@@ -91,6 +91,9 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
     """Verify multi-hop decisions, the live path, provenance, limits and cancellation."""
 
     async def asyncSetUp(self) -> None:
+        self.verifier_patch = patch.dict("os.environ", {"AGENT_RULE_VERIFIER_ENABLED": "false"})
+        self.verifier_patch.start()
+        self.addCleanup(self.verifier_patch.stop)
         self.date_patch = patch("app.intent.beijing_today", return_value=date(2026, 10, 8))
         self.date_patch.start()
 

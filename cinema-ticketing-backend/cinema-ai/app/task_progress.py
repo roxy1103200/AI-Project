@@ -9,6 +9,7 @@ from typing import Any
 
 # 导入当前步骤使用的模块或类型。
 from app.intent import SCREENING_PATTERN, rule_plan
+from app.query_semantics import movie_fields, query_domains
 # isort: on
 
 # 为 `FACT_WORDS` 保存当前步骤所需的值。
@@ -24,6 +25,11 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
     text = re.sub(r"《[^》]+》", "", question)
     rules = rule_plan(question, state["messages"][:-1])
     requested = set(state.get("requested_intents", []))
+    domains = query_domains(question, bool(entities.get("order_no")))
+    if "screenings" not in domains and (entities.get("order_no") or entities.get("screening_id")):
+        requested.discard("screenings")
+    if "movies" not in domains and "screenings" in domains and state["intent"] != "movies":
+        requested.discard("movies")
     tasks: list[dict[str, Any]] = []
 
     def add(name: str, arguments: dict[str, Any], label: str) -> None:
@@ -35,8 +41,8 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
     if state["intent"] in ("order", "refund") or order_nos:
         for number in order_nos:
             add("query_order", {"order_no": number}, f"查询订单 {number}")
-    facts = any(word in text for word in FACT_WORDS)
-    seats = state["intent"] == "seats" or "seats" in requested or any(word in text for word in SEAT_WORDS)
+    facts = bool(movie_fields(question)) or any(word in text for word in FACT_WORDS)
+    seats = state["intent"] == "seats" or "seats" in requested or "seats" in domains or any(word in text for word in SEAT_WORDS)
     explicit_ids = list(dict.fromkeys(int(match[1]) for match in SCREENING_PATTERN.finditer(question)))
     if not explicit_ids and entities["screening_id"]:
         explicit_ids = [entities["screening_id"]]
@@ -44,6 +50,7 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
     slots = (
         state["intent"] == "screenings"
         or "screenings" in requested
+        or ("screenings" in domains and (state["intent"] != "movies" or facts))
         or (seats and not explicit_ids)
         or (facts and any(word in text for word in slot_words))
         or (
@@ -54,6 +61,8 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
         )
     )
     titles = list(dict.fromkeys(re.findall(r"《([^》]+)》", question)))
+    if "screenings" not in domains and entities.get("order_no"):
+        slots = False
     movie_queries = titles if len(titles) > 1 else [entities["movie_query"] or entities["preference"]]
     if facts or "movies" in requested or (state["intent"] == "movies" and not slots):
         for query in movie_queries:
@@ -91,7 +100,7 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
     if state["intent"] == "recommend" or "recommend" in requested:
         add("recommend_movies", {"preference": entities["preference"]}, "按偏好推荐电影")
     policy_words = ("规则", "须知", "政策", "退票期限", "退票截止", "提前多久", "最晚多久", "啥时候不能退")
-    if state["intent"] == "policy" or "policy" in requested or any(word in text for word in policy_words):
+    if state["intent"] == "policy" or "policy" in requested or "policy" in domains or any(word in text for word in policy_words):
         add("query_ticket_policy", {}, "检索当前票务规则")
     return tasks
 

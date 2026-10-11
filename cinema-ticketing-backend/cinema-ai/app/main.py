@@ -44,6 +44,7 @@ from app.model_config import create_model
 from app.policy_retrieval import KeywordRetriever, load_retriever, policy_candidates
 # 导入当前步骤使用的模块或类型。
 from app.query_answers import movie_answer, policy_answer, screening_answer
+from app.query_semantics import policy_kind
 # 导入当前步骤使用的模块或类型。
 from app.react_agent import AgentState, CinemaReAct, initial_state
 # 导入当前步骤使用的模块或类型。
@@ -95,7 +96,8 @@ def create_tools(
             reranker.settings.top_k if reranker else 30,
         )
         # 为 `documents` 保存当前步骤所需的值。
-        documents = await reranker.rerank(question, candidates) if reranker else candidates[:4]
+        deterministic_refund = policy_kind(question) == "ticket_policy" and any(word in question for word in ("退票", "退款", "退钱", "退改"))
+        documents = await reranker.rerank(question, candidates) if reranker and not deterministic_refund else candidates[:4]
         # 将当前计算结果返回给调用方。
         return {
             # 设置当前结构中的 `answer_context` 字段。
@@ -184,6 +186,9 @@ class ChatResponse(BaseModel):
     reflection_status: str = "not_run"
     token_usage: dict[str, Any] = Field(default_factory=dict)
     pending_tasks: list[str] = Field(default_factory=list)
+    slot_summary: dict[str, Any] = Field(default_factory=dict)
+    understanding_layer: str = "fallback"
+    preflight_reason: str = "none"
 
 
 # 声明当前处理单元及其入口。
@@ -294,6 +299,7 @@ class Assistant:
                     "route", "route_reason", "stop_reason", "circuit_open", "step_count",
                     "tool_call_count", "invalid_call_count", "model_call_count",
                     "reflection_call_count", "reflection_status", "token_usage",
+                    "slot_summary", "understanding_layer", "preflight_reason",
                 )
                 if key in result
             },
@@ -526,6 +532,8 @@ def _business_answer(state: AgentState) -> str:
 # 声明当前处理单元及其入口。
 def _seat_answer(seats: list[dict[str, Any]]) -> str:
     """Show current availability without promising a reservation."""
+    if not seats:
+        return "未取得该场次的座位数据，不能据此判断已售罄；请确认场次或稍后重试。"
     # 为 `available` 保存当前步骤所需的值。
     available = [seat for seat in seats if seat.get("booking_status") == "AVAILABLE"]
     # 为 `locked` 保存当前步骤所需的值。
@@ -539,6 +547,7 @@ def _seat_answer(seats: list[dict[str, Any]]) -> str:
         # 继续构造当前业务表达式或数据结构。
         f"该场次共 {len(seats)} 个座位，可选 {len(available)} 个、锁定 {locked} 个、已售 {sold} 个。"
         + (f"\n可选座位：{codes}" if available else "")
+        + ("\n当前没有可选座位，请选择其他场次或稍后刷新。" if not available else "")
         + "\n状态为查询时快照，请在选座页面确认并购票。"
     )
 

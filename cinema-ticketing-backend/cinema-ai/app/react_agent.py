@@ -6,6 +6,7 @@ import asyncio
 
 # 导入当前步骤使用的模块或类型。
 import json
+import os
 
 # 导入当前步骤使用的模块或类型。
 # 导入当前步骤使用的模块或类型。
@@ -35,6 +36,7 @@ from app.react_tools import TOOL_LABELS, TOOL_SPECS, observation_text, validate_
 
 # 导入当前步骤使用的模块或类型。
 from app.reflection import REFLECTION_PROMPT, ReflectionResult, grounded_revision
+from app.rule_verifier import verify_simple
 from app.task_progress import build_tasks, is_complete, matching_task, next_call, progress, select_route
 
 # 导入当前步骤使用的模块或类型。
@@ -141,6 +143,9 @@ class AgentState(TypedDict, total=False):
     evidence_blocks: list[str]
     draft_answer: str
     verified_answer: str
+    slot_summary: dict[str, Any]
+    understanding_layer: str
+    preflight_reason: str
 
 
 # 声明当前处理单元及其入口。
@@ -194,6 +199,9 @@ def emit_context(state: AgentState) -> None:
                     "reflection_call_count",
                     "reflection_status",
                     "circuit_open",
+                    "slot_summary",
+                    "understanding_layer",
+                    "preflight_reason",
                 )
             },
             **counters,
@@ -597,6 +605,8 @@ class CinemaReAct:
                 code, message = describe_failure(exc, "react_tool")
                 payload = {"error": {"code": code, "message": message}}
                 updated["last_tool_error"] = payload["error"]
+                if code == "screening_unavailable" and name == "query_seats":
+                    updated.update(answer=message, stop_reason="needs_user", finish_reason="needs_user")
                 if code == "invalid_tool_call":
                     updated["invalid_call_count"] += 1
                     if updated["invalid_call_count"] >= self.max_invalid_calls:
@@ -746,6 +756,8 @@ class CinemaReAct:
         if missing:
             note += "\n尚未完成：" + "、".join(missing) + "。"
         failure = state.get("last_tool_error", {})
+        if state.get("entities", {}).get("policy_kind") == "mixed":
+            note += "\n会员、优惠或积分数据尚未接入，以上退票规则不能用于确认这些权益，请在影院业务页面查询。"
         if failure and failure.get("code") != "invalid_tool_call":
             note += f"\n本轮有查询未完成：{failure['message']}"
         return note
@@ -825,6 +837,15 @@ class CinemaReAct:
             return self.trip(updated, state["budget"].stop_reason or state["stop_reason"])
         if not state["observations"]:
             return {"reflection_status": "no_evidence", "stop_reason": "no_evidence", "reflection_resume": False}
+        verdict = verify_simple(state) if os.getenv("AGENT_RULE_VERIFIER_ENABLED", "true").lower() == "true" else ""
+        if verdict:
+            updated.update(
+                reflection_status="rules_" + verdict,
+                stop_reason="verifier_incomplete" if verdict == "incomplete" else "simple_verified",
+                verified_answer=state["draft_answer"],
+            )
+            emit_context(updated)
+            return updated
         if state["reflection_call_count"] >= 1:
             return {
                 "reflection_resume": False,

@@ -16,6 +16,8 @@ from datetime import date
 # 导入当前步骤使用的模块或类型。
 from typing import Annotated, Any, Literal
 
+import httpx
+
 # 导入当前步骤使用的模块或类型。
 from mcp.server.fastmcp import Context, FastMCP
 # 导入当前步骤使用的模块或类型。
@@ -143,6 +145,8 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
             if public:
                 # 检查 `if data.get("code") != 0`，据此选择当前处理分支。
                 if data.get("code") != 0:
+                    if path.endswith("/seats") and data.get("code") in (404, 409):
+                        return tool_result({"error": {"code": "screening_unavailable", "message": "该场次不存在、未开售或已停止售票，请选择其他场次。"}})
                     # 将当前计算结果返回给调用方。
                     return tool_result({"error": {"code": "business_unavailable", "message": "座位查询暂时不可用。"}})
                 # 为 `data` 保存当前步骤所需的值。
@@ -151,6 +155,8 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
             return tool_result({"data": data})
         # 进入对应的循环、异常处理或资源管理分支。
         except Exception as exception:
+            if public and path.endswith("/seats") and isinstance(exception, httpx.HTTPStatusError) and exception.response.status_code in (404, 409):
+                return tool_result({"error": {"code": "screening_unavailable", "message": "该场次不存在、未开售或已停止售票，请选择其他场次。"}})
             # 执行当前步骤中的业务处理表达式。
             code, message = describe_failure(exception, "mcp_java_query")
             # 将当前计算结果返回给调用方。

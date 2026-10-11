@@ -81,6 +81,7 @@ ERROR_CODES = frozenset(
         "business_auth_failed",
         # 补充当前表达式的 `"business_unavailable"` 参数或元素。
         "business_unavailable",
+        "screening_unavailable",
         # 补充当前表达式的 `"query_contract_mismatch"` 参数或元素。
         "query_contract_mismatch",
         # 补充当前表达式的 `"agent_no_evidence"` 参数或元素。
@@ -98,7 +99,7 @@ ERROR_CODES = frozenset(
     }
 )
 # 为 `INTENTS` 保存当前步骤所需的值。
-INTENTS = frozenset({"movies", "screenings", "seats", "order", "refund", "policy", "recommend", "chat", "fallback"})
+INTENTS = frozenset({"movies", "screenings", "seats", "order", "refund", "policy", "recommend", "chat", "fallback", "unsupported"})
 # 为 `TOOL_NAMES` 保存当前步骤所需的值。
 TOOL_NAMES = frozenset(
     # 继续构造当前业务表达式或数据结构。
@@ -361,13 +362,38 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
         ("route", {"simple", "react", "direct"}),
         ("reflection_status", {
             "not_run", "no_evidence", "unavailable", "incomplete", "needs_work", "rejected", "passed", "failed",
+            "rules_passed", "rules_empty", "rules_incomplete",
         }),
     ):
         if isinstance(payload.get(key), str) and payload[key] in allowed:
             summary[key] = payload[key]
     if type(payload.get("circuit_open")) is bool:
         summary["circuit_open"] = payload["circuit_open"]
+    if isinstance(payload.get("understanding_layer"), str) and payload["understanding_layer"] in {"l0", "l1", "preflight", "llm", "fallback"}:
+        summary["understanding_layer"] = payload["understanding_layer"]
+    if isinstance(payload.get("preflight_reason"), str) and payload["preflight_reason"] in {
+        "invalid_date", "greeting", "unsupported_transaction", "policy_source_unavailable",
+        "missing_order_no", "missing_screening_id", "missing_date", "explicit_order",
+        "explicit_screening", "explicit_movie_fields", "ticket_policy", "explicit_screening_date",
+        "validated_local_classifier", "none",
+    }:
+        summary["preflight_reason"] = payload["preflight_reason"]
+    slots = payload.get("slot_summary")
+    if isinstance(slots, dict):
+        safe = {key: slots[key] for key in ("order_no", "screening_id", "movie_query", "cinema_query") if type(slots.get(key)) is bool}
+        if slots.get("screening_date") is None or type(slots.get("screening_date")) is bool:
+            safe["screening_date"] = slots.get("screening_date")
+        allowed_slots = {"order_no", "screening_date", "screening_id", "valid_date", "policy_source"}
+        values = slots.get("missing_slots")
+        if isinstance(values, list):
+            safe["missing_slots"] = sorted({value for value in values if isinstance(value, str) and value in allowed_slots})
+        if isinstance(slots.get("policy_kind"), str) and slots["policy_kind"] in {"none", "ticket_policy", "general_policy", "mixed"}:
+            safe["policy_kind"] = slots["policy_kind"]
+        summary["slot_summary"] = safe
     if isinstance(payload.get("token_usage"), dict):
+        accounting = payload["token_usage"].get("accounting")
+        if isinstance(accounting, str) and accounting in {"provider", "conservative_reservation"}:
+            summary["token_accounting"] = accounting
         summary.update({
             key: value for key, value in payload["token_usage"].items()
             if key in COUNTERS and type(value) is int and 0 <= value <= 10**9

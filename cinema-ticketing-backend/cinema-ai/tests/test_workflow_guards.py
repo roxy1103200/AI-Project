@@ -28,6 +28,7 @@ class WorkflowGuardTests(unittest.IsolatedAsyncioTestCase):
             return await understand(None, question, history)
 
         self.patches = [
+            patch.dict(os.environ, {"AGENT_L0_ENABLED": "false", "AGENT_RULE_VERIFIER_ENABLED": "false"}),
             patch("app.react_agent.understand", side_effect=extract),
             patch("app.intent.beijing_today", return_value=date(2026, 10, 8)),
         ]
