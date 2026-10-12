@@ -1,0 +1,562 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>AI 源码定位索引</title><style>
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:25px}body{margin:0;color:#25374b;background:#f3f6f9;font:16px/1.95 'Microsoft YaHei',sans-serif}aside{position:fixed;inset:0 auto 0 0;width:290px;background:#142a3e;color:#d5e0ea;padding:24px;overflow:auto}aside strong{font-size:20px;display:block;margin-bottom:15px}aside a{display:block;color:#c5d7e4;text-decoration:none;font-size:13px;padding:6px 0}aside .toplink{color:#a2e4cd;font-size:15px;margin-bottom:15px}main{margin-left:290px;padding:40px 55px 80px}article{max-width:1040px;margin:0 auto;background:#fff;padding:40px 54px;border:1px solid #e1e7ed}h1{font-size:30px;color:#142a3e;margin-top:0}h2{font-size:23px;margin-top:48px;padding-top:20px;border-top:1px solid #dce6ec;color:#175d51}h3{font-size:18px;margin-top:28px}a{color:#176b94;text-underline-offset:3px}pre{padding:18px 22px;background:#eff4f7;border-radius:6px;overflow:auto;font:13px/1.8 Consolas,monospace}code{font-family:Consolas,monospace;font-size:.9em;background:#edf3f6;padding:2px 4px;border-radius:3px}pre code{padding:0;background:none}blockquote{border-left:3px solid #167564;margin:20px 0;padding:5px 18px;background:#edf7f3;font-size:14px;color:#46655d}li{margin:7px 0}strong{color:#172e45}aside strong{color:white}@media(max-width:900px){aside{position:static;width:auto;max-height:220px}main{margin:0;padding:15px}article{padding:22px}}@media print{aside{display:none}main{margin:0;padding:0}article{border:0;padding:0;max-width:none}h2{break-after:avoid}pre{white-space:pre-wrap}}
+</style></head><body><aside><strong>AI 源码定位索引</strong><a class="toplink" href="index.html">← SVG 图册</a><a href="#section-1">内部 Agent / MCP / 记忆</a><a href="#section-2">独立 AI 网关</a><a href="#section-3">前端</a><a href="#section-4">Java 权威业务 / 身份 / 记忆 / 反馈</a><a href="#section-5">提示词、知识和版本</a><a href="#section-6">评估辅助代码</a><a href="#section-7">部署与依赖</a></aside><main><article><h1>AI 源码定位索引</h1>
+<p>生成日期：2026-10-12；行号对应本次文档生成时的工作区。源码以后修改时行号可能变化。</p>
+<p>这是源码导航，完整逻辑见 <a href="README.md">README</a>，图见 <a href="index.html">SVG 图册</a>。不含密钥、运行日志和环境配置实际值。</p>
+<p>代码链接适用于本项目目录；独立分享文档包时只包含说明与图册，不包含业务源码。</p>
+<h2 id="section-1">内部 Agent / MCP / 记忆</h2>
+<h3><code>agent_budget.py</code></h3>
+<p>整轮模型次数、token 预留 / 对账、期限与熔断包装。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/agent_budget.py">打开文件</a></p>
+<ul>
+<li><code>configured_limit</code> — 第 11 行。</li>
+<li><code>CircuitOpen</code> — 第 16 行。</li>
+<li><code>RequestBudget</code> — 第 21 行。
+<ul>
+<li><code>trip</code>：第 34 行。</li>
+<li><code>remaining_seconds</code>：第 39 行。</li>
+<li><code>reserve</code>：第 49 行。</li>
+<li><code>reconcile</code>：第 62 行。</li>
+<li><code>snapshot</code>：第 74 行。</li>
+</ul>
+</li>
+<li><code>BudgetedModel</code> — 第 88 行。
+<ul>
+<li><code>__init__</code>：第 91 行。</li>
+<li><code>bind</code>：第 105 行。</li>
+<li><code>bind_tools</code>：第 111 行。</li>
+<li><code>ainvoke</code>：第 117 行。</li>
+</ul>
+</li>
+</ul>
+<h3><code>clarification_feedback.py</code></h3>
+<p>脱敏补槽样本 SQLite 收集与待审核质量标记。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/clarification_feedback.py">打开文件</a></p>
+<ul>
+<li><code>deidentify</code> — 第 20 行。</li>
+<li><code>filled_slots</code> — 第 34 行。</li>
+<li><code>ClarificationFeedback</code> — 第 53 行。
+<ul>
+<li><code>__init__</code>：第 56 行。</li>
+<li><code>connect</code>：第 59 行。</li>
+<li><code>record</code>：第 72 行。</li>
+</ul>
+</li>
+<li><code>record_feedback</code> — 第 150 行。</li>
+</ul>
+<h3><code>failures.py</code></h3>
+<p>异常归类、安全日志、固定用户提示和追踪失败事件。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/failures.py">打开文件</a></p>
+<ul>
+<li><code>CinemaQueryError</code> — 第 21 行。
+<ul>
+<li><code>__init__</code>：第 25 行。</li>
+</ul>
+</li>
+<li><code>describe_failure</code> — 第 33 行。</li>
+<li><code>_failure_details</code> — 第 68 行。</li>
+</ul>
+<h3><code>glm_router.py</code></h3>
+<p>GLM L1 模型配置、适用性、结构化预测校验、并发和冷却。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/glm_router.py">打开文件</a></p>
+<ul>
+<li><code>timeout_seconds</code> — 第 27 行。</li>
+<li><code>GlmPrediction</code> — 第 32 行。</li>
+<li><code>load_glm_key</code> — 第 49 行。</li>
+<li><code>create_glm_model</code> — 第 67 行。</li>
+<li><code>eligible</code> — 第 95 行。</li>
+<li><code>apply_prediction</code> — 第 109 行。</li>
+<li><code>classify</code> — 第 165 行。</li>
+</ul>
+<h3><code>intent.py</code></h3>
+<p>QuestionPlan、同义化、日期 / ID 规则、结构化理解与最终槽位校验。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/intent.py">打开文件</a></p>
+<ul>
+<li><code>QuestionPlan</code> — 第 73 行。</li>
+<li><code>beijing_today</code> — 第 113 行。</li>
+<li><code>explicit_date</code> — 第 120 行。</li>
+<li><code>listing_kind</code> — 第 165 行。</li>
+<li><code>general_listing</code> — 第 204 行。</li>
+<li><code>normalize_question</code> — 第 310 行。</li>
+<li><code>rule_plan</code> — 第 327 行。</li>
+<li><code>understand</code> — 第 496 行。</li>
+</ul>
+<h3><code>intent_classifier.py</code></h3>
+<p>可选 fastText 加载门槛、hash / 清单验证与置信分类。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/intent_classifier.py">打开文件</a></p>
+<ul>
+<li><code>classifier_text</code> — 第 18 行。</li>
+<li><code>load_classifier</code> — 第 26 行。</li>
+<li><code>predict_intent</code> — 第 45 行。</li>
+</ul>
+<h3><code>intent_routing.py</code></h3>
+<p>预检、L0 / 本地分类路径、理解层与槽位摘要。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/intent_routing.py">打开文件</a></p>
+<ul>
+<li><code>preliminary_route</code> — 第 12 行。</li>
+<li><code>slot_summary</code> — 第 83 行。</li>
+</ul>
+<h3><code>java_client.py</code></h3>
+<p>内部 token HTTP 客户端，复用 Java 的业务接口。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/java_client.py">打开文件</a></p>
+<ul>
+<li><code>JavaApiClient</code> — 第 15 行。
+<ul>
+<li><code>__init__</code>：第 19 行。</li>
+<li><code>get</code>：第 33 行。</li>
+<li><code>post</code>：第 43 行。</li>
+<li><code>aclose</code>：第 53 行。</li>
+</ul>
+</li>
+</ul>
+<h3><code>main.py</code></h3>
+<p>FastAPI 入口、模型与工具组装、/ai/live 与兼容接口、特殊记忆分支。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/main.py">打开文件</a></p>
+<ul>
+<li><code>create_tools</code> — 第 63 行。</li>
+<li><code>ChatRequest</code> — 第 135 行。</li>
+<li><code>HistoryMessage</code> — 第 147 行。</li>
+<li><code>LiveChatRequest</code> — 第 157 行。</li>
+<li><code>ChatResponse</code> — 第 165 行。</li>
+<li><code>Assistant</code> — 第 200 行。
+<ul>
+<li><code>__init__</code>：第 204 行。</li>
+<li><code>_call_tool</code>：第 243 行。</li>
+<li><code>chat</code>：第 257 行。</li>
+<li><code>_chat</code>：第 270 行。</li>
+<li><code>live</code>：第 320 行。</li>
+<li><code>_live</code>：第 337 行。</li>
+</ul>
+</li>
+<li><code>lifespan</code> — 第 412 行。</li>
+<li><code>verify_internal_token</code> — 第 441 行。</li>
+<li><code>health</code> — 第 452 行。</li>
+<li><code>chat</code> — 第 461 行。</li>
+<li><code>stream</code> — 第 470 行。</li>
+<li><code>_live_event</code> — 第 487 行。</li>
+<li><code>_business_answer</code> — 第 493 行。</li>
+<li><code>_seat_answer</code> — 第 541 行。</li>
+<li><code>live</code> — 第 566 行。</li>
+<li><code>handle_http_error</code> — 第 595 行。</li>
+</ul>
+<h3><code>mcp_client.py</code></h3>
+<p>带可信身份的独立 MCP session 与四个查询工具调用。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/mcp_client.py">打开文件</a></p>
+<ul>
+<li><code>CinemaMcpClient</code> — 第 27 行。
+<ul>
+<li><code>__init__</code>：第 31 行。</li>
+<li><code>call_tool</code>：第 38 行。</li>
+</ul>
+</li>
+</ul>
+<h3><code>mcp_server.py</code></h3>
+<p>私网 Streamable HTTP MCP Server、工具 schema、Java 适配。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/mcp_server.py">打开文件</a></p>
+<ul>
+<li><code>tool_result</code> — 第 59 行。</li>
+<li><code>InternalTokenMiddleware</code> — 第 73 行。
+<ul>
+<li><code>__init__</code>：第 77 行。</li>
+<li><code>__call__</code>：第 84 行。</li>
+</ul>
+</li>
+<li><code>create_app</code> — 第 105 行。</li>
+</ul>
+<h3><code>memory.py</code></h3>
+<p>用户记忆建议、BGE 嵌入、Chroma 投影 / 召回、Java 权威再验证。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/memory.py">打开文件</a></p>
+<ul>
+<li><code>MemoryIndex</code> — 第 34 行。
+<ul>
+<li><code>__init__</code>：第 38 行。</li>
+<li><code>connect</code>：第 50 行。</li>
+<li><code>_encode</code>：第 83 行。</li>
+<li><code>encode</code>：第 103 行。</li>
+<li><code>apply</code>：第 118 行。</li>
+</ul>
+</li>
+<li><code>UserMemory</code> — 第 156 行。
+<ul>
+<li><code>__init__</code>：第 160 行。</li>
+<li><code>recall</code>：第 167 行。</li>
+</ul>
+</li>
+<li><code>memory_proposal</code> — 第 236 行。</li>
+</ul>
+<h3><code>memory_runtime.py</code></h3>
+<p>本地 Chroma 与 memory worker 启动器。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/memory_runtime.py">打开文件</a></p>
+<ul>
+<li><code>main</code> — 第 23 行。</li>
+</ul>
+<h3><code>memory_worker.py</code></h3>
+<p>MySQL outbox 租约任务消费、版本检查、索引与确认。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/memory_worker.py">打开文件</a></p>
+<ul>
+<li><code>process_job</code> — 第 20 行。</li>
+<li><code>run</code> — 第 51 行。</li>
+</ul>
+<h3><code>model_config.py</code></h3>
+<p>Qwen 服务端密钥加载与 ChatOpenAI 参数。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/model_config.py">打开文件</a></p>
+<ul>
+<li><code>load_qwen_key</code> — 第 28 行。</li>
+<li><code>create_model</code> — 第 61 行。</li>
+</ul>
+<h3><code>policy_retrieval.py</code></h3>
+<p>本地 Markdown / Java 知识分块、关键词召回与合并去重。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/policy_retrieval.py">打开文件</a></p>
+<ul>
+<li><code>keyword_terms</code> — 第 28 行。</li>
+<li><code>split_documents</code> — 第 35 行。</li>
+<li><code>KeywordRetriever</code> — 第 58 行。
+<ul>
+<li><code>_get_relevant_documents</code>：第 67 行。</li>
+</ul>
+</li>
+<li><code>load_retriever</code> — 第 79 行。</li>
+<li><code>policy_candidates</code> — 第 95 行。</li>
+</ul>
+<h3><code>provision_memory_model.py</code></h3>
+<p>固定版本 BGE 模型提前获取 / 本地部署。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/provision_memory_model.py">打开文件</a></p>
+<h3><code>query_answers.py</code></h3>
+<p>影片 / 排期答案、结果契约与来源语义格式化。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/query_answers.py">打开文件</a></p>
+<ul>
+<li><code>valid_movie_result</code> — 第 13 行。</li>
+<li><code>valid_screening_result</code> — 第 130 行。</li>
+<li><code>movie_details</code> — 第 163 行。</li>
+<li><code>movie_answer</code> — 第 186 行。</li>
+<li><code>policy_answer</code> — 第 272 行。</li>
+<li><code>screening_answer</code> — 第 291 行。</li>
+</ul>
+<h3><code>query_semantics.py</code></h3>
+<p>查询域、政策种类、日期 / 范围等语义辅助。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/query_semantics.py">打开文件</a></p>
+<ul>
+<li><code>prose</code> — 第 15 行。</li>
+<li><code>movie_fields</code> — 第 20 行。</li>
+<li><code>policy_kind</code> — 第 29 行。</li>
+<li><code>query_domains</code> — 第 37 行。</li>
+</ul>
+<h3><code>react_agent.py</code></h3>
+<p>八节点 LangGraph、Simple / ReAct、工具执行、事实块、反思与响应。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/react_agent.py">打开文件</a></p>
+<ul>
+<li><code>AgentState</code> — 第 83 行。</li>
+<li><code>initial_state</code> — 第 142 行。</li>
+<li><code>emit_context</code> — 第 168 行。</li>
+<li><code>response_data</code> — 第 206 行。</li>
+<li><code>CinemaReAct</code> — 第 230 行。
+<ul>
+<li><code>__init__</code>：第 234 行。</li>
+<li><code>prepare</code>：第 270 行。</li>
+<li><code>route_prepared</code>：第 348 行。</li>
+<li><code>clarify</code>：第 360 行。</li>
+<li><code>fallback_call</code>：第 365 行。</li>
+<li><code>agent</code>：第 469 行。</li>
+<li><code>tools</code>：第 521 行。</li>
+<li><code>factual_answer</code>：第 633 行。</li>
+<li><code>respond</code>：第 687 行。</li>
+<li><code>has_primary_evidence</code>：第 726 行。</li>
+<li><code>completion_note</code>：第 742 行。</li>
+<li><code>trip</code>：第 769 行。</li>
+<li><code>guard_step</code>：第 776 行。</li>
+<li><code>route_after_agent</code>：第 798 行。</li>
+<li><code>route_after_tools</code>：第 805 行。</li>
+<li><code>route_after_reflection</code>：第 812 行。</li>
+<li><code>simple</code>：第 816 行。</li>
+<li><code>draft</code>：第 831 行。</li>
+<li><code>reflect</code>：第 836 行。</li>
+</ul>
+</li>
+</ul>
+<h3><code>react_tools.py</code></h3>
+<p>模型可见工具 schema、参数来源 / 查询范围 / 返回结果校验。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/react_tools.py">打开文件</a></p>
+<ul>
+<li><code>ToolArguments</code> — 第 31 行。</li>
+<li><code>MovieArguments</code> — 第 39 行。</li>
+<li><code>ScreeningArguments</code> — 第 62 行。</li>
+<li><code>SeatArguments</code> — 第 81 行。</li>
+<li><code>OrderArguments</code> — 第 89 行。</li>
+<li><code>PolicyArguments</code> — 第 97 行。</li>
+<li><code>RecommendationArguments</code> — 第 105 行。</li>
+<li><code>ClarificationArguments</code> — 第 113 行。</li>
+<li><code>validate_arguments</code> — 第 186 行。</li>
+<li><code>validate_result</code> — 第 393 行。</li>
+<li><code>observation_text</code> — 第 441 行。</li>
+</ul>
+<h3><code>reflection.py</code></h3>
+<p>结构化反思结果与仅基于已有事实块的受限修订。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/reflection.py">打开文件</a></p>
+<ul>
+<li><code>ReflectionResult</code> — 第 13 行。</li>
+<li><code>grounded_revision</code> — 第 27 行。</li>
+</ul>
+<h3><code>reranker.py</code></h3>
+<p>DashScope 重排配置、限流、响应校验和关键词候选回退。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/reranker.py">打开文件</a></p>
+<ul>
+<li><code>RerankSettings</code> — 第 41 行。
+<ul>
+<li><code>__post_init__</code>：第 58 行。</li>
+<li><code>from_env</code>：第 100 行。</li>
+</ul>
+</li>
+<li><code>_Rank</code> — 第 120 行。</li>
+<li><code>_Output</code> — 第 128 行。</li>
+<li><code>_Response</code> — 第 134 行。</li>
+<li><code>DashScopeReranker</code> — 第 144 行。
+<ul>
+<li><code>__init__</code>：第 148 行。</li>
+<li><code>rerank</code>：第 171 行。</li>
+<li><code>_request</code>：第 226 行。</li>
+<li><code>_select</code>：第 267 行。</li>
+<li><code>_log_fallback</code>：第 294 行。</li>
+<li><code>_log_success</code>：第 309 行。</li>
+<li><code>aclose</code>：第 333 行。</li>
+</ul>
+</li>
+</ul>
+<h3><code>rule_verifier.py</code></h3>
+<p>确定的 Simple 查询事实验证，减少额外模型调用。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/rule_verifier.py">打开文件</a></p>
+<ul>
+<li><code>verify_simple</code> — 第 10 行。</li>
+</ul>
+<h3><code>task_progress.py</code></h3>
+<p>子任务构建、完成判定、依赖与下一步调用、执行路由。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/task_progress.py">打开文件</a></p>
+<ul>
+<li><code>build_tasks</code> — 第 22 行。</li>
+<li><code>screening_rows</code> — 第 109 行。</li>
+<li><code>progress</code> — 第 137 行。</li>
+<li><code>is_complete</code> — 第 235 行。</li>
+<li><code>next_call</code> — 第 244 行。</li>
+<li><code>select_route</code> — 第 265 行。</li>
+<li><code>matching_task</code> — 第 283 行。</li>
+</ul>
+<h3><code>tracing.py</code></h3>
+<p>LangSmith 元数据清洗、根 / 工具追踪、本地用户会话 JSONL 归档。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/tracing.py">打开文件</a></p>
+<ul>
+<li><code>SdkLogFilter</code> — 第 196 行。
+<ul>
+<li><code>filter</code>：第 200 行。</li>
+</ul>
+</li>
+<li><code>_filter_sdk_logs</code> — 第 225 行。</li>
+<li><code>load_langsmith_key</code> — 第 237 行。</li>
+<li><code>_label</code> — 第 282 行。</li>
+<li><code>summarize_payload</code> — 第 289 行。</li>
+<li><code>_metadata</code> — 第 434 行。</li>
+<li><code>_run_fields</code> — 第 463 行。</li>
+<li><code>_archive_index</code> — 第 513 行。</li>
+<li><code>_register_archive_session</code> — 第 545 行。</li>
+<li><code>_archive_run</code> — 第 597 行。</li>
+<li><code>MetadataOnlyClient</code> — 第 683 行。
+<ul>
+<li><code>create_run</code>：第 687 行。</li>
+<li><code>update_run</code>：第 720 行。</li>
+<li><code>_insert_runtime_env</code>：第 740 行。</li>
+</ul>
+</li>
+<li><code>TraceTurn</code> — 第 752 行。
+<ul>
+<li><code>observe</code>：第 772 行。</li>
+<li><code>finish</code>：第 801 行。</li>
+</ul>
+</li>
+<li><code>AgentTracing</code> — 第 843 行。
+<ul>
+<li><code>__init__</code>：第 847 行。</li>
+<li><code>turn</code>：第 913 行。</li>
+<li><code>status</code>：第 1010 行。</li>
+<li><code>flush</code>：第 1025 行。</li>
+</ul>
+</li>
+<li><code>record_failure</code> — 第 1040 行。</li>
+<li><code>current_trace_id</code> — 第 1078 行。</li>
+<li><code>tool_span</code> — 第 1089 行。</li>
+</ul>
+<h3><code>versions.py</code></h3>
+<p>提示词加载、规则 / prompt hash、稳定 A/B 分组和版本摘要。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai/app/versions.py">打开文件</a></p>
+<ul>
+<li><code>prompt_bundle</code> — 第 33 行。</li>
+<li><code>load_prompt</code> — 第 41 行。</li>
+<li><code>fingerprints</code> — 第 49 行。</li>
+<li><code>runtime_version</code> — 第 63 行。</li>
+</ul>
+<h2 id="section-2">独立 AI 网关</h2>
+<h3><code>config.py</code></h3>
+<p>服务地址、服务端 key 文件加载、Redis 与并发配置。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai-gateway/app/config.py">打开文件</a></p>
+<ul>
+<li><code>load_dify_key</code> — 第 11 行。</li>
+<li><code>local_redis_url</code> — 第 38 行。</li>
+</ul>
+<h3><code>feedback.py</code></h3>
+<p>消息快照、服务端可信反馈、Java 落库与 Dify 同步状态。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai-gateway/app/feedback.py">打开文件</a></p>
+<ul>
+<li><code>FeedbackInput</code> — 第 21 行。</li>
+<li><code>Snapshot</code> — 第 31 行。
+<ul>
+<li><code>observe</code>：第 48 行。</li>
+</ul>
+</li>
+<li><code>submit</code> — 第 71 行。</li>
+</ul>
+<h3><code>main.py</code></h3>
+<p>网关 FastAPI 入口、身份与会话、两通道转发、停止与重置、完成后持久化、反馈。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai-gateway/app/main.py">打开文件</a></p>
+<ul>
+<li><code>ChatRequest</code> — 第 33 行。</li>
+<li><code>lifespan</code> — 第 42 行。</li>
+<li><code>storage_failure</code> — 第 73 行。</li>
+<li><code>same_site</code> — 第 79 行。</li>
+<li><code>channel_store</code> — 第 85 行。</li>
+<li><code>require_session</code> — 第 93 行。</li>
+<li><code>session_info</code> — 第 107 行。</li>
+<li><code>reset_session</code> — 第 133 行。</li>
+<li><code>stop_dify</code> — 第 140 行。</li>
+<li><code>stop</code> — 第 155 行。</li>
+<li><code>dify_events</code> — 第 165 行。</li>
+<li><code>agent_events</code> — 第 232 行。</li>
+<li><code>describe_gateway_failure</code> — 第 335 行。</li>
+<li><code>chat</code> — 第 371 行。</li>
+<li><code>feedback</code> — 第 490 行。</li>
+</ul>
+<h3><code>protocol.py</code></h3>
+<p>统一 SSE 编码及上游 SSE 分帧读取。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai-gateway/app/protocol.py">打开文件</a></p>
+<ul>
+<li><code>event</code> — 第 10 行。</li>
+<li><code>read_events</code> — 第 15 行。</li>
+</ul>
+<h3><code>store.py</code></h3>
+<p>Redis 会话 / 历史 / 绑定 / 活动指针、Lua 租约 / 限流 / 取消 / 反馈锁。</p>
+<p>源码：<a href="../../cinema-ticketing-backend/cinema-ai-gateway/app/store.py">打开文件</a></p>
+<ul>
+<li><code>Session</code> — 第 64 行。
+<ul>
+<li><code>ttl</code>：第 76 行。</li>
+</ul>
+</li>
+<li><code>ConversationStore</code> — 第 81 行。
+<ul>
+<li><code>__init__</code>：第 84 行。</li>
+<li><code>key</code>：第 106 行。</li>
+<li><code>close</code>：第 110 行。</li>
+<li><code>identity</code>：第 116 行。</li>
+<li><code>load</code>：第 147 行。</li>
+<li><code>create</code>：第 159 行。</li>
+<li><code>discard</code>：第 176 行。</li>
+<li><code>bind</code>：第 183 行。</li>
+<li><code>open</code>：第 194 行。</li>
+<li><code>resolve</code>：第 238 行。</li>
+<li><code>touch</code>：第 259 行。</li>
+<li><code>reset</code>：第 280 行。</li>
+<li><code>rate</code>：第 307 行。</li>
+<li><code>acquire</code>：第 313 行。</li>
+<li><code>release</code>：第 338 行。</li>
+<li><code>busy</code>：第 342 行。</li>
+<li><code>update</code>：第 346 行。</li>
+<li><code>clear_task</code>：第 361 行。</li>
+<li><code>cancel</code>：第 370 行。</li>
+<li><code>cancelled</code>：第 376 行。</li>
+<li><code>save_snapshot</code>：第 380 行。</li>
+<li><code>snapshot</code>：第 397 行。</li>
+<li><code>finish</code>：第 402 行。</li>
+<li><code>history</code>：第 436 行。</li>
+<li><code>feedback_lock</code>：第 449 行。</li>
+<li><code>feedback_unlock</code>：第 456 行。</li>
+</ul>
+</li>
+</ul>
+<h2 id="section-3">前端</h2>
+<ul>
+<li><a href="../../cinema-ticketing-frontend/src/chat/CinemaAssistant.tsx">src/chat/CinemaAssistant.tsx</a>：两通道聊天组件、session 连接、发问、凭证、事件、停止 / 重置与记忆建议。</li>
+<li><a href="../../cinema-ticketing-frontend/src/chat/chatTransport.ts">src/chat/chatTransport.ts</a>：三请求头、通道 URL、fetch SSE 分帧、complete / error 与登录失效。</li>
+<li><a href="../../cinema-ticketing-frontend/src/chat/MessageFeedback.tsx">src/chat/MessageFeedback.tsx</a>：点赞 / 点踩、原因、补充文字提交。</li>
+<li><a href="../../cinema-ticketing-frontend/src/chat/UserMemories.tsx">src/chat/UserMemories.tsx</a>：确认后长期记忆的用户管理。</li>
+<li><a href="../../cinema-ticketing-frontend/src/chat/messageId.ts">src/chat/messageId.ts</a>：消息标识处理。</li>
+<li><a href="../../cinema-ticketing-frontend/src/chat/assistant.css">src/chat/assistant.css</a>：聊天 UI 样式。</li>
+<li><a href="../../cinema-ticketing-frontend/src/admin/AiFeedbackAdmin.tsx">src/admin/AiFeedbackAdmin.tsx</a>：管理端反馈查询 / 处理。</li>
+<li><a href="../../cinema-ticketing-frontend/src/auth/client.ts">src/auth/client.ts</a>：请求认证与 token 失效传播。</li>
+<li><a href="../../cinema-ticketing-frontend/vite.config.ts">vite.config.ts</a>：React 插件、5173 开发服务和同源 API / 网关代理。</li>
+</ul>
+<h2 id="section-4">Java 权威业务 / 身份 / 记忆 / 反馈</h2>
+<ul>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/controller/AccountSecurityController.java">controller/AccountSecurityController.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/controller/InternalAiController.java">controller/InternalAiController.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/controller/AiHandoffController.java">controller/AiHandoffController.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/controller/AiMemoryController.java">controller/AiMemoryController.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/controller/AiFeedbackController.java">controller/AiFeedbackController.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/controller/AiGatewayController.java">controller/AiGatewayController.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/service/AuthService.java">service/AuthService.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/service/AiMovieQueryService.java">service/AiMovieQueryService.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/service/AiHandoffService.java">service/AiHandoffService.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/service/AiMemoryService.java">service/AiMemoryService.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/service/AiFeedbackService.java">service/AiFeedbackService.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/service/AiGatewayService.java">service/AiGatewayService.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/config/AiMemorySchemaInitializer.java">config/AiMemorySchemaInitializer.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/config/AiFeedbackSchemaInitializer.java">config/AiFeedbackSchemaInitializer.java</a></li>
+<li><a href="../../cinema-ticketing-backend/src/main/java/com/cinema/ticketing/common/SellableScreenings.java">common/SellableScreenings.java</a></li>
+</ul>
+<h2 id="section-5">提示词、知识和版本</h2>
+<ul>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/prompts/v1/decision.txt">prompts/v1/decision.txt</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/prompts/v1/glm_router.txt">prompts/v1/glm_router.txt</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/prompts/v1/reflection.txt">prompts/v1/reflection.txt</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/prompts/v1/understanding.txt">prompts/v1/understanding.txt</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/config/agent_versions.json">config/agent_versions.json</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/knowledge/cinema_faq.md">knowledge/cinema_faq.md</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/knowledge/purchase_guide.md">knowledge/purchase_guide.md</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/knowledge/refund_policy.md">knowledge/refund_policy.md</a></li>
+</ul>
+<h2 id="section-6">评估辅助代码</h2>
+<p>这些文件是开发 / 评估工具，不会因为存在就自动在生产链路执行。本文未运行它们。</p>
+<ul>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/ab_report.py">ab_report.py</a>：Compare pinned A/B exports; unlabelled live completion is not task accuracy.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/build_golden.py">build_golden.py</a>：Freeze held-out cinema acceptance cases and preserve every clarification event.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/eval_traces.py">eval_traces.py</a>：Summarize exported trace directories or scored trials without external requests.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/export_clarifications.py">export_clarifications.py</a>：Export local deidentified slot feedback without invoking a model or training it.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/glm_smoke.py">glm_smoke.py</a>：Four synthetic public-film questions: verify GLM routing without business data.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/golden_bindings.py">golden_bindings.py</a>：Rebind held-out fixtures privately and force paired experiments in a local CLI.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/live_cases.py">live_cases.py</a>：Freeze real development data and independently declare expected query tasks.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/loop_audit.py">loop_audit.py</a>：Audit finite ReAct execution from recorded proposals and upstream business calls.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/metrics.py">metrics.py</a>：Independent acceptance rules and descriptive statistics for Agent evaluation.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/phrasing_cases.py">phrasing_cases.py</a>：Pair natural colloquial questions with fixed real-data gold cases.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/phrasing_eval.py">phrasing_eval.py</a>：Measure intent, facts, and tool traces on paired formal and colloquial questions.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/report.py">report.py</a>：Render measured results as a local, self-contained browser report.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/rerank_focus.py">rerank_focus.py</a>：Measure evidence ranking on frozen real knowledge candidates, independently of Agent planning.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/rerank_metrics.py">rerank_metrics.py</a>：Observe real reranking decisions, provider usage and fallback without changing ranking.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/rescore_phrasing.py">rescore_phrasing.py</a>：Apply transparent scoring corrections to an already completed phrasing run.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/review.py">review.py</a>：Apply explicit human adjudications while retaining all original automatic scores.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/routing_audit.py">routing_audit.py</a>：Audit cheap routing against frozen gold plans without querying any provider.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/run.py">run.py</a>：Compare real Qwen calls on current/previous workflows and real development queries.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/runtime_check.py">runtime_check.py</a>：Inspect termination of the already running Agent using frozen real query cases.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/train_intent_classifier.py">train_intent_classifier.py</a>：Train a local nine-intent classifier with scenario-isolated validation and test sets.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/verify_snapshot.py">verify_snapshot.py</a>：Check that the live business facts still match the frozen scoring snapshot.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/workflow_cases.py">workflow_cases.py</a>：Freeze 72 query scenarios, each with a standard and a conversational expression.</li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/evaluation/workflow_eval.py">workflow_eval.py</a>：Run 144 frozen real questions twice against the current workflow.</li>
+</ul>
+<h2 id="section-7">部署与依赖</h2>
+<ul>
+<li><a href="../../cinema-ticketing-backend/start-ai-local.ps1">cinema-ticketing-backend/start-ai-local.ps1</a></li>
+<li><a href="../../cinema-ticketing-backend/stop-ai-local.ps1">cinema-ticketing-backend/stop-ai-local.ps1</a></li>
+<li><a href="../../cinema-ticketing-backend/docker-compose.yml">cinema-ticketing-backend/docker-compose.yml</a></li>
+<li><a href="../../cinema-ticketing-backend/nginx/nginx.conf">cinema-ticketing-backend/nginx/nginx.conf</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/requirements.txt">cinema-ticketing-backend/cinema-ai/requirements.txt</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/Dockerfile">cinema-ticketing-backend/cinema-ai/Dockerfile</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai-gateway/requirements.txt">cinema-ticketing-backend/cinema-ai-gateway/requirements.txt</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai-gateway/Dockerfile">cinema-ticketing-backend/cinema-ai-gateway/Dockerfile</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai/.env.example">cinema-ticketing-backend/cinema-ai/.env.example</a></li>
+<li><a href="../../cinema-ticketing-backend/cinema-ai-gateway/.env.example">cinema-ticketing-backend/cinema-ai-gateway/.env.example</a></li>
+</ul>
+</article></main></body></html>

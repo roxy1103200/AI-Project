@@ -1,0 +1,718 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>影院 AI 完整实现说明</title><style>
+*{box-sizing:border-box}html{scroll-behavior:smooth;scroll-padding-top:25px}body{margin:0;color:#25374b;background:#f3f6f9;font:16px/1.95 'Microsoft YaHei',sans-serif}aside{position:fixed;inset:0 auto 0 0;width:290px;background:#142a3e;color:#d5e0ea;padding:24px;overflow:auto}aside strong{font-size:20px;display:block;margin-bottom:15px}aside a{display:block;color:#c5d7e4;text-decoration:none;font-size:13px;padding:6px 0}aside .toplink{color:#a2e4cd;font-size:15px;margin-bottom:15px}main{margin-left:290px;padding:40px 55px 80px}article{max-width:1040px;margin:0 auto;background:#fff;padding:40px 54px;border:1px solid #e1e7ed}h1{font-size:30px;color:#142a3e;margin-top:0}h2{font-size:23px;margin-top:48px;padding-top:20px;border-top:1px solid #dce6ec;color:#175d51}h3{font-size:18px;margin-top:28px}a{color:#176b94;text-underline-offset:3px}pre{padding:18px 22px;background:#eff4f7;border-radius:6px;overflow:auto;font:13px/1.8 Consolas,monospace}code{font-family:Consolas,monospace;font-size:.9em;background:#edf3f6;padding:2px 4px;border-radius:3px}pre code{padding:0;background:none}blockquote{border-left:3px solid #167564;margin:20px 0;padding:5px 18px;background:#edf7f3;font-size:14px;color:#46655d}li{margin:7px 0}strong{color:#172e45}aside strong{color:white}@media(max-width:900px){aside{position:static;width:auto;max-height:220px}main{margin:0;padding:15px}article{padding:22px}}@media print{aside{display:none}main{margin:0;padding:0}article{border:0;padding:0;max-width:none}h2{break-after:avoid}pre{white-space:pre-wrap}}
+</style></head><body><aside><strong>影院 AI 完整实现说明</strong><a class="toplink" href="index.html">← SVG 图册</a><a href="#section-1">阅读入口</a><a href="#section-2">1. 先建立整体认识</a><a href="#section-3">2. 父目录、服务与端口</a><a href="#section-4">3. 一次问题从输入到回答的全过程</a><a href="#section-5">4. 前端聊天实现</a><a href="#section-6">5. AI 网关：入口与安全边界</a><a href="#section-7">6. Redis 会话、并发和取消</a><a href="#section-8">7. Dify 通道</a><a href="#section-9">8. 内部 Agent 的三个入口</a><a href="#section-10">9. 问题理解、同义化与意图路由</a><a href="#section-11">10. LangGraph 节点和边</a><a href="#section-12">11. 工具调用、MCP 和 Java SQL</a><a href="#section-13">12. 答案生成、规则验证与反思</a><a href="#section-14">13. 模型与整轮预算</a><a href="#section-15">14. 票务知识检索与 Rerank</a><a href="#section-16">15. 记忆机制：三种不同的“记住”</a><a href="#section-17">16. 反馈、后台处理与澄清样本</a><a href="#section-18">17. LangSmith 与本地追踪</a><a href="#section-19">18. “回答未完成”如何定位</a><a href="#section-20">19. 对后端压力的实际影响</a><a href="#section-21">20. 已实现边界与仍需注意的限制</a><a href="#section-22">21. 配置定位与阅读顺序</a><a href="#section-23">22. 一句话概括</a><a href="#section-24">23. 协议与数据结构细节</a><a href="#section-25">24. 六种常见问题的执行示例</a><a href="#section-26">25. 框架各自承担什么</a><a href="#section-27">26. 文档的维护与复用</a></aside><main><article><h1>影院项目 AI 完整实现说明</h1>
+<blockquote>
+<p>代码梳理日期：2026-10-12。本文依据当前工作区的实际实现，解释前端聊天、独立 AI 网关、内部 Agent、MCP、Java 业务接口、记忆、反馈和追踪。配置值均指<strong>代码默认值或示例配置</strong>，不代表运行进程已经加载该配置；没有调用在线模型、检查云端工作流或执行业务测试。</p>
+</blockquote>
+<h2 id="section-1">阅读入口</h2>
+<ul>
+<li><a href="index.html">打开 SVG 图册</a>：八张图，可切换、缩放、打开原始 SVG。</li>
+<li><a href="implementation.html">打开排版后的完整说明</a>：带目录，可离线阅读或由浏览器打印。</li>
+<li><a href="01-system.svg">01 服务总览</a></li>
+<li><a href="02-gateway.svg">02 网关与身份会话</a></li>
+<li><a href="03-agent-graph.svg">03 Agent 节点与边</a></li>
+<li><a href="04-intent.svg">04 分层意图识别</a></li>
+<li><a href="05-tools.svg">05 工具、MCP 与 Java 数据查询</a></li>
+<li><a href="06-memory.svg">06 长短期记忆</a></li>
+<li><a href="07-streaming.svg">07 SSE 请求时序与反馈</a></li>
+<li><a href="08-tracing.svg">08 追踪与排错</a></li>
+<li><a href="source-index.html">源码索引</a>：逐个列出 Agent / 网关 Python 模块及主要函数、Java 与前端入口。</li>
+</ul>
+<h2 id="section-2">1. 先建立整体认识</h2>
+<p>这个项目的 AI 不是一个独立拥有数据库读写权限的“大模型聊天程序”，而是多个职责明确的服务协作：</p>
+<ol>
+<li><strong>前端聊天界面</strong>负责展示、发送问题、接收事件、停止回答、重置会话、反馈和用户确认记忆。</li>
+<li><strong>独立 AI 网关</strong>负责浏览器入口、身份核验、会话归属、Dify 云端 API 调用、内部 Agent 转发、Redis 历史、并发与取消控制、统一 SSE 协议和反馈落库。</li>
+<li><strong>内部 Agent</strong>负责理解自然语言、规范化问题、构建查询任务、选择 Simple / ReAct 路线、调工具、校验结果、组织事实答案、反思检查以及调用用户记忆。</li>
+<li><strong>MCP 查询服务</strong>把四种只读业务查询封装成标准工具，通过内部 HTTP 与 Agent 通信。</li>
+<li><strong>Java 服务</strong>负责登录身份、临时转接凭证、业务规则、固定 SQL、本人订单归属、记忆的权威记录和后台反馈管理。</li>
+<li><strong>Redis / MySQL / Chroma / 本地追踪文件</strong>分别承担短期会话协调、业务与记忆权威数据、向量检索投影、追踪归档。</li>
+<li><strong>Dify / Qwen / GLM / DashScope Rerank / LangSmith</strong>分别提供云端知识问答、复杂理解与决策、可选轻量分类、规则片段重排、可选追踪。</li>
+</ol>
+<h3>1.1 当前实现与早期设想的区别</h3>
+<ul>
+<li>当前前端实际上是 <strong>React + TypeScript + Vite</strong>，虽然历史对话中曾称为 Vue。依据 <code>vite.config.ts</code> 的 React 插件和 <code>src/chat/*.tsx</code>。</li>
+<li>Dify 和实时 Agent 是<strong>两个独立聊天通道</strong>，有独立的绑定、历史、会话和请求路由。</li>
+<li>当前代码没有实现“Dify 自动判断失败后自动转接 Agent”，也没有自动把 Dify 完整历史转给 Agent。用户打开实时 Agent 后，会为 Agent 自己的会话申请临时凭证。</li>
+<li>浏览器不直接调用 Dify 官方 API。API Key 保留在服务端，由网关代为调用。</li>
+<li>Agent 已经具有 LangGraph、分层理解、任务跟踪、工具边界、结果契约、反思和 Chroma 记忆，已超过最初的“LLM 包装 Java 查询”形态。</li>
+<li>网关会话已经迁移到 Redis。只有旧兼容 <code>/ai/chat</code> 和 <code>/ai/stream</code> 路径仍使用 Agent 进程内历史字典。</li>
+<li>Agent 不会直接生成任意 SQL，也不持有 MySQL 连接；SQL 在 Java 的固定查询代码中执行。</li>
+<li>当前实时 Agent 正文是在事实与校验完成后通过一个 <code>delta</code> 返回。实时的是状态与事件通道，不能据此认为正文逐 token 输出。</li>
+</ul>
+<h2 id="section-3">2. 父目录、服务与端口</h2>
+<h3>2.1 实际运行代码</h3>
+<pre><code class="language-text">AI-Project/
+├─ cinema-ticketing-frontend/
+│  └─ src/
+│     ├─ chat/                    聊天、反馈、长期记忆 UI
+│     ├─ auth/                    标签页登录态、身份失效处理
+│     └─ admin/AiFeedbackAdmin.tsx 后台 AI 反馈处理
+├─ cinema-ticketing-backend/
+│  ├─ cinema-ai/
+│  │  ├─ app/                     内部 Agent + MCP + 记忆 worker
+│  │  ├─ prompts/v1/              版本化模型提示词
+│  │  ├─ config/agent_versions.json A/B 分组配置
+│  │  ├─ knowledge/               本地票务知识 Markdown
+│  │  └─ evaluation/              评估、审计、分类器训练工具
+│  ├─ cinema-ai-gateway/app/       独立公开聊天网关
+│  ├─ src/main/java/.../           Java 业务、鉴权、反馈、记忆接口
+│  ├─ data/                       本地 Chroma、嵌入模型、澄清反馈等
+│  ├─ target/                     本地 AI 服务启动日志
+│  ├─ nginx/nginx.conf             生产同源代理与 SSE 配置
+│  └─ start-ai-local.ps1           本地 AI 相关进程启动器
+├─ API/                           服务端凭证文件，不进入浏览器
+├─ langsmith(tracing)/             按日期与用户会话归档的追踪
+├─ docs/ai-implementation/         本说明与 SVG 图册
+└─ 内部agent/源文件/               历史源码副本，不是当前启动入口
+</code></pre>
+<h3>2.2 本地进程</h3>
+<ul>
+<li>前端开发服务器：<code>5173</code>，<code>/api</code> 代理到 Java，<code>/ai-gateway</code> 代理到 Python 网关。</li>
+<li>Java 业务服务：<code>8080</code>，连接业务 MySQL、Redis 等基础设施。</li>
+<li>Agent：<code>8000</code>，入口 <code>app.main:app</code>。</li>
+<li>AI 网关：<code>8010</code>，入口网关自己的 <code>app.main:app</code>。</li>
+<li>MCP：<code>8020</code>，入口 <code>app.mcp_server:app</code>，协议地址 <code>/mcp</code>。</li>
+<li>Chroma：本地 <code>8030</code>，持久化目录 <code>cinema-ticketing-backend/data/chroma</code>。</li>
+<li>memory worker：独立后台进程，无 HTTP 端口。</li>
+</ul>
+<p><code>start-ai-local.ps1 -Service all</code> 当前选择五项：Chroma → MCP → Agent → Gateway → Memory worker。它不会替代 Java、前端、MySQL、Redis 等服务的启动。MCP 启动后会检查健康端点再继续；其他进程启动不等于全链路已经可用。</p>
+<p><strong>Compose 与本地端口不同：</strong> Compose 内网 Chroma 使用 <code>chroma:8000</code>；这不与另一个容器里的 Agent <code>:8000</code> 冲突。本地运行时才使用 Chroma <code>8030</code>。Compose 不把 MCP / Agent / Chroma 当成浏览器直接访问的公共接口。</p>
+<h3>2.3 两个名字相近的“网关”</h3>
+<ul>
+<li>Python <code>cinema-ai-gateway/</code>：前端当前聊天的主要入口，负责 Dify、实时 Agent、Redis 会话、SSE、反馈。</li>
+<li>Java <code>AiGatewayService.java</code>：保留的兼容适配器，提供 <code>/api/ai/chat</code>、<code>/api/ai/stream</code>，调用 Agent <code>/ai/chat</code>、<code>/ai/stream</code>。它不是当前聊天界面调用的独立网关。</li>
+</ul>
+<h2 id="section-4">3. 一次问题从输入到回答的全过程</h2>
+<p>以“明天《某电影》有什么场次，顺便看看还有哪些座位”为例；电影名仅为示例，不代表数据库有该记录。</p>
+<ol>
+<li>前端取得当前标签页已核验的登录 token，连接 <code>agent/session</code>，获得 <code>sessionId</code> 与 <code>bindingKey</code>。</li>
+<li>前端向 Java <code>/api/ai/handoff</code> 申请与该 Agent 会话绑定的临时凭证。</li>
+<li>前端向网关 <code>/ai-gateway/agent/chat</code> 发 <code>{sessionId, question, credential}</code>，请求头携带标签页 token 与会话绑定。</li>
+<li>网关请求 Java 核验登录，再用 Redis 检查绑定、会话归属、当前活动会话。</li>
+<li>网关检查问题长度、速率、该会话是否正在回答、全局并发上限，取得分布式租约。</li>
+<li>网关到 Java 解析转接凭证，要求用户、会话、<code>cinema:read</code> 范围全部吻合。</li>
+<li>网关读取 Agent 通道最近的有效历史，最多十条、每条最多两千字符，发送给内部 <code>/ai/live</code>。</li>
+<li>Agent 做规则预检、同义化、日期解析，必要时调用分类模型或 Qwen，得到受约束的 <code>QuestionPlan</code>。</li>
+<li>根据多个查询任务或依赖关系选择 ReAct：先查场次，再决定能否查座位。</li>
+<li>Agent 工具参数经过白名单、实体来源与范围校验后，通过 MCP 查询 Java。</li>
+<li>Java 用固定 SQL 返回真实场次；Agent 校验返回值与日期、范围等契约是否匹配。</li>
+<li>若只有一个可确定场次，继续查座位；若多个场次且用户没选，要求用户选择，不能猜编号。</li>
+<li>Agent 依据查询事实生成答案块，进行规则校验或一次模型反思。</li>
+<li>Agent 发状态、上下文和正文事件；网关保存快照和历史、释放租约后才发 <code>complete</code>。</li>
+<li>前端收到 <code>complete</code> 才认为本轮正常完成；后续“有帮助 / 没帮助”使用服务端生成的 <code>messageId</code> 提交。</li>
+</ol>
+<p>这条链路中，LLM 可以理解问题、建议工具、检查答案；<strong>用户身份、查询范围、订单归属和最终事实不能仅靠模型判断</strong>。</p>
+<h2 id="section-5">4. 前端聊天实现</h2>
+<h3>4.1 界面组件</h3>
+<ul>
+<li><code>CinemaAssistant.tsx</code>：承载 Dify 与 Agent 两套聊天实例；连接、历史恢复、发送、停止、重试、重置、记忆建议确认。</li>
+<li><code>chatTransport.ts</code>：统一请求头、通道 URL、POST 流解析、错误与完成判断。</li>
+<li><code>MessageFeedback.tsx</code>：点赞、点踩、原因与文字补充。</li>
+<li><code>UserMemories.tsx</code>：长期记忆的查看、新增、修改、删除。</li>
+<li><code>messageId.ts</code>：消息 ID 的处理。</li>
+<li><code>assistant.css</code>：聊天面板及反馈样式。</li>
+<li><code>AiFeedbackAdmin.tsx</code>：管理员筛选与处理用户反馈。</li>
+</ul>
+<h3>4.2 标签页隔离</h3>
+<p>登录信息使用 <code>sessionStorage</code>；聊天绑定也使用：</p>
+<pre><code class="language-text">cinema-ai-binding:&lt;dify|agent&gt;:&lt;userId|guest&gt;
+</code></pre>
+<p>请求采用 <code>credentials: &quot;omit&quot;</code>，不依赖浏览器共享 Cookie 识别聊天身份。使用：</p>
+<ul>
+<li><code>X-Auth-Token</code>：当前标签页的登录凭证。</li>
+<li><code>X-AI-Session</code>：服务端生成的随机绑定键。</li>
+<li><code>X-AI-Conversation</code>：当前会话 UUID。</li>
+</ul>
+<p>账号切换会取消旧请求、清理当前聊天状态，使用请求代次阻止旧响应覆盖新账号页面。登录失效需后端返回明确标志或流内 <code>auth_expired</code>，前端才作相应失效处理。</p>
+<p><strong>标签页账号隔离不等于每个标签页都有独立账号聊天历史。</strong> 当前 Redis 设计是每个账号、每个通道一个活动会话，因此同一账号多个设备可以恢复同一通道历史，也会受到同会话单请求限制。</p>
+<h3>4.3 为什么不是 EventSource</h3>
+<p>聊天要提交 JSON 和自定义鉴权头，因此前端使用 <code>fetch(POST)</code> + <code>ReadableStream</code> + <code>TextDecoder</code> 读取 SSE 帧。</p>
+<p>解析器支持 UTF-8 字符跨网络块、帧跨网络块、多行 <code>data:</code>、空行分隔、<code>[DONE]</code> 忽略，并限制残余缓冲长度。收到 <code>error</code> 立即进入失败；连接结束没有 <code>complete</code> 则提示连接中断，防止“没有完整答案却显示成功”。</p>
+<h3>4.4 重置、停止与重试的差异</h3>
+<ul>
+<li>停止：取消当前生成，不等于清空历史；前端中断读取，同时调用网关停止接口。</li>
+<li>重置：只换掉当前通道的会话与短期历史，不会删除用户长期记忆，也不会删除 Java 中已提交的反馈。</li>
+<li>重试：创建新的一轮执行；原失败记录与新回答不能用同一个结果成功状态混淆。</li>
+<li>实时 Agent 凭证有效期十分钟，临近到期时刷新；<code>handoff_expired</code> 会清理旧凭证。</li>
+</ul>
+<h2 id="section-6">5. AI 网关：入口与安全边界</h2>
+<h3>5.1 接口</h3>
+<p>通道路径由服务端固定为 <code>dify</code> 或 <code>agent</code>：</p>
+<pre><code class="language-text">GET  /ai-gateway/{channel}/session
+POST /ai-gateway/{channel}/chat
+POST /ai-gateway/{channel}/stop
+POST /ai-gateway/{channel}/reset
+POST /ai-gateway/{channel}/feedback
+</code></pre>
+<p><code>ChatRequest</code> 只接受会话 UUID、问题和可选临时凭证；问题长度一至两千字符。浏览器没有权力指定 <code>userId</code>、上游 Dify <code>conversation_id</code> 或 Agent 的工具参数。</p>
+<h3>5.2 身份核验流程</h3>
+<ol>
+<li>先检查请求来源提示，拒绝明确 <code>sec-fetch-site: cross-site</code> 的请求。这是附加防线，不能解释为完整的所有跨站风险防护。</li>
+<li>如果有 token，网关调用 Java <code>/internal/ai/auth/resolve</code>，由 Java 验证当前登录和账号，返回用户 ID、角色、有效期。</li>
+<li>验证 Redis 绑定对应的 token 是否<strong>正好等于本次请求的 token</strong>，不能用 Redis 中旧 token 替代遗漏的请求凭证。</li>
+<li>验证会话 owner 与当前用户一致、会话 UUID 匹配、账号的活动会话指针仍有效。</li>
+<li>Agent 还要求已登录及有效转接凭证；Dify 支持匿名会话。</li>
+</ol>
+<p>鉴权服务不可用时返回 503，Redis 不可用也拒绝继续，避免在无法证明归属时放行私人会话。虽然配置中保留 <code>AI_AUTH_REDIS_URL</code>，当前身份权威核验实际走 Java HTTP，不是网关直接信任一个用户 ID。</p>
+<h3>5.3 临时转接凭证</h3>
+<p>Java <code>AiHandoffService</code> 根据当前登录用户签发七十二字符随机凭证，Redis 保存原登录 token 与会话 ID，有效十分钟。</p>
+<p>网关请求 <code>/internal/ai/handoff/resolve</code> 后还检查：</p>
+<ul>
+<li><code>sessionId</code> 等于当前 Agent 聊天会话。</li>
+<li><code>userId</code> 等于网关核验的 owner。</li>
+<li><code>scope</code> 为 <code>cinema:read</code>。</li>
+</ul>
+<p>解析时 Java 再验证原登录态，因此登出或撤销后不能仅靠旧凭证继续查询。凭证在有效期内可重复解析，不是一次性消费令牌。</p>
+<h3>5.4 连接池与私网调用</h3>
+<p>网关启动创建两套共享异步 HTTP 连接池：外部调用池与内部服务池。内部池设置 <code>trust_env=False</code>，避免本机代理环境影响 Java / Agent 私网地址。默认连接超时五秒，HTTP 超时九十秒，连接数与网关并发上限相适配。服务启动会确认 Redis 可连接。</p>
+<h2 id="section-7">6. Redis 会话、并发和取消</h2>
+<h3>6.1 会话持久化</h3>
+<p>Redis 分别使用 <code>ai:gateway:dify:</code> 与 <code>ai:gateway:agent:</code> 命名空间，保存：</p>
+<ul>
+<li>会话与 owner、上游会话 ID、上游任务 ID。</li>
+<li>标签页随机绑定键与 token 绑定。</li>
+<li>账号活动会话指针。</li>
+<li>最近用户 / 助手消息。</li>
+<li>生成租约、取消标记、滚动限流计数。</li>
+<li>两小时消息快照、反馈状态与反馈锁。</li>
+</ul>
+<p>默认匿名会话一天，账号会话滑动三十天；绑定键一天。历史最多四十条消息，不是四十轮对话。每通道会话容量上限两千；消息快照每通道上限一千、TTL 两小时。</p>
+<p>历史中保存问题和回答正文，因此“LangSmith 脱敏”<strong>不等于整个系统不保存原文</strong>。</p>
+<h3>6.2 多实例如何协作</h3>
+<p>新建账号会话使用 Redis <code>NX</code> 竞争活动指针；并发创建时保留获胜的会话。取得租约、限流、更新上游 ID、保存历史和释放锁使用 Lua 等原子操作，防止多个 worker 同时认为自己拥有执行权。</p>
+<ul>
+<li>每个会话同一时间只允许一个生成。</li>
+<li>所有网关实例、两个通道共享全局生成容量，默认十六，配置允许一至一百二十八。</li>
+<li>生成租约一百二十秒，用于 worker 崩溃后的自动恢复；正常网关整轮超时九十秒。</li>
+<li>释放时比较租约 token，迟到的老请求不能释放新请求的租约。</li>
+<li>重置也需要独占操作；同账号其他设备持有的旧活动会话会失效，需要重新连接。</li>
+</ul>
+<p><strong>多实例共享的前提是连接同一个 Redis 并使用同一个命名空间。</strong> Redis 持久化、容量、清理策略、网络可用性仍决定实际恢复能力。</p>
+<h3>6.3 限流与取消</h3>
+<ul>
+<li>聊天：每会话每分钟十二次。</li>
+<li>反馈：每会话每分钟二十次。</li>
+<li>重置：每绑定每分钟五次。</li>
+<li>流期间取消监测约每零点五秒一次；有登录用户时约每两秒再次向 Java 核验身份。</li>
+</ul>
+<p>停止把当前租约标记为取消。Dify 额外调用其任务停止接口；Agent 通过取消内部 HTTP 流传播中断。远端已经受理的模型调用是否立即停止或不再计费，不能由本地取消机制保证。</p>
+<h3>6.4 完成后才发送成功</h3>
+<p>网关先观察上游事件，把 <code>complete</code> 暂存；在 <code>finally</code> 中保存快照和历史、释放租约，再按成功状态给浏览器发 <code>complete</code>。生成完成但保存失败，也不能假装会话已持久化成功。</p>
+<h2 id="section-8">7. Dify 通道</h2>
+<h3>7.1 如何调用云端 Chatbot</h3>
+<p>网关向 Dify <code>POST /chat-messages</code>，使用服务端 Bearer API Key，提交：</p>
+<pre><code class="language-json">{
+  &quot;inputs&quot;: {},
+  &quot;query&quot;: &quot;用户问题&quot;,
+  &quot;response_mode&quot;: &quot;streaming&quot;,
+  &quot;user&quot;: &quot;cinema-&lt;网关会话UUID&gt;&quot;,
+  &quot;conversation_id&quot;: &quot;此前由Dify返回并由网关保存的会话ID&quot;
+}
+</code></pre>
+<p><code>user</code> 使用会话标识，不直接传业务用户 ID。Dify 持有自己云端会话上下文；网关只保存其返回的会话与任务 ID，并把上游事件转为统一前端协议。</p>
+<h3>7.2 事件转换</h3>
+<ul>
+<li>Dify <code>message</code> / <code>agent_message</code> → 前端 <code>delta</code>。</li>
+<li><code>message_replace</code> → <code>replace</code>。</li>
+<li><code>message_end</code> → 检查答案非空后确认上游完成。</li>
+<li><code>error</code> → 固定错误分类与安全提示。</li>
+<li>兼容最终答案是 <code>{ &quot;answer&quot;: &quot;...&quot; }</code> JSON 的情况，提取 answer 替换展示。</li>
+</ul>
+<p>答案长度上限四万字符；未完成时在清理阶段尽力停止 Dify 任务。API Key 存在仅说明已配置，不能证明 Dify 应用权限、额度、网络或工作流已正常。</p>
+<h3>7.3 当前代码无法说明的部分</h3>
+<p>Dify 内部的知识库、提示词、模型、工作流节点、召回参数由云端应用配置决定，不在本地源码中。本文没有把它们虚构成已实现的节点。</p>
+<p>“Dify 承担大多数问答”能减少多少 Java 压力，取决于用户实际选择通道和 Dify 命中率；当前没有自动流量分配器，也没有实测命中率结论。</p>
+<h2 id="section-9">8. 内部 Agent 的三个入口</h2>
+<h3>8.1 当前网站入口 <code>/ai/live</code></h3>
+<p>只接受内部凭证，网关发送可信 <code>user_id</code>、会话 ID、当前问题和最多十条有效历史。历史来自网关 Redis，不接受浏览器伪造历史。</p>
+<p>正常查询执行 <code>LangGraph.astream(..., stream_mode=&quot;custom&quot;)</code>，向网关输出状态、上下文、正文、错误与完成事件。最外层执行上限八十秒。</p>
+<p>两条特殊路径直接在此入口处理：</p>
+<ul>
+<li>“记住……”：产生待确认的 <code>memory_suggestion</code>，不立即写库，也不进入通用图。</li>
+<li>“记得我 / 我的偏好 / 我的记忆”等显式记忆查询：读取记忆并回答，不进入通用查询图。</li>
+</ul>
+<h3>8.2 兼容入口 <code>/ai/chat</code></h3>
+<p>返回结构化 JSON，包含答案、意图、数据、来源、执行计数和结束原因。它的历史使用进程内 <code>self.sessions[user:session]</code>，保留最近十条消息；不同 Agent worker 不共享、重启会丢失，字典的会话键没有实现统一 TTL / 总容量回收。</p>
+<h3>8.3 兼容入口 <code>/ai/stream</code></h3>
+<p>先执行同一套结构化聊天，再通过 SSE 发一个结果和 <code>[DONE]</code>。它不是当前网站的 <code>/ai/live</code>，也不等于逐 token 流式生成。</p>
+<h3>8.4 健康检查</h3>
+<p><code>/health</code> 返回进程状态与追踪配置摘要。它不完整探测 MCP、Java、Qwen、Chroma、Dify 等依赖，看到 UP 不能直接得出所有问答可用。</p>
+<h2 id="section-10">9. 问题理解、同义化与意图路由</h2>
+<h3>9.1 九类意图</h3>
+<p><code>movies</code>、<code>screenings</code>、<code>seats</code>、<code>order</code>、<code>refund</code>、<code>policy</code>、<code>recommend</code>、<code>chat</code>、<code>unsupported</code>。</p>
+<p>意图与槽位一起形成受约束的 <code>QuestionPlan</code>，包括规范化问题、片名、影院、日期、查询范围、订单号、场次编号、偏好、置信度、澄清问题等。不会生成可执行 SQL 或授权用户 ID。</p>
+<h3>9.2 分层流程</h3>
+<ol>
+<li><strong>规则解析与预检</strong>：日期按北京时间处理，保留原始订单标识，识别同义表达和明确槽位；无效日期、越界写操作、缺失关键编号等先处理。</li>
+<li><strong>L0 规则快速路径</strong>：问候、明确订单号、明确场次号、典型电影字段、明确日期场次等可以直接路由，无须调用模型。</li>
+<li><strong>可选本地 fastText</strong>：默认关闭。只有模型文件存在、SHA256 与评估清单相符、<code>deployment_approved=true</code>、九标签完整、置信度达阈值且符合规则约束时才接纳。</li>
+<li><strong>可选 GLM L1</strong>：只在 B 组、功能开启、模型可用且问题符合资格时调用。它负责高频单任务的结构化分类，不负责执行查询。</li>
+<li><strong>Qwen 结构化理解兜底</strong>：复杂、上下文依赖、多任务或分类未通过时调用，限制 JSON 输出与时限。</li>
+<li><strong>代码再校验</strong>：重新绑定规则解析出的日期、范围、明确片名和用户提供的订单号 / 场次号；低置信度或缺条件则追问。</li>
+</ol>
+<p>分类模型说“这是订单查询”并不能产生订单号；模型说“查询用户 2”也不会改变当前认证用户。</p>
+<h3>9.3 A/B 机制</h3>
+<p>分组对 <code>experiment + userId + sessionId</code> 做 SHA256，取百分桶，默认 A/B 各一半：</p>
+<ul>
+<li>A：L0 + Qwen 兜底 + 校验 / 反思。</li>
+<li>B：L0 + GLM L1 + Qwen 兜底 + 校验 / 反思。</li>
+</ul>
+<p>服务端允许强制 A/B 以评估或回滚。关闭 A/B 时当前实现走全 B，不应解释为关闭 GLM。GLM 自己的开关、密钥与资格检查仍生效。</p>
+<h3>9.4 GLM 的控制</h3>
+<ul>
+<li>默认模型 <code>glm-4.7-flash</code>，默认接受阈值 0.90，最低不低于 0.85。</li>
+<li>最多输出 320 tokens，默认六秒期限，关闭 thinking，不自动重试。</li>
+<li>每事件循环一次仅一个分类请求；忙时跳过，避免排队拖慢主链路。</li>
+<li>429 后冷却三十秒；超时后冷却十秒。</li>
+<li>发给 GLM 前屏蔽符合格式的订单号，但不是对所有个人信息进行通用匿名化。</li>
+<li>片名、影院等字段必须能在问题中找到依据；不能改变已有范围、凭空补充编号或扩大查询任务。</li>
+</ul>
+<h3>9.5 同义化的边界</h3>
+<p>同义化用于把“啥片 / 电影有哪些”“能买 / 可订购”等表达归到业务槽位，不是随意改写用户要求。特别是：</p>
+<ul>
+<li><code>catalog</code>：影片资料目录。</li>
+<li><code>showing</code>：上映中的影片属性判断。</li>
+<li><code>scheduled</code>：存在真实发布排期，按日期查询，可包含当天已开场或未开售场次。</li>
+<li><code>bookable</code>：现在可订购，还要满足售票时间窗、影片周期、未开场等服务端规则。</li>
+</ul>
+<p><strong>上映、已排期、当前可买是三个不同条件。</strong> 不能用目录影片列表回答“明天哪些影片有排期”，也不能把全部排期称为可购票场次。</p>
+<h2 id="section-11">10. LangGraph 节点和边</h2>
+<h3>10.1 八个节点</h3>
+<ol>
+<li><code>prepare</code>：创建整轮预算、理解问题、构建 tasks、选择 simple / react、必要时读取推荐偏好、建立模型消息与版本信息。</li>
+<li><code>clarify</code>：缺条件时给出明确追问。</li>
+<li><code>simple</code>：用代码从单个已校验任务生成工具调用，不让模型再决定调用哪个工具。</li>
+<li><code>agent</code>：ReAct 决策，模型接收任务进度与已校验观察，用原生 tool calling 提议下一步；必要时有代码兜底任务。</li>
+<li><code>tools</code>：参数校验、预算检查、注入身份、执行、返回契约校验、记录 observation 与任务进度。</li>
+<li><code>draft</code>：把每个有效 observation 转成事实答案块，再拼接草稿。</li>
+<li><code>reflect</code>：优先规则验证，否则最多一次结构化模型反思；必要时回到 agent 补充尚未完成的查询。</li>
+<li><code>respond</code>：输出可信答案、追问、未完成说明或安全错误；记录执行上下文。</li>
+</ol>
+<h3>10.2 精确边关系</h3>
+<pre><code class="language-text">START → prepare
+prepare → clarify | simple | agent | respond
+clarify → respond
+simple → tools | draft | respond
+agent  → tools | draft | respond
+tools  → agent | draft | respond
+draft  → reflect
+reflect → agent | respond
+respond → END
+</code></pre>
+<p><code>prepare → respond</code> 包括问候和熔断等直接响应；<code>tools → agent</code> 用于 ReAct，<code>tools → draft</code> 用于 Simple；节点发现已有答案、错误或熔断时可以提前转 <code>respond</code>。</p>
+<p>图通过 <code>graph.compile()</code> 构建，没有接 LangGraph checkpoint 存储。可跨请求恢复的是网关历史和业务记忆，不是中途工具循环的持久断点。</p>
+<h3>10.3 Simple 与 ReAct 怎么选</h3>
+<p>单任务、条件完整、置信度足够高时走 Simple。多意图、多订单、多片名、场次到座位依赖、不确定条件等走 ReAct 或追问。Simple 并非“换一个模型”，而是减少不必要的模型决策。</p>
+<h3>10.4 任务与进度</h3>
+<p><code>task_progress.py</code> 把用户要求分解为可检查任务，追踪 pending / done / empty / blocked 等状态，决定下一个代码可执行调用。空结果是合法查询结果，但不能包装成找到记录；还有待完成任务时，也不能只因模型说“完成”就结束为全部成功。</p>
+<p>ReAct 一次决策最多处理两个工具提议；超出部分计为无效。重复“工具名 + 排序参数”会被识别；连续没有进展会终止，避免循环烧 token。</p>
+<h2 id="section-12">11. 工具调用、MCP 和 Java SQL</h2>
+<h3>11.1 工具全集</h3>
+<ul>
+<li><code>search_movies</code>：资料、上映、排期影片，支持片名、日期、影院、范围和分页。</li>
+<li><code>search_screenings</code>：真实排期或当前可订购场次，返回编号、时间、影厅、价格。</li>
+<li><code>query_seats</code>：指定真实场次的座位快照，区分 AVAILABLE / LOCKED / SOLD 等；不锁座。</li>
+<li><code>query_order</code>：当前登录用户本人的订单、票、实时退票资格。</li>
+<li><code>query_ticket_policy</code>：规则检索、当前启用退票政策及来源。</li>
+<li><code>recommend_movies</code>：依据明确偏好或已确认记忆查询推荐候选。</li>
+<li><code>ask_user</code>：控制工具，缺少真实条件时向用户提问，不执行业务查询。</li>
+</ul>
+<p>前四个走 MCP；规则与推荐在 Agent 的本地工具适配中调用 Java。没有锁座、创建订单、付款、退款、删影片、管理他人订单等模型工具。</p>
+<h3>11.2 调用前的五层检查</h3>
+<ol>
+<li>工具名必须在白名单。</li>
+<li>Pydantic schema 禁止额外字段，例如模型传 <code>userId</code> 会被拒绝。</li>
+<li>工具查询范围、日期和当前 task 参数必须与已验证用户要求一致。</li>
+<li>订单号只允许来自用户消息；不能来自助手猜测。场次 ID 必须由用户明确提供或来自<strong>本轮</strong>已验证场次结果。</li>
+<li>查询关键词必须来自用户要求、已确认记忆或本轮结果，不能凭空改影院、片名或偏好。</li>
+</ol>
+<h3>11.3 MCP 协议路径</h3>
+<pre><code class="language-text">LangGraph tools
+ → CinemaMcpClient.call_tool
+ → MCP initialize + tools/call（Streamable HTTP）
+ → MCP /mcp
+ → Java 固定 HTTP 接口
+ → JdbcTemplate 参数化查询
+ → structuredContent {data: ...} / {error: ...}
+ → Agent validate_result
+ → observation / ToolMessage
+</code></pre>
+<p>客户端每轮创建独立连接，以请求头绑定内部凭证和可信 <code>X-AI-User-ID</code>，不会把身份写进模型参数。MCP 是 stateless HTTP，启用 Host / DNS rebinding 检查与内部 token 中间件。</p>
+<p>工具 <code>readOnlyHint</code> 是协议描述；真正的只读边界还依赖白名单、固定接口和 Java 的实际实现，不能只靠这个提示字段保证。</p>
+<h3>11.4 工具对应 Java 接口</h3>
+<pre><code class="language-text">search_movies     → GET /internal/movies
+                    GET /internal/movies/query（带范围/分页等条件时）
+search_screenings → GET /internal/screenings
+query_seats       → GET /api/screenings/{id}/seats
+query_order       → GET /internal/orders/{orderNo}?userId=&lt;服务端绑定身份&gt;
+ticket_policy     → GET /internal/refund-policy
+                    GET /internal/knowledge/search
+recommend_movies  → POST /internal/recommendations
+</code></pre>
+<h3>11.5 SQL 的真实位置</h3>
+<p><code>InternalAiController.java</code>、<code>AiMovieQueryService.java</code> 等 Java 代码构建 SQL。用户输入作为 <code>?</code> 参数绑定；动态拼接的查询条件由服务端选择，模型没有传 SQL 字符串的入口。</p>
+<p>本人订单最终条件包含：</p>
+<pre><code class="language-sql">WHERE o.order_no = ? AND o.user_id = ?
+</code></pre>
+<p>即便猜中别人的订单号，也不能在当前身份下返回他人订单。Agent 还会检查返回订单号与 user_id 是否匹配，作为第二层结果边界。</p>
+<p>电影查询排除 OFFLINE / ARCHIVED，排期要求有效影院、影厅和发布场次；影片分页先去重再附排期摘要，避免热门影片挤掉其他影片。场次查询最多五十条；摘要可能截断，答案应保留“不完整”的含义。</p>
+<h3>11.6 退票结果为什么要实时查</h3>
+<p>订单退票资格由 Java 用订单状态、当前时间、启用政策截止分钟数、验票状态计算。当前逻辑要求已出票、没有票验票入场、政策可用，且当前时间严格早于退票截止时刻。</p>
+<p>通用“开场前 N 分钟可退”的知识只能解释规则；某张订单能不能退，以 <code>query_order</code> 返回 <code>can_refund</code>、<code>refund_reason</code>、<code>refund_deadline</code> 为准。Agent 不会代用户执行退款。</p>
+<h3>11.7 推荐当前的能力边界</h3>
+<p>推荐工具可以利用确认偏好，但 Java 当前主要是按 genre / title / actors 的关键词 SQL 查询并返回有限候选；不能描述成已经实现协同过滤、深度推荐或全站行为画像。</p>
+<h2 id="section-13">12. 答案生成、规则验证与反思</h2>
+<h3>12.1 数据不能直接当模型可信观察</h3>
+<p>工具执行后先检查返回类型、必须字段、查询范围、日期和订单归属等契约。校验失败产生 <code>query_contract_mismatch</code> 或业务鉴权错误，不能继续把不匹配数据喂给模型并宣称是用户请求的结果。</p>
+<p>向模型展示 observation 时有长度限制，截断结果带 <code>truncated</code> 标志。订单、座位等事实不是任由模型补齐的自由文本。</p>
+<h3>12.2 草稿是事实格式化</h3>
+<p><code>draft</code> 不调用模型写一篇自由答案。它逐个格式化已验证 observation，形成 evidence_blocks。上映 / 排期回答、订单字段、座位统计、政策文本等有专门格式化逻辑。</p>
+<h3>12.3 反思不是另一个无限 Agent</h3>
+<ul>
+<li>对确定的单任务、规范事实结果，<code>rule_verifier.py</code> 可以直接验证，跳过额外模型费用。</li>
+<li>复杂或不确定情况最多调用一次 Qwen，要求结构化 JSON，检查漏任务、无证据结论和建议动作。</li>
+<li>反思本身不能调用工具。</li>
+<li>需要补任务时由代码检查后回 ReAct，不是由反思输出任意调用。</li>
+<li><code>grounded_revision</code> 只允许选取、排序已经存在的完整事实块，不允许随意重写业务事实。</li>
+<li>反思失败、拒绝或预算用尽时，用已确认事实与限制说明收尾，不伪造“通过审核”。</li>
+</ul>
+<h2 id="section-14">13. 模型与整轮预算</h2>
+<h3>13.1 默认模型分工</h3>
+<ul>
+<li>Qwen <code>qwen3.7-flash</code>：复杂理解、ReAct 工具决策、结构化反思；默认温度 0、thinking 关闭、模型客户端不自动重试。</li>
+<li>GLM <code>glm-4.7-flash</code>：B 组可选意图分类。</li>
+<li>DashScope <code>qwen3.7-text-rerank</code>：公开票务知识片段的重排。</li>
+<li>本地 BGE：用户记忆向量化，不是聊天模型。</li>
+<li>Dify：实际使用哪种模型取决于云端应用配置，本地代码无法证明。</li>
+</ul>
+<p>模型名称来自代码 / 示例默认设置，可能被环境变量覆盖。API 文件只由服务端读取，本文不复制密钥内容。</p>
+<h3>13.2 整轮限制</h3>
+<ul>
+<li>业务工具调用：默认四次，硬上限八次。</li>
+<li>无效工具调用：默认三次，硬上限三次。</li>
+<li>ReAct 决策步数：默认五步，硬上限五步。</li>
+<li>模型调用：默认八次，硬上限八次，包含理解、GLM、决策、反思。</li>
+<li>Simple 模型调用默认最多两次；GLM 已尝试且又进入兜底时有受总上限约束的额外一次空间。</li>
+<li>tokens：默认 32,768，配置硬上限 131,072。</li>
+<li>图内预算期限：默认六十五秒，硬上限七十秒。</li>
+<li>外层 Agent 请求：八十秒；网关：九十秒；生成租约：一百二十秒。</li>
+<li>反思：最多一次，不能通过提高步数变成无限反思。</li>
+</ul>
+<h3>13.3 预算怎样实现</h3>
+<p><code>RequestBudget</code> 为每次图执行独立创建，<code>BudgetedModel</code> 包装不同阶段模型调用：发请求前检查剩余时间、调用次数、输入与最大输出预留；返回后用模型提供的 usage 纠正。</p>
+<p>输入预估保守按序列化 UTF-8 字节计算并计入工具 schema。模型没有返回 usage 时保留保守预留，并标记 <code>usage_missing_calls</code>，因此这些数字不能直接当云端账单精确 token 数。</p>
+<p>单次模型通常至多二十秒并受整轮剩余期限限制；理解另有十五秒约束；GLM 默认六秒；工具执行通常最多十五秒并受预算约束。超过限制熔断，禁止继续调用。</p>
+<p><strong>Rerank 是独立 HTTP 请求，其费用不在 LangChain ChatModel 的 token 计数里。</strong> 整轮仍受工具 / 外层期限约束，不能把 chat token 预算当整个 AI 账单总额。</p>
+<h2 id="section-15">14. 票务知识检索与 Rerank</h2>
+<h3>14.1 这条路径与 Chroma 记忆不同</h3>
+<p>票务知识当前使用：</p>
+<ol>
+<li><code>knowledge/*.md</code> 本地 Markdown。</li>
+<li>Java 数据库 <code>knowledge_document</code> 搜索结果。</li>
+<li>当前启用 <code>refund_policy</code> 的权威政策。</li>
+<li>本地关键词召回、合并去重、可选云端重排。</li>
+</ol>
+<p>并没有把所有电影、订单、票务知识都写到 Chroma 中。Chroma 当前承载的是用户长期记忆。</p>
+<h3>14.2 分块和重排</h3>
+<p>文本分块默认五百字符、重叠八十，优先按段落和中文标点切分，保留 source、version、chunk_id。关键词召回按中文字符和英文词等交集排序，合并数据库片段后最多三十个候选。</p>
+<p>默认 Rerank 取前四个，五秒上限，并发四；只发送所提供的公开政策片段，不把订单、座位记录或私人记忆当作重排文档。查询文本本身仍会发给重排提供方，不应声称完全没有用户文本出网。</p>
+<p>缺密钥、超时、网络错误、非法响应、返回索引越界等情况回到已有候选顺序前四个，不让重排故障阻断基础政策解释。纯退票政策问题可直接走权威政策与关键词候选，跳过云端重排。</p>
+<h2 id="section-16">15. 记忆机制：三种不同的“记住”</h2>
+<h3>15.1 短期对话历史</h3>
+<p>网站聊天由网关 Redis 保留最近四十条，Agent 使用其中最多十条有效消息。Dify 还有云端 <code>conversation_id</code> 关联的上下文。两通道的短期历史互不混用。</p>
+<p>这些历史帮助回答“那明天呢”之类上下文问题，不等于长期偏好，也不是永久保存所有对话。</p>
+<h3>15.2 Agent 图内状态</h3>
+<p>每次执行的 tasks、observations、budget、工具消息只服务本轮调用。未接 checkpoint，进程中断不能从中途工具节点续跑。</p>
+<h3>15.3 长期用户记忆</h3>
+<p>MySQL <code>ai_user_memory</code> 是权威记录；Chroma <code>agent_user_memory_v1</code> 是可重建的向量投影。范围固定为 AGENT，类别：GENERAL / GENRE / CINEMA / SEAT / HABIT。</p>
+<ul>
+<li>每用户最多两百条 ACTIVE 记忆。</li>
+<li>每条内容最多五百字符。</li>
+<li>“记住我喜欢科幻”只产生建议，用户确认后由 Java 创建；也可在记忆管理界面显式新增。</li>
+<li>修改 / 删除使用版本号做乐观锁，过期版本返回冲突。</li>
+<li>删除使用 DELETED 标记与递增版本，再异步清理向量。</li>
+<li>并非每轮自动总结、自动写入用户画像；模型没有任意记忆写工具。</li>
+</ul>
+<h3>15.4 写入与异步索引</h3>
+<p>Java 在同一个事务更新记忆并写 <code>ai_memory_index_outbox</code>。Memory worker 每次最多领取十项，MySQL <code>FOR UPDATE SKIP LOCKED</code> 防重复领取，同一记忆事件按顺序处理；租约五分钟，失败三十秒后重试。</p>
+<p>worker 读取当前行与事件版本：旧事件已被新版本替代时跳过旧投影；当前事件成功写 / 删 Chroma 后才确认。确认必须匹配 leaseToken 且租约未过期，迟到 worker 不能覆盖新租约。</p>
+<p>这样 MySQL 提交后就有恢复索引的任务，不必让前端等待向量化。索引是最终一致，并不保证保存的瞬间就已进入向量库。</p>
+<h3>15.5 向量模型</h3>
+<ul>
+<li>模型：<code>BAAI/bge-small-zh-v1.5</code>，固定模型获取 revision。</li>
+<li>本地 CPU，归一化向量；查询文本加检索前缀，存储内容不加。</li>
+<li>SentenceTransformer 按本地模型目录加载，<code>local_files_only=True</code>，不会在用户请求时临时联网下载。</li>
+<li>Chroma 使用 cosine 距离，显式传入 embedding，不依赖 Chroma 默认远程嵌入函数。</li>
+<li>编码在线程池串行执行，避免阻塞异步事件循环和重复初始化。</li>
+</ul>
+<h3>15.6 召回与二次校验</h3>
+<ol>
+<li>先向 Java 查该用户当前 ACTIVE 记忆；没有就结束。</li>
+<li>Chroma 按 <code>user_id + channel=AGENT</code> 过滤，向量取最多五条候选。</li>
+<li>只把候选 ID 与 version 发给 Java <code>/internal/ai/memories/verify</code>。</li>
+<li>Java 再检查 owner、ACTIVE、当前 version，返回权威内容。</li>
+<li>向量库失败、未命中有效结果时退回 SQL 最近记忆；整个记忆服务失败则不带记忆继续普通查询。</li>
+</ol>
+<p>删除记忆即使向量尚未清理，也会在 Java 校验时被排除；旧版本不能越过权威校验。</p>
+<p>自动背景召回目前主要用于<strong>电影推荐</strong>；显式“我的记忆”请求也会召回。没有把用户偏好无差别加入每个订单或座位查询。</p>
+<h3>15.7 三种数据源不能互换</h3>
+<ul>
+<li>订单能否退：查 Java 当前业务数据。</li>
+<li>用户爱看哪类电影：查确认的用户记忆。</li>
+<li>退票制度是什么：查当前政策与知识来源。</li>
+</ul>
+<p>不能把用户记忆中的旧票价、旧时间当作实时业务事实，也不能用公共知识替代订单归属核验。</p>
+<h2 id="section-17">16. 反馈、后台处理与澄清样本</h2>
+<h3>16.1 点赞 / 点踩链路</h3>
+<p>服务端为每个生成保存 Snapshot，绑定消息 ID、会话、通道、用户、问题、回答、失败情况、意图和有限上下文。</p>
+<p>用户反馈时前端只提交 messageId、like / dislike / null、固定原因与最多五百字符的补充。网关重新验身份、会话、消息归属、可反馈状态，再加分布式反馈锁。</p>
+<p>它不会信任前端上传的一份任意问题 / 回答 / 用户 ID 当作真实聊天记录。</p>
+<h3>16.2 两个存储层</h3>
+<ul>
+<li>Redis 快照保存两小时，回答截取最多八千字符并标识截断；流式展示上限四万字符。</li>
+<li>用户明确反馈时才写入 Java 持久反馈记录。不是每条聊天自动写后台反馈表。</li>
+</ul>
+<p>快照过期后反馈可能返回 410，恢复历史也会去掉无可用快照的反馈消息 ID。后台看到的是已提交的反馈，不是无限期在线查看每个用户所有对话。</p>
+<h3>16.3 Dify 反馈同步</h3>
+<p>先把本地反馈存到 Java，再用服务端保存的 Dify 消息 ID 调用 <code>/messages/{id}/feedbacks</code>，最后写同步状态。</p>
+<ul>
+<li>Agent：NOT_APPLICABLE。</li>
+<li>Dify：PENDING → SYNCED 或 FAILED；没有有效上游消息 ID 时 UNAVAILABLE。</li>
+<li>Dify 同步失败不抹掉已经保存的本地反馈。</li>
+<li>当前没有完整的持久异步重试队列自动修复所有 PENDING / FAILED，不应把状态字段当作已实现自动补偿。</li>
+</ul>
+<h3>16.4 另一个反馈机制：补槽澄清样本</h3>
+<p><code>clarification_feedback.py</code> 在“缺订单号 / 日期 / 场次号 → 用户补充 → 查询验证成功”的情况下收集脱敏样本，存入独立 SQLite。</p>
+<p>样本标记 <code>silver</code>、<code>requires_review=true</code>，只作为待审核数据，不能自动当作可靠黄金标签或立即训练上线。本地数据库会包含脱敏后的问题 / 回复，因此与 LangSmith 的 metadata-only 机制不同。</p>
+<h2 id="section-18">17. LangSmith 与本地追踪</h2>
+<h3>17.1 开启条件</h3>
+<p>同时满足：<code>LANGSMITH_TRACING=true</code>、允许的本地 / 测试 / 预发环境、有效服务端配置，才创建追踪客户端。默认运行环境按 production 处理，避免无意开启。</p>
+<p>支持 US 默认 endpoint、自定义配置和组织密钥需要的 Workspace ID。配置成功只代表客户端已创建，权限、网络和云端写入是否成功还需要实际请求证据。</p>
+<h3>17.2 能看什么</h3>
+<ul>
+<li>每轮根 trace 与父子 span 关系。</li>
+<li>LangGraph 节点执行、模型调用、工具调用和耗时。</li>
+<li>固定错误码、发生阶段、HTTP 状态、结束原因。</li>
+<li>Simple / ReAct、A/B、提示词 / 规则指纹、槽位存在性摘要。</li>
+<li>模型调用次数、工具次数、反思次数、token usage 或保守预留。</li>
+</ul>
+<p>输出使用 <code>MetadataOnlyClient</code> 对 SDK 的写入路径统一清洗，包括原生图 / 模型回调，避免仅手写工具 span 脱敏、自动回调却上传原文。</p>
+<h3>17.3 本地归档组织</h3>
+<pre><code class="language-text">langsmith(tracing)/
+├─ .archive-index.sqlite3
+└─ 2026_10_12/
+   └─ 42_2026_10_12_14_24_a1b2c3d4e5f6/
+      ├─ session.json
+      └─ traces.jsonl
+</code></pre>
+<p>上例用户 42 与 hash 仅为格式示例。分钟使用 <code>_</code>，Windows 文件夹不能使用时间中的 <code>:</code>。同一分钟多个会话用 session hash 区分。</p>
+<p>会话首次追踪时确定目录；同一会话后续多轮、跨日、进程重启仍归该会话首次目录，因此第二天仍可能写入前一天的会话目录。这是<strong>按会话聚合</strong>，不是每轮都重新按当天拆分。</p>
+<p>SQLite 索引保存 session_ref 与目录、trace_id 与会话关系，支持延迟 SDK 回调归档；写入通过线程锁与 SQLite 事务协调多个 Agent 进程。</p>
+<p>JSONL 每行是已清洗 span 的创建 / 更新事件，有 trace_id、run_id、parent_run_id、时间、名称、摘要、允许 metadata、固定错误码。不是原始 prompt / 问答 / SQL / 工具行明细的全集。</p>
+<h3>17.4 隐私边界要分开看</h3>
+<ul>
+<li>LangSmith 和本地 traces：只允许摘要与白名单 metadata，业务正文与凭证不上传；云端会话关联使用 hash，本地 session.json 含用户 ID。</li>
+<li>模型理解与决策：为了完成查询，会读取问题、有限历史以及必要工具观察，可能包含业务字段；不能把 LangSmith 脱敏误解为模型也没收到它们。</li>
+<li>Dify：会收到用户发给 Dify 的问题，并保留它自己的云端会话。</li>
+<li>Redis：保存短期问答正文。</li>
+<li>MySQL AI 反馈：保存用户主动反馈对应的问题 / 回答等。</li>
+<li>MySQL / Chroma 记忆：保存用户确认的偏好内容。</li>
+</ul>
+<p>追踪失败会记录安全日志，尽量不阻断业务回答；关闭追踪也意味着当前这种本地 LangSmith 归档路径不会照常生成所有 span，不是独立永久开启的全量审计系统。</p>
+<h2 id="section-19">18. “回答未完成”如何定位</h2>
+<h3>18.1 这是界面结果，不是唯一根因</h3>
+<p>可能发生在：</p>
+<ul>
+<li>请求尚未开始：登录失效、旧会话、绑定不匹配、凭证到期、限流、忙碌。</li>
+<li>调用 Dify / Agent：不可达、上游 4xx / 5xx、SSE 提前 EOF。</li>
+<li>Agent：模型鉴权失败、模型权限 / 地域错误、429、超时、工具网络错误、MCP 未启动、Java 内部 token 不一致、结果契约不一致。</li>
+<li>预算：模型次数 / token / 步数 / 工具次数耗尽。</li>
+<li>返回阶段：用户停止、切换账号、网络断开、代理缓冲 / 超时、Redis 持久化失败。</li>
+</ul>
+<p>某些预算终止会返回已确认事实与未完成说明，属于业务层部分完成；如果通道最终完整发送并持久化，SSE 仍可以 <code>complete</code>。<strong>协议完成与用户所有任务完成不是同一概念</strong>，需要结合 stop_reason / pending_tasks 理解。</p>
+<h3>18.2 推荐排查顺序</h3>
+<ol>
+<li>先看浏览器请求通道和返回：是 HTTP 拒绝，还是流内 error，还是缺 complete？</li>
+<li>看 Gateway 日志的 messageId、provider、stage、错误类型 / 状态。</li>
+<li>Agent 分支关联 trace_id，查看该用户会话归档或 LangSmith 的节点耗时。</li>
+<li>判断卡在理解、模型决策、MCP、Java 查询、反思还是持久化。</li>
+<li>401 / 403 区分登录凭证、内部服务凭证、模型凭证、LangSmith 凭证，不能把它们当同一种密钥错误。</li>
+<li>若是 query_contract_mismatch，先比对服务版本和返回字段 / 范围；不要通过关掉校验掩盖不匹配。</li>
+<li>若只有 health UP 而实际请求失败，继续查依赖和权限，不以进程活着代替链路健康。</li>
+</ol>
+<p>日志通常在 <code>cinema-ticketing-backend/target/ai-&lt;service&gt;-stderr.log</code> / stdout.log。图册 08 标出了追踪关联路径。本文未对当前运行故障作诊断结论。</p>
+<h2 id="section-20">19. 对后端压力的实际影响</h2>
+<h3>19.1 已经减少的工作</h3>
+<ul>
+<li>FAQ 在 Dify 云端完成，不必每次调内部业务查询工具。</li>
+<li>SSE 连接与 Dify 流转发由 Python 网关承接，减少 Java 直接持有这些聊天连接。</li>
+<li>L0、Simple 和规则验证减少云端模型调用与循环。</li>
+<li>Redis 会话、连接池、全局并发、速率和预算限制减少无序放大。</li>
+<li>记忆向量化异步完成，不挡住 Java 记忆保存事务。</li>
+</ul>
+<h3>19.2 仍然落到 Java 的工作</h3>
+<ul>
+<li>网关登录核验和流期间身份复核。</li>
+<li>Agent 转接凭证核验。</li>
+<li>影片、场次、座位、订单、政策和推荐的实际查询。</li>
+<li>记忆写入、召回二次校验、索引任务领取 / 确认。</li>
+<li>点赞 / 点踩持久化及后台管理。</li>
+</ul>
+<p>因此它把流式连接与 FAQ 负担分散了，但不会让真实业务查询消失。默认十六个同时登录的长流，在流中身份复核阶段理论上约每两秒每流一请求，即约八次 / 秒，加上其他操作；这是按代码周期推算的上限量级示例，不是压测结果。</p>
+<p>同一业务问题使用 ReAct 可能产生多次 Java 查询；降低复杂度要依赖清晰范围、工具预算、索引和业务查询性能。当前不能仅靠“接了 Dify”保证数据库压力一定很小。</p>
+<h2 id="section-21">20. 已实现边界与仍需注意的限制</h2>
+<p>以下是当前代码的能力边界，不是本次提出或执行的改造：</p>
+<ul>
+<li>没有自动 Dify → Agent 失败转接和历史迁移。</li>
+<li>不提供模型执行交易或后台管理写操作。</li>
+<li>网站 Agent 不支持逐 token 正文输出；状态通道与最终正文策略不同。</li>
+<li>LangGraph 未配置持久 checkpoint，兼容 JSON 接口的内存会话不适合无额外处理的多实例恢复。</li>
+<li>记忆索引最终一致，模型文件需预先部署；默认 SQL 回退不是语义最优召回。</li>
+<li>同账号同通道共享活动会话，重置会影响其他设备旧会话。</li>
+<li>点踩 Dify 同步存在状态记录，但未实现完整自动补偿队列。</li>
+<li>反馈快照有两小时窗口与容量限制，不能保证无限期反馈旧消息。</li>
+<li>配置模板、Docker Compose、本地启动进程可能使用不同环境变量；修改模板不会自动更新正在运行的进程。</li>
+<li>gateway ready / Agent health 不等于依赖健康、付费模型可用或追踪写入成功。</li>
+<li>当前工具权限依赖受信内网与共享内部凭证；浏览器不能访问私网服务是部署边界的一部分。</li>
+<li>既有评估脚本与历史报告有参考价值，不代表这次已重新运行或证明当前线上质量。</li>
+</ul>
+<h2 id="section-22">21. 配置定位与阅读顺序</h2>
+<p>不要把密钥放进 <code>VITE_*</code>。服务端环境变量优先于文件加载；本文只指向配置项，不展示任何实际密钥。</p>
+<h3>网关配置</h3>
+<p><code>cinema-ai-gateway/.env.example</code>：DIFY_API_BASE_URL、DIFY_API_KEY_FILE、JAVA_API_URL、AGENT_API_URL、AI_INTERNAL_TOKEN、AI_REDIS_URL、AI_REDIS_PREFIX、AI_MAX_STREAMS、AI_GATEWAY_WORKERS。</p>
+<h3>Agent 配置</h3>
+<p><code>cinema-ai/.env.example</code>：<code>QWEN_MODEL / KEY_FILE / BASE_URL</code>、<code>GLM_L1_*</code>、<code>AGENT_L0_ENABLED</code>、<code>INTENT_L1_*</code>、<code>AGENT_AB_*</code>、<code>AGENT_MAX_*</code>、<code>AGENT_TIMEOUT_SECONDS</code>、<code>AGENT_RULE_VERIFIER_ENABLED</code>、<code>RERANK_*</code>、<code>MEMORY_*</code>、<code>CHROMA_*</code>、<code>LANGSMITH_*</code>、<code>AI_ENVIRONMENT</code>、<code>CINEMA_MCP_URL</code>。</p>
+<h3>推荐阅读路线</h3>
+<ol>
+<li>图 01 和本说明 1–3：知道系统有哪些服务。</li>
+<li>前端 <code>CinemaAssistant.tsx</code> + <code>chatTransport.ts</code>：知道浏览器发什么。</li>
+<li>网关 <code>main.py</code> + <code>store.py</code>：知道身份、历史、并发和完成语义。</li>
+<li>Agent <code>main.py</code> + <code>react_agent.py</code>：知道入口与图。</li>
+<li><code>intent.py</code> / <code>intent_routing.py</code> / <code>glm_router.py</code>：知道如何理解用户。</li>
+<li><code>react_tools.py</code> / MCP / Java：知道数据从哪里来以及谁能查。</li>
+<li><code>task_progress.py</code> / <code>agent_budget.py</code> / <code>rule_verifier.py</code> / <code>reflection.py</code>：知道怎样保证有限执行与有据回答。</li>
+<li><code>memory.py</code> / worker / <code>AiMemoryService.java</code>：知道长期记忆如何存取。</li>
+<li><code>tracing.py</code> / feedback / evaluation：知道如何观测、回收问题和评估。</li>
+</ol>
+<h2 id="section-23">22. 一句话概括</h2>
+<p><strong>前端组织会话，网关守住身份与流量，Agent 把自然语言变成有限的只读查询计划，MCP 提供受约束工具，Java 执行权威业务查询，答案经过事实校验后返回；Redis 支持短期历史与协调，MySQL + Chroma 支持确认后的长期记忆，反馈和 LangSmith 支持后续排查。</strong></p>
+<h2 id="section-24">23. 协议与数据结构细节</h2>
+<h3>23.1 容易混淆的各类标识</h3>
+<ul>
+<li><strong>登录 token</strong>：证明当前业务登录身份，Java 负责验证和撤销。</li>
+<li><strong>bindingKey</strong>：随机会话绑定键，前端放在标签页 sessionStorage；需要同时匹配本次 token 和会话。</li>
+<li><strong>sessionId</strong>：网关聊天 UUID，一次重置后会改变。</li>
+<li><strong>credential</strong>：Java 签发的短期 Agent 转接凭证，与登录及会话绑定。</li>
+<li><strong>Dify conversation_id</strong>：Dify 云端自己的历史标识，保存于网关服务端。</li>
+<li><strong>task_id</strong>：Dify 当前生成任务标识，用于停止。</li>
+<li><strong>messageId</strong>：网关为本次回答生成的 UUID，用于反馈与日志定位。</li>
+<li><strong>trace_id</strong>：Agent 本轮追踪根 UUID；一次会话可以有很多轮 trace。</li>
+<li><strong>run_id / parent_run_id</strong>：某个节点 / 模型 / 工具 span 与父级关系。</li>
+<li><strong>session_ref</strong>：用户 ID 与会话 ID 的 hash，供追踪关联与目录索引。</li>
+</ul>
+<p>这些标识用途不同，不能把某个 trace_id 当登录凭证，也不能拿 Dify conversation_id 直接请求本人订单。</p>
+<h3>23.2 浏览器到网关</h3>
+<p>示意结构，UUID、凭证和问题均为占位示例：</p>
+<pre><code class="language-http">POST /ai-gateway/agent/chat
+Content-Type: application/json
+X-Auth-Token: &lt;当前标签页登录token&gt;
+X-AI-Session: &lt;bindingKey&gt;
+X-AI-Conversation: &lt;sessionId&gt;
+
+{
+  &quot;sessionId&quot;: &quot;&lt;会话UUID&gt;&quot;,
+  &quot;question&quot;: &quot;明天有哪些可以订购的场次？&quot;,
+  &quot;credential&quot;: &quot;&lt;Java签发的短期凭证&gt;&quot;
+}
+</code></pre>
+<p>Dify 通道不允许混入 Agent 的 credential。浏览器不提交 user_id、SQL、历史消息或实际工具调用。</p>
+<h3>23.3 网关到 Agent</h3>
+<pre><code class="language-json">{
+  &quot;user_id&quot;: 42,
+  &quot;session_id&quot;: &quot;&lt;Agent通道会话UUID&gt;&quot;,
+  &quot;question&quot;: &quot;明天有哪些可以订购的场次？&quot;,
+  &quot;history&quot;: [
+    {&quot;role&quot;: &quot;user&quot;, &quot;content&quot;: &quot;之前的本通道问题&quot;},
+    {&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: &quot;之前完整成功的本通道回答&quot;}
+  ]
+}
+</code></pre>
+<p>42 只是示例。身份来自网关验证结果；即便 history 来自可信网关，其中的自然语言仍属于用户上下文，不能作为更高权限指令覆盖系统和工具约束。</p>
+<h3>23.4 发给浏览器的事件</h3>
+<p>每帧形式为 <code>data: &lt;JSON&gt;\n\n</code>：</p>
+<pre><code class="language-text">{&quot;type&quot;:&quot;message&quot;,&quot;messageId&quot;:&quot;&lt;本轮回答UUID&gt;&quot;}
+{&quot;type&quot;:&quot;status&quot;,&quot;message&quot;:&quot;正在理解你的问题…&quot;}
+{&quot;type&quot;:&quot;context&quot;,&quot;normalized_question&quot;:&quot;规范化后的问题&quot;}
+{&quot;type&quot;:&quot;delta&quot;,&quot;text&quot;:&quot;回答正文&quot;}
+{&quot;type&quot;:&quot;replace&quot;,&quot;text&quot;:&quot;用于替换的最终正文&quot;}
+{&quot;type&quot;:&quot;memory_suggestion&quot;,&quot;content&quot;:&quot;我喜欢科幻&quot;,&quot;category&quot;:&quot;GENRE&quot;}
+{&quot;type&quot;:&quot;complete&quot;}
+</code></pre>
+<p>上面是事件种类示意，单轮不一定包含全部事件，正常回答也不一定触发 replace 或 memory_suggestion。</p>
+<p>失败例子：</p>
+<pre><code class="language-text">{&quot;type&quot;:&quot;error&quot;,&quot;code&quot;:&quot;query_timeout&quot;,&quot;message&quot;:&quot;实时查询超时，请稍后重试。&quot;}
+</code></pre>
+<p>内部 Agent 的 <code>context</code> 远比浏览器的丰富，包含路由、预算、任务进度、版本与反思结果。网关目前仅保留有限字段进入 Snapshot，并主要向浏览器转发 normalized_question。<strong>不能认为所有内部执行计数已完整展示于前端或后台反馈页。</strong> 完整诊断还需要 Agent 追踪和内部结构化响应。</p>
+<h3>23.5 <code>AgentState</code> 按职责理解</h3>
+<ul>
+<li>身份与输入：user_id、session_id、question、messages。</li>
+<li>理解结果：intent、entities、normalized_question、confidence、intent_source、requested_intents、clarification、needs_clarification。</li>
+<li>任务与模型上下文：tasks、memories、agent_messages、pending_calls。</li>
+<li>事实来源：observations、result、retrieved_docs、evidence_blocks。</li>
+<li>草稿与校验：draft_answer、verified_answer、reflection_findings、reflection_status、reflection_resume。</li>
+<li>进度与去重：seen_calls、tool_calls、tool_call_count、invalid_call_count、no_progress_count、step_count。</li>
+<li>预算与终止：budget、model_call_count、token_usage、circuit_open、stop_reason、finish_reason、error、error_code、last_tool_error。</li>
+<li>观测与版本：route、route_reason、slot_summary、understanding_layer、preflight_reason、runtime_version、l1_status、l1_duration_ms、l1_attempted。</li>
+</ul>
+<p>状态里的字符串不会自动成为授权。例如 entities 中描述的片名可用于查询；user_id 必须由受信请求入口设置。</p>
+<h3>23.6 <code>ChatResponse</code> 有哪些诊断信息</h3>
+<p>兼容 JSON 接口会提供：</p>
+<pre><code class="language-text">answer / intent / data / sources / tool_calls
+route / route_reason / stop_reason / circuit_open
+step_count / tool_call_count / invalid_call_count
+model_call_count / reflection_call_count / reflection_status
+token_usage / pending_tasks / slot_summary
+understanding_layer / preflight_reason
+runtime_version / l1_status / l1_duration_ms / l1_attempted
+</code></pre>
+<p>单查询 data 通常保留原数据结构；退款问题可形成 order / orders 与 policy 组合；多个观察可能返回 results。调用方应按响应契约解释，不能对所有意图假定同一种 data 形状。</p>
+<h2 id="section-25">24. 六种常见问题的执行示例</h2>
+<p>以下用于解释路径，具体是否走 L0 / 模型由文本、历史、配置和分组决定，未实际执行这些示例。</p>
+<h3>A. “你好”</h3>
+<p>规则识别 chat → prepare → respond → 固定能力介绍。通常不需要业务工具或模型查询，回答会说明可查影片、场次、本人订单与退票资格。</p>
+<h3>B. “明天有哪些已排期电影”</h3>
+<p>规范化明天的北京时间日期 → movies + movie_scope=scheduled → 搜索真实排期影片 → Java 按日期取有发布场次的电影 → 保留摘要截断信息 → 校验与返回。</p>
+<p>如果用户说“明天可以订购哪些场次”，则应是 screenings + bookable，范围发生变化；代码不能仅因两句都包含“明天”就把它们当成同一查询。</p>
+<h3>C. “我的订单 OEXAMPLE123 能退吗”</h3>
+<p>订单号仅作示例。解析 refund 与用户显式订单号 → query_order → Java 当前身份 WHERE 约束 → 实时 can_refund / refund_reason → 返回截止时间和规则解释 → 提示到订单页操作。</p>
+<p>若问“为什么不能退、手续费和到账如何算”，任务可能增加规则检索；没有来源的收费 / 到账时长不能靠常识编造。</p>
+<h3>D. “明天某电影还有座位吗”</h3>
+<p>片名与日期有依据，但缺场次编号 → 搜索场次 → 单一可确定场次继续 query_seats，多候选则 ask_user → 用户下一轮明确场次后查询。</p>
+<p>座位是当前快照；回答“有座”不表示已经锁住，最终售票仍需正常选座流程处理并发。</p>
+<h3>E. “记住：我喜欢科幻，常去某影院”</h3>
+<p><code>memory_proposal</code> 特殊分支 → 前端展示建议和保存按钮 → 用户确认 → Java 保存 + outbox → worker 向量索引。后续推荐可以召回这些偏好；这条输入本身不自动创建长期记录。</p>
+<h3>F. “帮我推荐，然后查 A、B 两张订单”</h3>
+<p>多任务 → tasks → ReAct / 代码兜底按预算执行 → 每张订单分别验证归属 → 推荐使用明确偏好或确认记忆 → 多事实块 → 反思检查是否漏任务。</p>
+<p>如果预算不足，返回已确认部分并说明剩余，不把第一张订单的状态套到第二张上。</p>
+<h2 id="section-26">25. 框架各自承担什么</h2>
+<h3>FastAPI / Uvicorn</h3>
+<p>提供 Agent 和网关 HTTP / SSE 服务。网关可以多个 worker，分布式共享靠 Redis，而不是 FastAPI 自动同步 Python 字典。</p>
+<h3>LangChain Core / OpenAI 适配器</h3>
+<p>提供消息类型、结构化工具 schema、异步模型调用、Retriever / Document 等抽象；Qwen 与 GLM 使用兼容接口适配。是否可访问对应模型仍取决于真实账号、地域和权限。</p>
+<h3>LangGraph</h3>
+<p>负责图状态、条件边、节点执行、custom 事件输出。预算、身份、业务权限、结果契约、持久化不是接上 LangGraph 自动获得的，都是本项目额外代码实现。</p>
+<h3>MCP</h3>
+<p>提供标准工具发现 / 调用协议与结构化返回封装。本项目通过固定工具、请求头身份和 Java 业务实现建立安全约束。MCP 不替代登录或数据库权限。</p>
+<h3>Chroma / Sentence Transformers</h3>
+<p>Chroma 负责向量候选检索；Sentence Transformers 加载 BGE 生成同一模型的存储与查询向量。Java MySQL 负责记忆归属和最新版本，两者一起组成长期记忆链路。</p>
+<h3>LangSmith</h3>
+<p>负责追踪事件、父子 span 与耗时查看；本项目再增加元数据清洗、本地会话归档与 trace 关联。它不负责替 Agent 决策，也不会自动修复失败。</p>
+<h3>依赖锁定快照</h3>
+<p>源码 <code>requirements.txt</code> 当前声明：FastAPI 0.115.12、httpx 0.28.1、MCP 1.28.0、sse-starlette 2.2.1、langchain-core 0.3.58、langgraph 0.3.34、langchain-openai 0.3.16、langsmith 0.3.45、Pydantic 2.11.3、Uvicorn 0.34.2。</p>
+<p>记忆相关声明 Chroma 1.5.9、sentence-transformers 6.1.0、torch 2.14.1、transformers 5.18.0；网关 Redis 客户端 5.2.1。这里是仓库依赖声明，未检查每个运行进程的实际安装版本。</p>
+<h2 id="section-27">26. 文档的维护与复用</h2>
+<p>本文是一次代码快照解释。以后增加自动转接、交易工具、持久 checkpoint 或新的记忆策略时，需要同时更新图中的边界和本说明，避免图比代码多出不存在的能力。</p>
+<p><code>build_diagrams.py</code> 只生成本目录的说明图、阅读页与源码索引，不会导入应用、读取 API 凭证或调用业务 / 模型服务。Markdown 和 SVG 是主要成果；排版 HTML 使用环境中已有的 Markdown 渲染库生成，读取页面不需要启动 Java、Agent、Dify 或联网。</p>
+<p>SVG 保留文字和路径，可在浏览器放大或在支持 SVG 的工具里编辑。图册可从 <code>index.html</code> 直接打开，完整阅读页 <code>implementation.html</code> 也可离线打开。</p>
+</article></main></body></html>

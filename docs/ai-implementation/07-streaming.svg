@@ -1,0 +1,80 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1510" viewBox="0 0 1600 1510" role="img" aria-labelledby="title desc">
+<title id='title'>SSE 时序：完成、取消与反馈如何闭环</title><desc id='desc'>实时 Agent 的状态可持续输出；事实正文校验后统一输出，网关持久化成功后才发 complete。</desc>
+<defs><marker id='arrow' markerWidth='9' markerHeight='9' refX='8' refY='4.5' orient='auto-start-reverse'><path d='M0,0 L9,4.5 L0,9' fill='#617189'/></marker></defs>
+<style>text{font-family:'Microsoft YaHei','PingFang SC','Noto Sans CJK SC',sans-serif;fill:#203047} .body{font-size:19px} .muted{fill:#617189} .edge{fill:none;stroke:#617189;stroke-width:2.2;marker-end:url(#arrow);stroke-linejoin:round} .label{font-size:16px;fill:#43556f} .title{font-size:23px;font-weight:700}</style>
+<rect width='1600' height='1510' fill='#f8fafc'/>
+<rect x='0' y='0' width='1600' height='8' fill='#167564'/>
+<text x='50' y='55' font-size='16' fill='#167564' letter-spacing='3'>CINEMA AI / CODE ATLAS · 07</text>
+<text x='50' y='103' font-size='36' font-weight='700'>SSE 时序：完成、取消与反馈如何闭环</text>
+<text x='50' y='139' font-size='19' class='muted'>实时 Agent 的状态可持续输出；事实正文校验后统一输出，网关持久化成功后才发 complete。</text>
+<rect x='45' y='190' width='250' height='70' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='45' y='207' width='4' height='26' rx='2' fill='#617189'/>
+<text x='65' y='225' class='title'>前端</text>
+<line x1='170' y1='270' x2='170' y2='1190' stroke='#bac6d5' stroke-dasharray='5 7'/>
+<rect x='360' y='190' width='250' height='70' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='360' y='207' width='4' height='26' rx='2' fill='#617189'/>
+<text x='380' y='225' class='title'>AI 网关</text>
+<line x1='485' y1='270' x2='485' y2='1190' stroke='#bac6d5' stroke-dasharray='5 7'/>
+<rect x='675' y='190' width='250' height='70' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='675' y='207' width='4' height='26' rx='2' fill='#617189'/>
+<text x='695' y='225' class='title'>Java / Redis</text>
+<line x1='800' y1='270' x2='800' y2='1190' stroke='#bac6d5' stroke-dasharray='5 7'/>
+<rect x='990' y='190' width='250' height='70' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='990' y='207' width='4' height='26' rx='2' fill='#617189'/>
+<text x='1010' y='225' class='title'>Agent / Dify</text>
+<line x1='1115' y1='270' x2='1115' y2='1190' stroke='#bac6d5' stroke-dasharray='5 7'/>
+<rect x='1305' y='190' width='250' height='70' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='1305' y='207' width='4' height='26' rx='2' fill='#617189'/>
+<text x='1325' y='225' class='title'>模型 / MCP</text>
+<line x1='1430' y1='270' x2='1430' y2='1190' stroke='#bac6d5' stroke-dasharray='5 7'/>
+<path d='M170,325 L800,325' class='edge'/>
+<rect x='178' y='294' width='354.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='185' y='313' class='label'>Agent：申请 handoff（已登录 + sessionId）</text>
+<path d='M170,405 L485,405' class='edge'/>
+<rect x='178' y='374' width='253.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='185' y='393' class='label'>POST chat + 三个身份 / 会话头</text>
+<path d='M485,475 L800,475' class='edge'/>
+<rect x='493' y='444' width='269.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='500' y='463' class='label'>核验 token / 归属 / 限流 / 租约</text>
+<path d='M485,545 L170,545' class='edge'/>
+<rect x='178' y='514' width='311.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='185' y='533' class='label'>messageId / status（开始上游调用前）</text>
+<path d='M485,615 L800,615' class='edge'/>
+<rect x='493' y='584' width='349.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='500' y='603' class='label'>Agent：resolve credential 并取可信 owner</text>
+<path d='M485,685 L1115,685' class='edge'/>
+<rect x='493' y='654' width='327.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='500' y='673' class='label'>Agent /ai/live 或 Dify /chat-messages</text>
+<path d='M1115,755 L1430,755' class='edge'/>
+<rect x='1123' y='724' width='250.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='1130' y='743' class='label'>理解 / 工具查询 / 校验 / 反思</text>
+<path d='M1115,825 L485,825' class='edge'/>
+<rect x='493' y='794' width='352.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='500' y='813' class='label'>status / context / delta / 上游 complete</text>
+<path d='M485,895 L170,895' class='edge'/>
+<rect x='178' y='864' width='320.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='185' y='883' class='label'>status / normalized_question / delta</text>
+<path d='M485,965 L800,965' class='edge'/>
+<rect x='493' y='934' width='260.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='500' y='953' class='label'>finish：快照 + 历史 + 释放租约</text>
+<path d='M485,1035 L170,1035' class='edge'/>
+<rect x='178' y='1004' width='253.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='185' y='1023' class='label'>成功才发 complete；否则 error</text>
+<path d='M170,1120 L485,1120' class='edge' stroke-dasharray='7 5'/>
+<rect x='178' y='1089' width='287.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='185' y='1108' class='label'>反馈 messageId + rating；再次验权</text>
+<rect x='50' y='1230' width='720' height='165' rx='12' fill='#ffeded' stroke='#b44a4a' stroke-width='1.5'/>
+<rect x='50' y='1247' width='4' height='26' rx='2' fill='#b44a4a'/>
+<text x='70' y='1265' class='title'>中断不是成功</text>
+<text x='70' y='1299' class='body'>error 直接失败；EOF 无 complete 提示回答未完成。</text>
+<text x='70' y='1329' class='body'>停止：前端 abort + 网关取消；Dify 额外 stop task。</text>
+<text x='70' y='1359' class='body'>已生成但 Redis 保存失败也不能发送成功。</text>
+<rect x='830' y='1230' width='720' height='165' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='830' y='1247' width='4' height='26' rx='2' fill='#167564'/>
+<text x='850' y='1265' class='title'>反馈独立持久化</text>
+<text x='850' y='1299' class='body'>先 Java 落库；Dify 再同步 feedbacks。</text>
+<text x='850' y='1329' class='body'>失败保留本地记录与 FAILED / PENDING 状态。</text>
+<text x='850' y='1359' class='body'>Agent 反馈不用同步 Dify；快照 2 小时窗口。</text>
+<line x1='50' y1='1457' x2='1550' y2='1457' stroke='#d9e0ea'/>
+<text x='50' y='1485' font-size='15' class='muted'>基于当前工作区代码 · 2026-10-12 · 默认值不代表运行配置 · 完整说明见 README.md / source-index.md</text>
+</svg>

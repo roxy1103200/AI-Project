@@ -1,0 +1,105 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1600" viewBox="0 0 1600 1600" role="img" aria-labelledby="title desc">
+<title id='title'>内部 Agent：实际 LangGraph 节点与条件边</title><desc id='desc'>蓝色为执行，紫色为模型决策 / 校验；虚线是提前退出；回边不代表无限循环。</desc>
+<defs><marker id='arrow' markerWidth='9' markerHeight='9' refX='8' refY='4.5' orient='auto-start-reverse'><path d='M0,0 L9,4.5 L0,9' fill='#617189'/></marker></defs>
+<style>text{font-family:'Microsoft YaHei','PingFang SC','Noto Sans CJK SC',sans-serif;fill:#203047} .body{font-size:19px} .muted{fill:#617189} .edge{fill:none;stroke:#617189;stroke-width:2.2;marker-end:url(#arrow);stroke-linejoin:round} .label{font-size:16px;fill:#43556f} .title{font-size:23px;font-weight:700}</style>
+<rect width='1600' height='1600' fill='#f8fafc'/>
+<rect x='0' y='0' width='1600' height='8' fill='#167564'/>
+<text x='50' y='55' font-size='16' fill='#167564' letter-spacing='3'>CINEMA AI / CODE ATLAS · 03</text>
+<text x='50' y='103' font-size='36' font-weight='700'>内部 Agent：实际 LangGraph 节点与条件边</text>
+<text x='50' y='139' font-size='19' class='muted'>蓝色为执行，紫色为模型决策 / 校验；虚线是提前退出；回边不代表无限循环。</text>
+<rect x='50' y='230' width='150' height='75' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='50' y='247' width='4' height='26' rx='2' fill='#617189'/>
+<text x='70' y='265' class='title'>START</text>
+<rect x='270' y='200' width='380' height='145' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='270' y='217' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='290' y='235' class='title'>prepare</text>
+<text x='290' y='269' class='body'>理解 / 预算 / tasks</text>
+<text x='290' y='299' class='body'>route / versions / 推荐记忆</text>
+<rect x='880' y='200' width='350' height='115' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='880' y='217' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='900' y='235' class='title'>clarify</text>
+<text x='900' y='269' class='body'>缺条件，明确追问</text>
+<rect x='270' y='490' width='350' height='145' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='270' y='507' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='290' y='525' class='title'>simple</text>
+<text x='290' y='559' class='body'>代码选定单任务工具</text>
+<text x='290' y='589' class='body'>不额外让模型选择工具</text>
+<rect x='880' y='490' width='350' height='145' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='880' y='507' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='900' y='525' class='title'>agent</text>
+<text x='900' y='559' class='body'>ReAct：工具提议 / 进度</text>
+<text x='900' y='589' class='body'>原生 tool calling + 代码兜底</text>
+<rect x='880' y='820' width='350' height='175' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='880' y='837' width='4' height='26' rx='2' fill='#167564'/>
+<text x='900' y='855' class='title'>tools</text>
+<text x='900' y='889' class='body'>参数 / 来源 / 身份校验</text>
+<text x='900' y='919' class='body'>执行 → 返回契约校验</text>
+<text x='900' y='949' class='body'>observations + tasks 更新</text>
+<rect x='270' y='820' width='350' height='175' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='270' y='837' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='290' y='855' class='title'>draft</text>
+<text x='290' y='889' class='body'>逐条观察格式化为事实块</text>
+<text x='290' y='919' class='body'>拼接草稿，不自由生成事实</text>
+<rect x='270' y='1180' width='350' height='175' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='270' y='1197' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='290' y='1215' class='title'>reflect</text>
+<text x='290' y='1249' class='body'>规则优先；模型最多 1 次</text>
+<text x='290' y='1279' class='body'>只选取 / 排序已有事实块</text>
+<text x='290' y='1309' class='body'>缺任务且可补 → 回 agent</text>
+<rect x='880' y='1180' width='350' height='175' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='880' y='1197' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='900' y='1215' class='title'>respond</text>
+<text x='900' y='1249' class='body'>事实 / 追问 / 限制说明</text>
+<text x='900' y='1279' class='body'>或安全错误事件</text>
+<text x='900' y='1309' class='body'>正文统一 delta；记录上下文</text>
+<rect x='1320' y='1225' width='180' height='75' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='1320' y='1242' width='4' height='26' rx='2' fill='#617189'/>
+<text x='1340' y='1260' class='title'>END</text>
+<path d='M200,267 L270,267' class='edge'/>
+<path d='M650,250 L880,250' class='edge'/>
+<rect x='713' y='216' width='62.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='720' y='235' class='label'>需澄清</text>
+<path d='M445,345 L445,490' class='edge'/>
+<rect x='453' y='391' width='94.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='460' y='410' class='label'>完整单任务</text>
+<path d='M650,310 L755,310 L755,420 L1055,420 L1055,490' class='edge'/>
+<rect x='793' y='386' width='119.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='800' y='405' class='label'>复杂 / 有依赖</text>
+<path d='M650,210 L1450,210 L1450,1115 L1115,1115 L1115,1180' class='edge' stroke-dasharray='7 5'/>
+<rect x='1253' y='341' width='196.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1260' y='360' class='label'>问候 / 熔断 → respond</text>
+<path d='M1230,255 L1290,255 L1290,1150 L1185,1150 L1185,1180' class='edge'/>
+<rect x='1297' y='451' width='94.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1304' y='470' class='label'>追问后结束</text>
+<path d='M620,570 L700,570 L700,770 L880,770 L880,855' class='edge'/>
+<rect x='708' y='736' width='94.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='715' y='755' class='label'>待调用工具</text>
+<path d='M1055,635 L1055,820' class='edge'/>
+<rect x='1063' y='701' width='94.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1070' y='720' class='label'>待调用工具</text>
+<path d='M405,635 L405,820' class='edge'/>
+<rect x='273' y='716' width='153.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='280' y='735' class='label'>无待调用 → draft</text>
+<path d='M880,600 L790,600 L790,715 L530,715 L530,820' class='edge'/>
+<rect x='553' y='681' width='78.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='560' y='700' class='label'>无待调用</text>
+<path d='M1230,900 L1260,900 L1260,680 L1185,680 L1185,635' class='edge'/>
+<rect x='1273' y='731' width='97.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1280' y='750' class='label'>ReAct 继续</text>
+<path d='M880,930 L620,930' class='edge'/>
+<rect x='658' y='896' width='140.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='665' y='915' class='label'>Simple → draft</text>
+<path d='M445,995 L445,1180' class='edge'/>
+<path d='M620,1260 L880,1260' class='edge'/>
+<rect x='653' y='1226' width='94.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='660' y='1245' class='label'>校验后结束</text>
+<path d='M305,1180 L305,1080 L665,1080 L665,390 L920,390 L920,490' class='edge'/>
+<rect x='678' y='1046' width='190.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='685' y='1065' class='label'>补未完成任务（预算内）</text>
+<path d='M1230,1265 L1320,1265' class='edge'/>
+<text x='65' y='1435' font-size='19' class=''>提前退出边：simple → respond、agent → respond、tools → respond（已产生答案、错误或熔断时）。</text>
+<text x='65' y='1465' font-size='19' class=''>主图以文字合并这三条异常边，避免交叉遮挡；它们也是实际条件路由，不会进入 draft / reflect。</text>
+<text x='65' y='1495' font-size='19' class=''>硬上限：模型 8 次、ReAct 5 步、无效调用 3 次、反思 1 次；compile() 没有持久 checkpoint。</text>
+<line x1='50' y1='1547' x2='1550' y2='1547' stroke='#d9e0ea'/>
+<text x='50' y='1575' font-size='15' class='muted'>基于当前工作区代码 · 2026-10-12 · 默认值不代表运行配置 · 完整说明见 README.md / source-index.md</text>
+</svg>

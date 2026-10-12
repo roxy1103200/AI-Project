@@ -1,0 +1,112 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1320" viewBox="0 0 1600 1320" role="img" aria-labelledby="title desc">
+<title id='title'>AI 系统全貌：入口、编排、权威数据</title><desc id='desc'>实线为主要请求 / 数据路径；虚线为辅助关联。浏览器只访问同源代理。</desc>
+<defs><marker id='arrow' markerWidth='9' markerHeight='9' refX='8' refY='4.5' orient='auto-start-reverse'><path d='M0,0 L9,4.5 L0,9' fill='#617189'/></marker></defs>
+<style>text{font-family:'Microsoft YaHei','PingFang SC','Noto Sans CJK SC',sans-serif;fill:#203047} .body{font-size:19px} .muted{fill:#617189} .edge{fill:none;stroke:#617189;stroke-width:2.2;marker-end:url(#arrow);stroke-linejoin:round} .label{font-size:16px;fill:#43556f} .title{font-size:23px;font-weight:700}</style>
+<rect width='1600' height='1320' fill='#f8fafc'/>
+<rect x='0' y='0' width='1600' height='8' fill='#167564'/>
+<text x='50' y='55' font-size='16' fill='#167564' letter-spacing='3'>CINEMA AI / CODE ATLAS · 01</text>
+<text x='50' y='103' font-size='36' font-weight='700'>AI 系统全貌：入口、编排、权威数据</text>
+<text x='50' y='139' font-size='19' class='muted'>实线为主要请求 / 数据路径；虚线为辅助关联。浏览器只访问同源代理。</text>
+<rect x='40' y='180' width='1520' height='220' rx='18' fill='#eaf2ff' fill-opacity='.38' stroke='#3262a8' stroke-opacity='.27' stroke-dasharray='7 6'/>
+<text x='60' y='211' font-size='18' font-weight='700' class='muted'>访问入口：浏览器 → 同源代理 → Java API</text>
+<rect x='65' y='235' width='420' height='135' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='65' y='252' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='85' y='270' class='title'>React 聊天界面</text>
+<text x='85' y='304' class='body'>Dify / Agent 独立通道</text>
+<text x='85' y='334' class='body'>标签页 token、反馈、记忆确认</text>
+<rect x='590' y='235' width='405' height='135' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='590' y='252' width='4' height='26' rx='2' fill='#617189'/>
+<text x='610' y='270' class='title'>Vite / Nginx 同源代理</text>
+<text x='610' y='304' class='body'>/ai-gateway → 8010</text>
+<text x='610' y='334' class='body'>/api → Java 8080</text>
+<rect x='1100' y='235' width='420' height='135' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='1100' y='252' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='1120' y='270' class='title'>Java 身份与业务 API</text>
+<text x='1120' y='304' class='body'>登录、转接凭证、记忆、反馈</text>
+<text x='1120' y='334' class='body'>真实业务规则与参数化 SQL</text>
+<path d='M485,300 L590,300' class='edge'/>
+<rect x='483' y='266' width='82.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='490' y='285' class='label'>POST SSE</text>
+<path d='M995,300 L1100,300' class='edge'/>
+<rect x='1013' y='266' width='48.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1020' y='285' class='label'>/api</text>
+<rect x='40' y='435' width='1010' height='530' rx='18' fill='#e4f5f1' fill-opacity='.38' stroke='#167564' stroke-opacity='.27' stroke-dasharray='7 6'/>
+<text x='60' y='466' font-size='18' font-weight='700' class='muted'>私有服务 / 内部 token 边界</text>
+<rect x='70' y='495' width='420' height='165' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='70' y='512' width='4' height='26' rx='2' fill='#167564'/>
+<text x='90' y='530' class='title'>独立 AI 网关 · 8010</text>
+<text x='90' y='564' class='body'>身份 / 归属 / 租约 / 限流</text>
+<text x='90' y='594' class='body'>Dify 转发、Agent 转发、历史</text>
+<text x='90' y='624' class='body'>统一事件、停止、持久化、反馈</text>
+<rect x='595' y='495' width='420' height='165' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='595' y='512' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='615' y='530' class='title'>内部 Agent · 8000</text>
+<text x='615' y='564' class='body'>理解 → Simple / ReAct</text>
+<text x='615' y='594' class='body'>工具 → 校验 → 事实 → 反思</text>
+<text x='615' y='624' class='body'>Qwen / GLM / 预算 / 记忆</text>
+<rect x='595' y='775' width='420' height='135' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='595' y='792' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='615' y='810' class='title'>MCP 查询服务 · 8020</text>
+<text x='615' y='844' class='body'>四个只读查询工具 /mcp</text>
+<text x='615' y='874' class='body'>固定接口 → Java → SQL</text>
+<rect x='70' y='775' width='420' height='135' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='70' y='792' width='4' height='26' rx='2' fill='#167564'/>
+<text x='90' y='810' class='title'>Redis</text>
+<text x='90' y='844' class='body'>两通道历史、绑定、活动会话</text>
+<text x='90' y='874' class='body'>全局并发、取消、反馈快照</text>
+<path d='M790,370 L790,420 L280,420 L280,495' class='edge'/>
+<path d='M490,570 L595,570' class='edge'/>
+<rect x='488' y='535' width='82.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='495' y='554' class='label'>/ai/live</text>
+<path d='M805,660 L805,775' class='edge'/>
+<rect x='813' y='701' width='39.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='820' y='720' class='label'>MCP</text>
+<path d='M280,660 L280,775' class='edge'/>
+<path d='M1015,845 L1060,845 L1060,405 L1310,405 L1310,370' class='edge'/>
+<rect x='1067' y='661' width='78.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1074' y='680' class='label'>业务查询</text>
+<path d='M490,525 L540,525 L540,405 L1310,405' class='edge' stroke-dasharray='7 5'/>
+<rect x='608' y='379' width='135.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='615' y='398' class='label'>登录 / 转接核验</text>
+<rect x='1090' y='435' width='470' height='530' rx='18' fill='#f0ebff' fill-opacity='.38' stroke='#7450a3' stroke-opacity='.27' stroke-dasharray='7 6'/>
+<text x='1110' y='466' font-size='18' font-weight='700' class='muted'>外部云端服务</text>
+<rect x='1115' y='495' width='420' height='135' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='1115' y='512' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='1135' y='530' class='title'>Dify 云端 Chatbot</text>
+<text x='1135' y='564' class='body'>FAQ / 云端会话</text>
+<text x='1135' y='594' class='body'>服务端 Key → 官方 API</text>
+<rect x='1115' y='700' width='420' height='135' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='1115' y='717' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='1135' y='735' class='title'>Qwen / GLM / Rerank</text>
+<text x='1135' y='769' class='body'>复杂理解、决策、反思</text>
+<text x='1135' y='799' class='body'>分类 / 公开规则重排</text>
+<path d='M490,620 L550,620 L550,680 L1080,680 L1080,560 L1115,560' class='edge'/>
+<rect x='643' y='654' width='88.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='650' y='673' class='label'>Dify 通道</text>
+<path d='M1015,610 L1070,610 L1070,770 L1115,770' class='edge'/>
+<rect x='1033' y='781' width='78.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1040' y='800' class='label'>模型调用</text>
+<rect x='65' y='1025' width='420' height='135' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='65' y='1042' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='85' y='1060' class='title'>MySQL 权威记录</text>
+<text x='85' y='1094' class='body'>影院业务 / 反馈 / 用户记忆</text>
+<text x='85' y='1124' class='body'>记忆变更与 outbox 同事务</text>
+<rect x='590' y='1025' width='420' height='135' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='590' y='1042' width='4' height='26' rx='2' fill='#167564'/>
+<text x='610' y='1060' class='title'>Chroma + Memory worker</text>
+<text x='610' y='1094' class='body'>用户确认偏好的向量投影</text>
+<text x='610' y='1124' class='body'>BGE 本地嵌入 / Java 二次验证</text>
+<rect x='1115' y='1025' width='420' height='135' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='1115' y='1042' width='4' height='26' rx='2' fill='#617189'/>
+<text x='1135' y='1060' class='title'>LangSmith + 本地追踪</text>
+<text x='1135' y='1094' class='body'>节点 / 模型 / 工具 / 耗时</text>
+<text x='1135' y='1124' class='body'>元数据摘要 / 按用户会话归档</text>
+<path d='M1520,370 L1545,370 L1545,985 L280,985 L280,1025' class='edge' stroke-dasharray='7 5'/>
+<rect x='63' y='959' width='152.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='70' y='978' class='label'>Java 维护权威记录</text>
+<path d='M970,660 L970,735 L1040,735 L1040,1005 L800,1005 L800,1025' class='edge' stroke-dasharray='7 5'/>
+<path d='M1015,530 L1080,530 L1080,995 L1325,995 L1325,1025' class='edge' stroke-dasharray='7 5'/>
+<text x='65' y='1235' font-size='20' class=''>关键边界：模型不接 MySQL，不任意写 SQL；真实订单始终按 Java 验证的本人身份查询。</text>
+<line x1='50' y1='1267' x2='1550' y2='1267' stroke='#d9e0ea'/>
+<text x='50' y='1295' font-size='15' class='muted'>基于当前工作区代码 · 2026-10-12 · 默认值不代表运行配置 · 完整说明见 README.md / source-index.md</text>
+</svg>

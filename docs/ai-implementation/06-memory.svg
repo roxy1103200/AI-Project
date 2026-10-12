@@ -1,0 +1,82 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1510" viewBox="0 0 1600 1510" role="img" aria-labelledby="title desc">
+<title id='title'>记忆：短期历史、图内状态、长期偏好各司其职</title><desc id='desc'>MySQL 是长期记忆权威；Chroma 是可重建投影，删除与版本校验以 Java 为准。</desc>
+<defs><marker id='arrow' markerWidth='9' markerHeight='9' refX='8' refY='4.5' orient='auto-start-reverse'><path d='M0,0 L9,4.5 L0,9' fill='#617189'/></marker></defs>
+<style>text{font-family:'Microsoft YaHei','PingFang SC','Noto Sans CJK SC',sans-serif;fill:#203047} .body{font-size:19px} .muted{fill:#617189} .edge{fill:none;stroke:#617189;stroke-width:2.2;marker-end:url(#arrow);stroke-linejoin:round} .label{font-size:16px;fill:#43556f} .title{font-size:23px;font-weight:700}</style>
+<rect width='1600' height='1510' fill='#f8fafc'/>
+<rect x='0' y='0' width='1600' height='8' fill='#167564'/>
+<text x='50' y='55' font-size='16' fill='#167564' letter-spacing='3'>CINEMA AI / CODE ATLAS · 06</text>
+<text x='50' y='103' font-size='36' font-weight='700'>记忆：短期历史、图内状态、长期偏好各司其职</text>
+<text x='50' y='139' font-size='19' class='muted'>MySQL 是长期记忆权威；Chroma 是可重建投影，删除与版本校验以 Java 为准。</text>
+<rect x='65' y='200' width='430' height='165' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='65' y='217' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='85' y='235' class='title'>短期 · Redis / Dify</text>
+<text x='85' y='269' class='body'>Redis 每通道最多 40 条消息</text>
+<text x='85' y='299' class='body'>Agent 接收最多 10 条有效历史</text>
+<text x='85' y='329' class='body'>Dify 自己的云端 conversation</text>
+<rect x='585' y='200' width='430' height='165' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='585' y='217' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='605' y='235' class='title'>本轮 · LangGraph state</text>
+<text x='605' y='269' class='body'>tasks / observations / budget</text>
+<text x='605' y='299' class='body'>工具消息 / evidence / 结束原因</text>
+<text x='605' y='329' class='body'>无持久 checkpoint，不能断点续跑</text>
+<rect x='1105' y='200' width='430' height='165' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='1105' y='217' width='4' height='26' rx='2' fill='#167564'/>
+<text x='1125' y='235' class='title'>长期 · 用户确认偏好</text>
+<text x='1125' y='269' class='body'>记住… → suggestion → 用户确认</text>
+<text x='1125' y='299' class='body'>Java API 写入；每人最多 200 条</text>
+<text x='1125' y='329' class='body'>非自动把每轮对话写入画像</text>
+<rect x='40' y='445' width='1520' height='380' rx='18' fill='#fff3d9' fill-opacity='.38' stroke='#a4761c' stroke-opacity='.27' stroke-dasharray='7 6'/>
+<text x='60' y='476' font-size='18' font-weight='700' class='muted'>写入路径：异步、可重试、最终一致</text>
+<rect x='65' y='510' width='430' height='165' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='65' y='527' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='85' y='545' class='title'>① Java 同一事务</text>
+<text x='85' y='579' class='body'>ai_user_memory + outbox</text>
+<text x='85' y='609' class='body'>content / category / version</text>
+<text x='85' y='639' class='body'>修改与删除使用乐观锁</text>
+<rect x='585' y='510' width='430' height='165' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='585' y='527' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='605' y='545' class='title'>② Memory worker</text>
+<text x='605' y='579' class='body'>claim ≤10 / SKIP LOCKED</text>
+<text x='605' y='609' class='body'>每记忆按序；租约 5 分钟</text>
+<text x='605' y='639' class='body'>成功 ack；失败延迟 30 秒重试</text>
+<rect x='1105' y='510' width='430' height='165' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='1105' y='527' width='4' height='26' rx='2' fill='#167564'/>
+<text x='1125' y='545' class='title'>③ BGE → Chroma</text>
+<text x='1125' y='579' class='body'>本地 bge-small-zh-v1.5 / CPU</text>
+<text x='1125' y='609' class='body'>归一化向量 / cosine</text>
+<text x='1125' y='639' class='body'>upsert 当前版本 / delete 墓碑</text>
+<path d='M1320,365 L1320,420 L520,420 L520,490 L280,490 L280,510' class='edge'/>
+<path d='M495,590 L585,590' class='edge'/>
+<path d='M1015,590 L1105,590' class='edge'/>
+<text x='70' y='760' font-size='19' class='muted'>worker 跳过已被新版本替代的事件；确认必须匹配当前有效 leaseToken。</text>
+<rect x='40' y='865' width='1520' height='365' rx='18' fill='#e4f5f1' fill-opacity='.38' stroke='#167564' stroke-opacity='.27' stroke-dasharray='7 6'/>
+<text x='60' y='896' font-size='18' font-weight='700' class='muted'>召回路径：先过滤，再向权威库核验</text>
+<rect x='65' y='935' width='430' height='165' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='65' y='952' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='85' y='970' class='title'>④ 推荐 / 显式问记忆</text>
+<text x='85' y='1004' class='body'>Java 先查 ACTIVE 记忆</text>
+<text x='85' y='1034' class='body'>问题加前缀生成查询向量</text>
+<text x='85' y='1064' class='body'>普通订单查询不普遍注入偏好</text>
+<rect x='585' y='935' width='430' height='165' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='585' y='952' width='4' height='26' rx='2' fill='#167564'/>
+<text x='605' y='970' class='title'>⑤ Chroma 候选</text>
+<text x='605' y='1004' class='body'>user_id + channel=AGENT 过滤</text>
+<text x='605' y='1034' class='body'>最多 5 条 id + version</text>
+<text x='605' y='1064' class='body'>向量查询预算约 4 秒</text>
+<rect x='1105' y='935' width='430' height='165' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='1105' y='952' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='1125' y='970' class='title'>⑥ Java verify</text>
+<text x='1125' y='1004' class='body'>owner + ACTIVE + version</text>
+<text x='1125' y='1034' class='body'>返回当前权威内容</text>
+<text x='1125' y='1064' class='body'>过期 / 删除 / 他人记忆被排除</text>
+<path d='M495,1015 L585,1015' class='edge'/>
+<path d='M1015,1015 L1105,1015' class='edge'/>
+<text x='70' y='1180' font-size='19' class='muted'>Chroma 失败或无有效候选 → SQL 最近记忆；整个记忆链路失败 → 不带偏好继续普通查询。</text>
+<rect x='50' y='1270' width='1500' height='135' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='50' y='1287' width='4' height='26' rx='2' fill='#617189'/>
+<text x='70' y='1305' class='title'>记忆的用途边界</text>
+<text x='70' y='1339' class='body'>长期记忆是确认偏好；票价、场次、退票资格仍走实时业务查询。用户删除后即使旧向量仍在也无法通过 verify。</text>
+<text x='70' y='1369' class='body'>重置聊天只清短期会话，不删除长期记忆；Chroma 不是所有影片 / 订单 / 政策的统一数据库。</text>
+<line x1='50' y1='1457' x2='1550' y2='1457' stroke='#d9e0ea'/>
+<text x='50' y='1485' font-size='15' class='muted'>基于当前工作区代码 · 2026-10-12 · 默认值不代表运行配置 · 完整说明见 README.md / source-index.md</text>
+</svg>

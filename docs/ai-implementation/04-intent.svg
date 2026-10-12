@@ -1,0 +1,92 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1370" viewBox="0 0 1600 1370" role="img" aria-labelledby="title desc">
+<title id='title'>问题理解：先确定规则，再按需要调用模型</title><desc id='desc'>模型分类不产生授权；日期、范围、订单号与场次号最终仍由代码绑定来源。</desc>
+<defs><marker id='arrow' markerWidth='9' markerHeight='9' refX='8' refY='4.5' orient='auto-start-reverse'><path d='M0,0 L9,4.5 L0,9' fill='#617189'/></marker></defs>
+<style>text{font-family:'Microsoft YaHei','PingFang SC','Noto Sans CJK SC',sans-serif;fill:#203047} .body{font-size:19px} .muted{fill:#617189} .edge{fill:none;stroke:#617189;stroke-width:2.2;marker-end:url(#arrow);stroke-linejoin:round} .label{font-size:16px;fill:#43556f} .title{font-size:23px;font-weight:700}</style>
+<rect width='1600' height='1370' fill='#f8fafc'/>
+<rect x='0' y='0' width='1600' height='8' fill='#167564'/>
+<text x='50' y='55' font-size='16' fill='#167564' letter-spacing='3'>CINEMA AI / CODE ATLAS · 04</text>
+<text x='50' y='103' font-size='36' font-weight='700'>问题理解：先确定规则，再按需要调用模型</text>
+<text x='50' y='139' font-size='19' class='muted'>模型分类不产生授权；日期、范围、订单号与场次号最终仍由代码绑定来源。</text>
+<rect x='65' y='200' width='430' height='165' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='65' y='217' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='85' y='235' class='title'>① 规范化 + 规则解析</text>
+<text x='85' y='269' class='body'>中文同义表达 / 北京时间日期</text>
+<text x='85' y='299' class='body'>保留用户编号与明确片名</text>
+<text x='85' y='329' class='body'>构造 QuestionPlan 与槽位</text>
+<rect x='585' y='200' width='430' height='165' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='585' y='217' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='605' y='235' class='title'>② 预检与澄清</text>
+<text x='605' y='269' class='body'>无效日期 / 越界写操作</text>
+<text x='605' y='299' class='body'>缺关键 ID / 含糊日期</text>
+<text x='605' y='329' class='body'>不能猜，需用户补条件</text>
+<rect x='1105' y='200' width='430' height='165' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='1105' y='217' width='4' height='26' rx='2' fill='#167564'/>
+<text x='1125' y='235' class='title'>③ L0 确定性路由</text>
+<text x='1125' y='269' class='body'>问候 / 明确订单号与场次号</text>
+<text x='1125' y='299' class='body'>明确单片资料 / 日期场次</text>
+<text x='1125' y='329' class='body'>命中且安全 → 直接计划</text>
+<path d='M495,280 L585,280' class='edge'/>
+<path d='M1015,280 L1105,280' class='edge'/>
+<rect x='1008' y='241' width='94.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1015' y='260' class='label'>预检可继续</text>
+<rect x='1105' y='490' width='430' height='165' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='1105' y='507' width='4' height='26' rx='2' fill='#167564'/>
+<text x='1125' y='525' class='title'>④ 可选本地 fastText</text>
+<text x='1125' y='559' class='body'>默认关闭；已验证模型才加载</text>
+<text x='1125' y='589' class='body'>hash + manifest + 九标签</text>
+<text x='1125' y='619' class='body'>高置信且与规则一致才接纳</text>
+<rect x='585' y='490' width='430' height='165' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='585' y='507' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='605' y='525' class='title'>⑤ B 组可选 GLM L1</text>
+<text x='605' y='559' class='body'>单任务、适用问题才尝试</text>
+<text x='605' y='589' class='body'>320 tokens / 默认 6 秒 / 单并发</text>
+<text x='605' y='619' class='body'>接受阈值默认 0.90</text>
+<rect x='65' y='490' width='430' height='165' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='65' y='507' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='85' y='525' class='title'>⑥ Qwen 结构化兜底</text>
+<text x='85' y='559' class='body'>复杂 / 上下文 / 未通过分类</text>
+<text x='85' y='589' class='body'>受约束 JSON，最多 1,000 输出</text>
+<text x='85' y='619' class='body'>理解调用还有 15 秒期限</text>
+<path d='M1320,365 L1320,490' class='edge'/>
+<rect x='1328' y='411' width='62.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1335' y='430' class='label'>未命中</text>
+<path d='M1105,570 L1015,570' class='edge'/>
+<rect x='1008' y='531' width='62.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='1015' y='550' class='label'>未接纳</text>
+<path d='M585,570 L495,570' class='edge'/>
+<rect x='283' y='436' width='185.5' height='25' rx='4' fill='#f8fafc'/>
+<text x='290' y='455' class='label'>A 组跳过 / B 组未通过</text>
+<rect x='65' y='795' width='430' height='165' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='65' y='812' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='85' y='830' class='title'>⑦ 代码重新验证</text>
+<text x='85' y='864' class='body'>还原规则日期 / 范围 / 片名</text>
+<text x='85' y='894' class='body'>编号只能来自用户可靠来源</text>
+<text x='85' y='924' class='body'>低置信 / 缺槽位 → 澄清</text>
+<rect x='585' y='795' width='430' height='165' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='585' y='812' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='605' y='830' class='title'>⑧ tasks + 代码选 route</text>
+<text x='605' y='864' class='body'>单任务完整高置信 → Simple</text>
+<text x='605' y='894' class='body'>多个任务 / 依赖 / 不确定 → ReAct</text>
+<text x='605' y='924' class='body'>chat / unsupported → 直接响应</text>
+<rect x='1105' y='795' width='430' height='165' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='1105' y='812' width='4' height='26' rx='2' fill='#617189'/>
+<text x='1125' y='830' class='title'>A/B：按用户会话稳定分组</text>
+<text x='1125' y='864' class='body'>A：L0 + Qwen + 校验</text>
+<text x='1125' y='894' class='body'>B：增加 GLM L1，默认 50%</text>
+<text x='1125' y='924' class='body'>关 A/B 当前为全 B；可强制组别</text>
+<path d='M280,655 L280,795' class='edge'/>
+<path d='M1105,350 L1060,350 L1060,720 L380,720 L380,795' class='edge' stroke-dasharray='7 5'/>
+<rect x='523' y='686' width='239.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='530' y='705' class='label'>任一层已接纳 → 跳过后续模型</text>
+<path d='M1250,655 L1250,720 L1060,720' class='edge' stroke-dasharray='7 5'/>
+<path d='M800,655 L800,720' class='edge' stroke-dasharray='7 5'/>
+<path d='M495,875 L585,875' class='edge'/>
+<rect x='50' y='1090' width='1500' height='165' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='50' y='1107' width='4' height='26' rx='2' fill='#617189'/>
+<text x='70' y='1125' class='title'>接纳不等于盲信：模型输出还要通过业务约束</text>
+<text x='70' y='1159' class='body'>GLM 字段须在原问题中有依据，不得扩展任务、改范围、伪造 ID；429 冷却 30 秒，超时冷却 10 秒。</text>
+<text x='70' y='1189' class='body'>本地分类 / GLM / Qwen 理解均不能直接查库；最终输出 QuestionPlan 后才能进入受预算约束的工具执行。</text>
+<text x='70' y='1219' class='body'>catalog 是资料；showing 是上映属性；scheduled 是真实排期；bookable 是此刻能买，不能互相替代。</text>
+<line x1='50' y1='1317' x2='1550' y2='1317' stroke='#d9e0ea'/>
+<text x='50' y='1345' font-size='15' class='muted'>基于当前工作区代码 · 2026-10-12 · 默认值不代表运行配置 · 完整说明见 README.md / source-index.md</text>
+</svg>

@@ -1,0 +1,79 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1430" viewBox="0 0 1600 1430" role="img" aria-labelledby="title desc">
+<title id='title'>追踪与排错：从消息关联到节点、模型与工具</title><desc id='desc'>LangSmith 与本地 trace 只收摘要 / 白名单元数据；这不代表聊天或模型链路没有处理原文。</desc>
+<defs><marker id='arrow' markerWidth='9' markerHeight='9' refX='8' refY='4.5' orient='auto-start-reverse'><path d='M0,0 L9,4.5 L0,9' fill='#617189'/></marker></defs>
+<style>text{font-family:'Microsoft YaHei','PingFang SC','Noto Sans CJK SC',sans-serif;fill:#203047} .body{font-size:19px} .muted{fill:#617189} .edge{fill:none;stroke:#617189;stroke-width:2.2;marker-end:url(#arrow);stroke-linejoin:round} .label{font-size:16px;fill:#43556f} .title{font-size:23px;font-weight:700}</style>
+<rect width='1600' height='1430' fill='#f8fafc'/>
+<rect x='0' y='0' width='1600' height='8' fill='#167564'/>
+<text x='50' y='55' font-size='16' fill='#167564' letter-spacing='3'>CINEMA AI / CODE ATLAS · 08</text>
+<text x='50' y='103' font-size='36' font-weight='700'>追踪与排错：从消息关联到节点、模型与工具</text>
+<text x='50' y='139' font-size='19' class='muted'>LangSmith 与本地 trace 只收摘要 / 白名单元数据；这不代表聊天或模型链路没有处理原文。</text>
+<rect x='65' y='200' width='430' height='165' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='65' y='217' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='85' y='235' class='title'>① 网关消息关联</text>
+<text x='85' y='269' class='body'>messageId / provider / stage</text>
+<text x='85' y='299' class='body'>Agent 上游 trace UUID 写日志</text>
+<text x='85' y='329' class='body'>不把私有 trace 详情直接发浏览器</text>
+<rect x='585' y='200' width='430' height='165' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='585' y='217' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='605' y='235' class='title'>② Agent 每轮根 span</text>
+<text x='605' y='269' class='body'>cinema.agent.live / chat</text>
+<text x='605' y='299' class='body'>用户会话 hash / root trace_id</text>
+<text x='605' y='329' class='body'>节点 → 模型 / 工具子 span</text>
+<rect x='1105' y='200' width='430' height='165' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='1105' y='217' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='1125' y='235' class='title'>③ MetadataOnlyClient</text>
+<text x='1125' y='269' class='body'>拦截 SDK create / update / batch</text>
+<text x='1125' y='299' class='body'>清洗 input / output / error</text>
+<text x='1125' y='329' class='body'>固定字段、计数、版本和来源摘要</text>
+<path d='M495,280 L585,280' class='edge'/>
+<rect x='498' y='241' width='46.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='505' y='260' class='label'>关联</text>
+<path d='M1015,280 L1105,280' class='edge'/>
+<rect x='1105' y='500' width='430' height='165' rx='12' fill='#f0ebff' stroke='#7450a3' stroke-width='1.5'/>
+<rect x='1105' y='517' width='4' height='26' rx='2' fill='#7450a3'/>
+<text x='1125' y='535' class='title'>④ LangSmith 云端</text>
+<text x='1125' y='569' class='body'>节点耗时 / 模型 / 工具 / 错误</text>
+<text x='1125' y='599' class='body'>local / test / preprod 显式开启</text>
+<text x='1125' y='629' class='body'>启用不等于权限与上传已验证</text>
+<rect x='585' y='500' width='430' height='165' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='585' y='517' width='4' height='26' rx='2' fill='#167564'/>
+<text x='605' y='535' class='title'>⑤ 本地用户会话归档</text>
+<text x='605' y='569' class='body'>langsmith(tracing)/日期/用户会话</text>
+<text x='605' y='599' class='body'>session.json + traces.jsonl</text>
+<text x='605' y='629' class='body'>SQLite 索引关联延迟回调</text>
+<rect x='65' y='500' width='430' height='165' rx='12' fill='#eaf2ff' stroke='#3262a8' stroke-width='1.5'/>
+<rect x='65' y='517' width='4' height='26' rx='2' fill='#3262a8'/>
+<text x='85' y='535' class='title'>⑥ 定位失败发生阶段</text>
+<text x='85' y='569' class='body'>理解 → 决策 → MCP / Java</text>
+<text x='85' y='599' class='body'>→ 反思 → 流完成 → 持久化</text>
+<text x='85' y='629' class='body'>区分错误码、阶段、状态与耗时</text>
+<path d='M1320,365 L1320,500' class='edge'/>
+<path d='M1200,365 L1200,435 L800,435 L800,500' class='edge'/>
+<rect x='803' y='401' width='158.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='810' y='420' class='label'>清洗后的同一类事件</text>
+<path d='M585,580 L495,580' class='edge'/>
+<rect x='503' y='541' width='46.0' height='25' rx='4' fill='#f8fafc'/>
+<text x='510' y='560' class='label'>排查</text>
+<rect x='65' y='815' width='720' height='195' rx='12' fill='#e4f5f1' stroke='#167564' stroke-width='1.5'/>
+<rect x='65' y='832' width='4' height='26' rx='2' fill='#167564'/>
+<text x='85' y='850' class='title'>目录示例（用户 42 / hash 为示例）</text>
+<text x='85' y='884' class='body'>2026_10_12/</text>
+<text x='85' y='914' class='body'>  42_2026_10_12_14_24_a1b2c3d4e5f6/</text>
+<text x='85' y='944' class='body'>    session.json · traces.jsonl</text>
+<text x='85' y='974' class='body'>会话首次目录固定，跨日 / 重启仍归原会话。</text>
+<rect x='830' y='815' width='720' height='195' rx='12' fill='#fff3d9' stroke='#a4761c' stroke-width='1.5'/>
+<rect x='830' y='832' width='4' height='26' rx='2' fill='#a4761c'/>
+<text x='850' y='850' class='title'>质量反馈与评估（另一条链路）</text>
+<text x='850' y='884' class='body'>点赞 / 点踩 → Java 持久反馈 → 后台处理</text>
+<text x='850' y='914' class='body'>缺槽位 → 补充成功 → 脱敏 silver 待审核样本</text>
+<text x='850' y='944' class='body'>evaluation/：golden / A-B / workflow / rerank</text>
+<text x='850' y='974' class='body'>历史报告不等于本次重新验证或线上质量保证。</text>
+<rect x='50' y='1140' width='1500' height='165' rx='12' fill='#eef1f5' stroke='#617189' stroke-width='1.5'/>
+<rect x='50' y='1157' width='4' height='26' rx='2' fill='#617189'/>
+<text x='70' y='1175' class='title'>数据边界</text>
+<text x='70' y='1209' class='body'>追踪不保留完整问题、prompt、SQL、工具行或凭证；本地会话清单含 userId，云端会话用 hash 关联。</text>
+<text x='70' y='1239' class='body'>模型可能收到问题 / 历史 / 业务观察；Redis 问答、MySQL 反馈与记忆可以含正文，不能与追踪脱敏混为一谈。</text>
+<text x='70' y='1269' class='body'>排错先看 HTTP / error / complete，再关联网关日志与 trace；health UP 只证明进程存活与配置摘要。</text>
+<line x1='50' y1='1377' x2='1550' y2='1377' stroke='#d9e0ea'/>
+<text x='50' y='1405' font-size='15' class='muted'>基于当前工作区代码 · 2026-10-12 · 默认值不代表运行配置 · 完整说明见 README.md / source-index.md</text>
+</svg>
