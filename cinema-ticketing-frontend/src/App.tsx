@@ -1,14 +1,7 @@
-import { useEffect, useState, type FormEvent } from "react";
-import MovieAdmin from "./admin/MovieAdmin";
-import AccountAdmin from "./admin/AccountAdmin";
+import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
+import AdminAccess from "./admin/AdminAccess";
+import { adminView, canOpenAdmin, isAdminPath } from "./admin/routes";
 import AccountSecurityDialog from "./auth/AccountSecurityDialog";
-import CinemaAdmin from "./admin/CinemaAdmin";
-import RefundPolicyAdmin from "./admin/RefundPolicyAdmin";
-import AiFeedbackAdmin from "./admin/AiFeedbackAdmin";
-import SalesReportAdmin from "./admin/SalesReportAdmin";
-import HallSeatAdmin from "./admin/HallSeatAdmin";
-import MovieReviewAdmin from "./admin/MovieReviewAdmin";
-import TicketCheckInAdmin from "./admin/TicketCheckInAdmin";
 import RefundControl from "./orders/RefundControl";
 import TicketDialog from "./orders/TicketDialog";
 import MovieCarousel from "./home/MovieCarousel";
@@ -18,6 +11,8 @@ import MovieDetailDialog from "./home/MovieDetailDialog";
 import CinemaAssistant from "./chat/CinemaAssistant";
 import { useScopedRequest } from "./auth/client";
 import { useTabSession, type StoredSession } from "./auth/useTabSession";
+
+const AdminWorkspace = lazy(() => import("./admin/AdminWorkspace"));
 
 type Movie = {
   id: number;
@@ -152,16 +147,38 @@ function moviePosterUrl(movieId: number, version: number): string {
 function App() {
   const auth = useTabSession();
   const [securityNotice, setSecurityNotice] = useState("");
-  if (auth.checking || auth.error) return <main className="page-shell"><h1>影院</h1>
+  const [path, setPath] = useState(window.location.pathname);
+  useEffect(() => {
+    const restore = () => setPath(window.location.pathname);
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
+  function navigate(next: string) {
+    window.history.pushState(null, "", next);
+    setPath(next);
+    window.scrollTo({ top: 0, behavior: "instant" });
+  }
+  async function signIn(username: string, password: string) {
+    await auth.signIn(username, password); setSecurityNotice("");
+  }
+  function securityRevoked(message: string) {
+    setSecurityNotice(message); auth.forgetSession();
+  }
+  if (auth.checking || auth.error) return <main className="admin-access"><section className="admin-access-card"><h1>{isAdminPath(path) ? "管理后台" : "影院"}</h1>
     <p role={auth.error ? "alert" : "status"}>{auth.error || "正在核验当前标签页的登录身份…"}</p>
-    {auth.error && <button type="button" onClick={auth.retry}>重新核验</button>}
-  </main>;
-  return <>{securityNotice && <p className="security-notice" role="status">{securityNotice}</p>}<CinemaWorkspace key={auth.session?.token ?? "guest"} session={auth.session} signIn={async (username, password) => { await auth.signIn(username, password); setSecurityNotice(""); }} signOut={auth.signOut} securityRevoked={(message) => { setSecurityNotice(message); auth.forgetSession(); }} /></>;
+    {auth.error && <button className="secondary-button" type="button" onClick={auth.retry}>重新核验</button>}
+  </section></main>;
+  return <>{securityNotice && <p className="security-notice" role="status">{securityNotice}</p>}
+    {isAdminPath(path) ? canOpenAdmin(auth.session?.role) && auth.session ?
+      <Suspense fallback={<main className="admin-access"><p role="status">正在加载管理后台…</p></main>}><AdminWorkspace key={auth.session.token} session={auth.session} view={adminView(path)} navigate={navigate} signOut={auth.signOut} securityRevoked={securityRevoked} /></Suspense>
+      : <AdminAccess key={auth.session?.token ?? "guest"} session={auth.session} signIn={signIn} signOut={auth.signOut} navigate={navigate} />
+      : <CinemaWorkspace key={auth.session?.token ?? "guest"} session={auth.session} signIn={signIn} signOut={auth.signOut} securityRevoked={securityRevoked} openManagement={() => navigate("/admin/accounts")} />}
+  </>;
 }
 
-type WorkspaceProps = { session: StoredSession | null; signIn: (username: string, password: string) => Promise<void>; signOut: () => void; securityRevoked: (message: string) => void };
+type WorkspaceProps = { session: StoredSession | null; signIn: (username: string, password: string) => Promise<void>; signOut: () => void; securityRevoked: (message: string) => void; openManagement: () => void };
 
-function CinemaWorkspace({ session, signIn, signOut, securityRevoked }: WorkspaceProps) {
+function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManagement }: WorkspaceProps) {
   const apiRequest = useScopedRequest();
   const [movies, setMovies] = useState<Movie[]>([]);
   const [screenings, setScreenings] = useState<Screening[]>([]);
@@ -175,7 +192,6 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked }: Workspac
   const [isLoading, setIsLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState("");
   const [selectedMovie, setSelectedMovie] = useState<Movie | null>(null);
-  const [activeView, setActiveView] = useState<"catalog" | "movies" | "cinemas" | "refund-policy" | "ai-feedback" | "halls" | "seats" | "movie-reviews" | "ticket-check-in" | "accounts" | "sales-reports">("catalog");
   const [isAuthOpen, setIsAuthOpen] = useState(false);
   const [securityOpen, setSecurityOpen] = useState(false);
   const [authMode, setAuthMode] = useState<AuthMode>("login");
@@ -324,13 +340,12 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked }: Workspac
   }
 
   useEffect(() => {
-    if (activeView !== "catalog") return;
     const refresh = () => { if (!document.hidden) void refreshMovies(false).catch(() => {}); };
     refresh();
     const timer = window.setInterval(refresh, 60000);
     window.addEventListener("focus", refresh);
     return () => { window.clearInterval(timer); window.removeEventListener("focus", refresh); };
-  }, [activeView]);
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -585,18 +600,17 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked }: Workspac
   return (
     <main className="app-shell">
       <header className="site-header content-width">
-        <a className="brand" href="#top" aria-label="Cinema 首页" onClick={() => setActiveView("catalog")}>
+        <a className="brand" href="#top" aria-label="Cinema 首页">
           <span className="brand-mark">C</span><span>CINEMA</span>
         </a>
-        <nav className={`main-nav ${session?.role === "ADMIN" ? "admin-nav" : ""}`} aria-label="主导航">
-          <a className={activeView === "catalog" ? "active" : ""} href="#movies" onClick={() => { setMovieCategory("showing"); setActiveView("catalog"); }}>正在上映</a>
-          <a href="#cinemas" onClick={() => setActiveView("catalog")}>影院</a>
-          <a href="#orders" onClick={() => setActiveView("catalog")}>我的订单</a>
-          {session?.role === "ADMIN" && <select className="admin-desktop-shortcut" aria-label="后台管理页面" value={activeView} onChange={(event) => { setSelectedMovie(null); setActiveView(event.target.value as typeof activeView); }}><option value="catalog">后台管理</option><option value="movies">影片管理</option><option value="cinemas">影院管理</option><option value="halls">影厅管理</option><option value="seats">座位管理</option><option value="refund-policy">退票规则</option><option value="movie-reviews">影评管理</option><option value="ticket-check-in">验票入场</option><option value="ai-feedback">AI 反馈</option><option value="accounts">账户安全</option><option value="sales-reports">经营报表</option></select>}
+        <nav className="main-nav" aria-label="主导航">
+          <a className="active" href="#movies" onClick={() => setMovieCategory("showing")}>正在上映</a>
+          <a href="#cinemas">影院</a>
+          <a href="#orders">我的订单</a>
         </nav>
         {session ? (
-          <div className={`account-area ${session.role === "ADMIN" ? "admin-account" : ""}`}>
-            {session.role === "ADMIN" && <select className="admin-mobile-shortcut" aria-label="管理页面" value={activeView} onChange={(event) => { setSelectedMovie(null); setActiveView(event.target.value as typeof activeView); }}><option value="catalog">首页</option><option value="movies">影片</option><option value="cinemas">影院</option><option value="halls">影厅</option><option value="seats">座位</option><option value="refund-policy">退票规则</option><option value="movie-reviews">影评管理</option><option value="ticket-check-in">验票入场</option><option value="ai-feedback">AI 反馈</option><option value="accounts">账户安全</option><option value="sales-reports">经营报表</option></select>}
+          <div className="account-area">
+            {session.role === "ADMIN" && <button className="account-button public-admin-link" type="button" onClick={openManagement}>管理后台</button>}
             <span className="account-name" title={`已登录：${session.username}（${session.role}）`}>
               <span className="account-dot" aria-hidden="true" />{session.username}
             </span>
@@ -608,26 +622,6 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked }: Workspac
         )}
       </header>
 
-      {session?.role === "ADMIN" && activeView === "movies" ? (
-        <MovieAdmin movies={movies} isLoading={isLoading} errorMessage={errorMessage} imageVersion={imageVersion} token={session.token} request={apiRequest} onRefresh={refreshMovies} />
-      ) : session?.role === "ADMIN" && (activeView === "halls" || activeView === "seats") ? (
-        <HallSeatAdmin view={activeView} cinemas={cinemas} request={apiRequest} token={session.token} onRefresh={async () => { const values = await apiRequest<Hall[]>("/api/halls"); setHalls(values); await refreshMovies(false); }} onSeats={() => setActiveView("seats")} />
-      ) : session?.role === "ADMIN" && activeView === "movie-reviews" ? (
-        <MovieReviewAdmin key={session.token} request={apiRequest} token={session.token} onChanged={() => refreshMovies(false)} />
-      ) : session?.role === "ADMIN" && activeView === "accounts" ? (
-        <AccountAdmin request={apiRequest} token={session.token} />
-      ) : session?.role === "ADMIN" && activeView === "ticket-check-in" ? (
-        <TicketCheckInAdmin request={apiRequest} token={session.token} />
-      ) : session?.role === "ADMIN" && activeView === "sales-reports" ? (
-        <SalesReportAdmin request={apiRequest} token={session.token} cinemas={cinemas} movies={movies} />
-      ) : session?.role === "ADMIN" && activeView === "ai-feedback" ? (
-        <AiFeedbackAdmin request={apiRequest} token={session.token} />
-      ) : session?.role === "ADMIN" && activeView === "refund-policy" ? (
-        <RefundPolicyAdmin request={apiRequest} token={session.token} />
-      ) : session?.role === "ADMIN" && activeView === "cinemas" ? (
-        <CinemaAdmin cinemas={cinemas} halls={halls} isLoading={isCinemaLoading} errorMessage={cinemaError} token={session.token} request={apiRequest} onRefresh={refreshCinemas} />
-      ) : (
-      <>
       <div id="top"><MovieCarousel movies={publicMovies.filter((movie) => movieGroup(movie) === "showing" && movie.sales_status === "AVAILABLE")} poster={(id) => moviePosterUrl(id, imageVersion)} fallback={getMovieImage} onSelect={(id) => setSelectedMovie(movieById.get(id) ?? null)} /></div>
 
       <section className="movie-section content-width" id="movies">
@@ -747,10 +741,8 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked }: Workspac
       <footer className="site-footer content-width">
         <span>CINEMA / 电影票务</span><span>让每一次观影，都从选择开始。</span>
       </footer>
-      </>
-      )}
 
-      {activeView === "catalog" && selectedMovie && (
+      {selectedMovie && (
         <MovieDetailDialog key={selectedMovie.id} movie={selectedMovie} poster={moviePosterUrl(selectedMovie.id, imageVersion)} fallback={getMovieImage(selectedMovie.id)}
           saleWindow={selectedMovie.sale_start_time && selectedMovie.sale_end_time ? `${formatDateTime(selectedMovie.sale_start_time)} 至 ${formatDateTime(selectedMovie.sale_end_time)}` : "未设置时间限制"}
           salesLabel={`${movieSalesLabel(selectedMovie)}${selectedMovie.sales_status === "NO_SCREENINGS" ? "，影院安排场次后可订购" : ""}`}

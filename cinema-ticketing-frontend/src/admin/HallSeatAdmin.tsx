@@ -54,7 +54,7 @@ export default function HallSeatAdmin({ view, cinemas, token, request, onRefresh
       const result = await request<{ added?: number }>(path, { method, ...(body ? { body: JSON.stringify(body) } : {}) }, token);
       setHallForm(null); setSeatForm(null); setConfirmation(null); setSelection([]); setReload((value) => value + 1);
       setNotice(result?.added != null ? `已补充 ${result.added} 个座位，现有座位编号和状态已保留。` : success);
-      try { await onRefresh(); } catch { setNotice(`${success}；首页数据刷新失败，可稍后刷新。`); }
+      try { await onRefresh(); } catch { setNotice(`${success}；关联管理数据刷新失败，可稍后刷新。`); }
     } catch (cause) { setError(cause instanceof Error ? cause.message : "保存失败"); }
     finally { setBusy(false); }
   }
