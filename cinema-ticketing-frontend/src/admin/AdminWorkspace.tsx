@@ -36,12 +36,12 @@ export default function AdminWorkspace({ session, view, navigate, signOut, secur
   const refreshMovies = useCallback(async (signal?: AbortSignal) => {
     setMovieLoading(true); setMovieError("");
     try {
-      const values = await request<AdminMovie[]>("/api/movies", { signal });
+      const values = await request<AdminMovie[]>("/api/admin/movies", { signal }, session.token);
       if (!signal?.aborted) { setMovies(values ?? []); setImageVersion((version) => version + 1); }
     } catch (cause) {
       if (!signal?.aborted) { setMovieError(cause instanceof Error ? cause.message : "影片读取失败"); throw cause; }
     } finally { if (!signal?.aborted) setMovieLoading(false); }
-  }, [request]);
+  }, [request, session.token]);
 
   const refreshCinemas = useCallback(async (signal?: AbortSignal) => {
     setCinemaLoading(true); setCinemaError("");

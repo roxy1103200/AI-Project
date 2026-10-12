@@ -222,7 +222,7 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
   const [ticketOrderNo, setTicketOrderNo] = useState<string | null>(null);
 
   const movieById = new Map(movies.map((movie) => [movie.id, movie]));
-  const publicMovies = movies.filter((movie) => movie.status !== "OFFLINE");
+  const publicMovies = movies.filter((movie) => movie.status !== "OFFLINE" && movie.status !== "ARCHIVED");
   function movieGroup(movie: Movie): string {
     const label = movieSalesLabel(movie);
     if (label === "上架已截止") return "ended";

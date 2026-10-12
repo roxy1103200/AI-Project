@@ -38,6 +38,8 @@ class MoviePosterRoutingTest {
         JdbcTemplate jdbc = mock(JdbcTemplate.class);
         when(jdbc.queryForObject("SELECT COUNT(*) FROM movie WHERE id = ?", Integer.class, 7L))
                 .thenReturn(1);
+        when(jdbc.queryForList("SELECT id FROM movie WHERE id=? FOR SHARE", 7L))
+                .thenReturn(java.util.List.of(java.util.Map.of("id", 7L)));
         MoviePosterService posters = new MoviePosterService(jdbc, directory.toString());
         AuthService auth = mock(AuthService.class);
         doThrow(new BusinessException(401, "请登录")).when(auth).requireAdmin(isNull());

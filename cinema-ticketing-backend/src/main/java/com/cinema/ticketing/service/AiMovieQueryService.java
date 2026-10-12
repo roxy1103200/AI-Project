@@ -27,7 +27,7 @@ public class AiMovieQueryService {
             " FROM screening s JOIN movie m ON m.id=s.movie_id "
                     + "JOIN hall h ON h.id=s.hall_id JOIN cinema c ON c.id=h.cinema_id ";
     private static final String PUBLISHED =
-            "s.status='SCHEDULED' AND m.status<>'OFFLINE' "
+            "s.status='SCHEDULED' AND m.status NOT IN ('OFFLINE','ARCHIVED') "
                     + "AND h.status='ACTIVE' AND c.status='ACTIVE'";
     private static final int DETAIL_LIMIT = 2000;
     private final JdbcTemplate jdbc;
@@ -65,7 +65,7 @@ public class AiMovieQueryService {
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDate effectiveDate = date == null ? now.toLocalDate() : date;
         Filter scheduled = scheduleFilter(date, cinema, now);
-        StringBuilder where = new StringBuilder("m.status<>'OFFLINE'");
+        StringBuilder where = new StringBuilder("m.status NOT IN ('OFFLINE','ARCHIVED')");
         List<Object> args = new ArrayList<>();
         if ("showing".equals(scope) || showingOnly) {
             where.append(

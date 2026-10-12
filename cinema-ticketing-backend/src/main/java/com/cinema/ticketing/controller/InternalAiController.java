@@ -71,13 +71,13 @@ public class InternalAiController {
         if (query == null || query.isBlank()) {
             return jdbcTemplate.queryForList(
                     "SELECT id, title, description, duration, release_date, director, actors,"
-                            + " genre, status FROM movie WHERE status <> 'OFFLINE' ORDER BY"
+                            + " genre, status FROM movie WHERE status NOT IN ('OFFLINE','ARCHIVED') ORDER BY"
                             + " release_date DESC, id DESC LIMIT 20");
         }
         String keyword = "%" + query.trim() + "%";
         return jdbcTemplate.queryForList(
                 "SELECT id, title, description, duration, release_date, director, actors, genre,"
-                    + " status FROM movie WHERE status <> 'OFFLINE' AND (title LIKE ? OR genre LIKE"
+                    + " status FROM movie WHERE status NOT IN ('OFFLINE','ARCHIVED') AND (title LIKE ? OR genre LIKE"
                     + " ? OR actors LIKE ?) ORDER BY release_date DESC, id DESC LIMIT 20",
                 keyword,
                 keyword,
@@ -188,12 +188,12 @@ public class InternalAiController {
         if (preference == null || preference.isBlank()) {
             return jdbcTemplate.queryForList(
                     "SELECT id, title, description, genre, director, actors FROM movie WHERE status"
-                            + " <> 'OFFLINE' ORDER BY release_date DESC, id DESC LIMIT 5");
+                            + " NOT IN ('OFFLINE','ARCHIVED') ORDER BY release_date DESC, id DESC LIMIT 5");
         }
         String keyword = "%" + preference + "%";
         return jdbcTemplate.queryForList(
-                "SELECT id, title, description, genre, director, actors FROM movie WHERE status <>"
-                        + " 'OFFLINE' AND (genre LIKE ? OR title LIKE ? OR actors LIKE ?) ORDER BY"
+                "SELECT id, title, description, genre, director, actors FROM movie WHERE status"
+                        + " NOT IN ('OFFLINE','ARCHIVED') AND (genre LIKE ? OR title LIKE ? OR actors LIKE ?) ORDER BY"
                         + " release_date DESC, id DESC LIMIT 5",
                 keyword,
                 keyword,

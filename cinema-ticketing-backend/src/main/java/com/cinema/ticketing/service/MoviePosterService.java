@@ -7,6 +7,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.multipart.MultipartFile;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.AtomicMoveNotSupportedException;
@@ -37,8 +38,9 @@ public class MoviePosterService {
         }
     }
 
+    @Transactional
     public String save(long movieId, MultipartFile file) {
-        requireMovie(movieId);
+        requireMovieForWrite(movieId);
         if (file == null || file.isEmpty() || file.getSize() > MAX_IMAGE_BYTES) {
             throw new BusinessException(400, "请选择不超过 5 MB 的图片");
         }
@@ -106,8 +108,9 @@ public class MoviePosterService {
         return latest;
     }
 
+    @Transactional
     public void delete(long movieId) {
-        requireMovie(movieId);
+        requireMovieForWrite(movieId);
         try {
             deleteFiles(movieId);
         } catch (IOException exception) {
@@ -135,6 +138,12 @@ public class MoviePosterService {
                 "SELECT COUNT(*) FROM movie WHERE id = ?", Integer.class, movieId) == 0) {
             throw new BusinessException(404, "影片不存在");
         }
+    }
+
+    private void requireMovieForWrite(long movieId) {
+        // Keep a concurrent movie deletion from finishing before this image write.
+        if (movieId <= 0 || jdbcTemplate.queryForList("SELECT id FROM movie WHERE id=? FOR SHARE", movieId).isEmpty())
+            throw new BusinessException(404, "影片不存在");
     }
 
     private Path pathFor(long movieId, String extension) {

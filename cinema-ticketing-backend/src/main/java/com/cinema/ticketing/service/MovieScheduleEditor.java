@@ -18,8 +18,12 @@ import java.util.TreeSet;
 /** Called inside the movie save transaction so metadata and schedules succeed together. */
 final class MovieScheduleEditor {
     private final JdbcTemplate jdbc;
+    private final ScreeningMutationPolicy mutationPolicy;
 
-    MovieScheduleEditor(JdbcTemplate jdbc) { this.jdbc = jdbc; }
+    MovieScheduleEditor(JdbcTemplate jdbc, ScreeningMutationPolicy mutationPolicy) {
+        this.jdbc = jdbc;
+        this.mutationPolicy = mutationPolicy;
+    }
 
     long create(Map<String, Object> values) {
         long movieId = movieId(values.get("movie_id"));
@@ -71,7 +75,8 @@ final class MovieScheduleEditor {
         if (!(input instanceof List<?> rows) || rows.size() > 100) {
             throw new BusinessException(400, "场次必须是数组，单次最多保存 100 个场次");
         }
-        Map<String, Object> movie = jdbc.queryForMap("SELECT duration, sale_start_time, sale_end_time FROM movie WHERE id=? FOR UPDATE", movieId);
+        Map<String, Object> movie = jdbc.queryForMap("SELECT duration, sale_start_time, sale_end_time,status FROM movie WHERE id=? FOR UPDATE", movieId);
+        if ("ARCHIVED".equals(movie.get("status"))) throw new BusinessException(409, "影片已归档，请先恢复后再维护排期");
         List<Slot> slots = rows.stream().map(this::parse).toList();
         Map<Long, Map<String, Object>> existing = new HashMap<>();
         for (var row : jdbc.queryForList("SELECT id, hall_id, start_time, end_time, price, status FROM screening WHERE movie_id=? FOR UPDATE", movieId)) {
@@ -92,12 +97,12 @@ final class MovieScheduleEditor {
                 throw new BusinessException(400, "场次不属于当前影片或提交了重复场次");
             }
             if (old != null && unchanged(slot, old)) continue;
-            if (old != null && hasSalesCommitment(slot.id())) throw new BusinessException(409, "场次已有订单或已固定可售容量，不能修改影厅、时间、票价或状态");
+            if (old != null) mutationPolicy.requireMutable(slot.id(), ((Number) old.get("hall_id")).longValue());
             validate(slot, movie);
         }
         for (long oldId : existing.keySet()) {
             if (!retained.contains(oldId)) {
-                if (hasSalesCommitment(oldId)) throw new BusinessException(409, "场次已有订单或已固定可售容量，不能删除");
+                mutationPolicy.requireMutable(oldId, ((Number) existing.get(oldId).get("hall_id")).longValue());
                 jdbc.update("DELETE FROM screening WHERE id=? AND movie_id=?", oldId, movieId);
             }
         }
@@ -143,12 +148,6 @@ final class MovieScheduleEditor {
                 + "AND ((m.sale_start_time IS NOT NULL AND s.start_time<m.sale_start_time) "
                 + "OR (m.sale_end_time IS NOT NULL AND s.end_time>m.sale_end_time))", Integer.class, movieId, LocalDateTime.now());
         if (outside != null && outside > 0) throw new BusinessException(400, "未来场次必须完整位于影片上架周期内，请同时调整周期或场次");
-    }
-
-    private boolean hasSalesCommitment(long id) {
-        // A locking read sees orders committed while this transaction waited for the screening lock.
-        return !jdbc.queryForList("SELECT id FROM ticket_order WHERE screening_id=? ORDER BY id LIMIT 1 FOR UPDATE", id).isEmpty()
-                || !jdbc.queryForList("SELECT screening_id FROM screening_capacity_snapshot WHERE screening_id=? FOR UPDATE", id).isEmpty();
     }
 
     private void validate(Slot slot, Map<String, Object> movie) {

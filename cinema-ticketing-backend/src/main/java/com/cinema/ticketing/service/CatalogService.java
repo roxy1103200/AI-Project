@@ -12,6 +12,7 @@ import org.springframework.cache.annotation.CacheEvict;
 import org.springframework.cache.annotation.Cacheable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.sql.PreparedStatement;
 import java.sql.Statement;
@@ -28,10 +29,14 @@ public class CatalogService {
 
     private final JdbcTemplate jdbcTemplate;
     private final MovieScheduleEditor scheduleEditor;
+    private final ScreeningMutationPolicy mutationPolicy;
+    private final MovieLifecycle lifecycle;
 
-    public CatalogService(JdbcTemplate jdbcTemplate) {
+    public CatalogService(JdbcTemplate jdbcTemplate, StringRedisTemplate redis) {
         this.jdbcTemplate = jdbcTemplate;
-        this.scheduleEditor = new MovieScheduleEditor(jdbcTemplate);
+        this.mutationPolicy = new ScreeningMutationPolicy(jdbcTemplate, redis);
+        this.scheduleEditor = new MovieScheduleEditor(jdbcTemplate, mutationPolicy);
+        this.lifecycle = new MovieLifecycle(jdbcTemplate, mutationPolicy);
     }
 
     @Cacheable(cacheNames = "catalogList", key = "#resource", condition = "#resource != 'screenings' && #resource != 'movies'")
@@ -45,7 +50,24 @@ public class CatalogService {
                     + " ORDER BY s.start_time, s.id", LocalDateTime.now(), LocalDateTime.now(), LocalDateTime.now());
         }
         ResourceDefinition definition = definition(resource);
+        if ("movies".equals(resource)) return jdbcTemplate.queryForList(
+                "SELECT id, " + definition.readColumns() + " FROM movie WHERE status<>'ARCHIVED' ORDER BY id DESC");
         return jdbcTemplate.queryForList(definition.listSql());
+    }
+
+    public List<Map<String, Object>> adminMovies() {
+        return jdbcTemplate.queryForList(definition("movies").listSql());
+    }
+
+    @Transactional
+    public Map<String, Object> movieDeletionAssessment(long id) {
+        return lifecycle.assessment(id);
+    }
+
+    @Transactional
+    @CacheEvict(cacheNames = {"catalogList", "catalogDetail"}, allEntries = true)
+    public void movieLifecycle(long id, String action) {
+        lifecycle.transition(id, action);
     }
 
     @Cacheable(cacheNames = "catalogDetail", key = "#resource + ':' + #id", condition = "#resource != 'movies'")
@@ -90,6 +112,12 @@ public class CatalogService {
         ResourceDefinition definition = definition(resource);
         rejectUserMutation(resource);
         if ("screenings".equals(resource)) { scheduleEditor.update(id, values); return; }
+        if ("movies".equals(resource)) {
+            var rows = jdbcTemplate.queryForList("SELECT status FROM movie WHERE id=? FOR UPDATE", id);
+            if (rows.isEmpty()) throw new BusinessException(404, "影片不存在");
+            if ("ARCHIVED".equals(rows.getFirst().get("status")))
+                throw new BusinessException(409, "影片已归档，请先恢复到已下线状态再编辑");
+        }
         Object[] parameters = definition.parameters(validatedValues(resource, values), id);
         if (jdbcTemplate.update(definition.updateSql(), parameters) == 0) {
             throw new BusinessException(404, "资源不存在");
@@ -101,9 +129,18 @@ public class CatalogService {
     }
 
     public List<Map<String, Object>> movieScreenings(long movieId) {
-        return jdbcTemplate.queryForList("SELECT s.id, s.hall_id, s.start_time, s.end_time, s.price, s.status, "
+        var rows = jdbcTemplate.queryForList("SELECT s.id, s.hall_id, s.start_time, s.end_time, s.price, s.status, "
                 + "EXISTS(SELECT 1 FROM ticket_order o WHERE o.screening_id = s.id) has_orders "
                 + "FROM screening s WHERE s.movie_id = ? ORDER BY s.start_time, s.id", movieId);
+        for (var row : rows) {
+            boolean hasOrders = Boolean.TRUE.equals(row.get("has_orders"))
+                    || row.get("has_orders") instanceof Number number && number.intValue() != 0;
+            long locks = mutationPolicy.activeLocks(((Number) row.get("id")).longValue(), ((Number) row.get("hall_id")).longValue());
+            row.put("mutable", !hasOrders && locks == 0);
+            row.put("active_lock_count", locks);
+            row.put("mutation_reason", hasOrders ? "存在订单历史，不能修改或删除" : locks > 0 ? "有观众正在锁座，请等待释放后刷新" : "");
+        }
+        return rows;
     }
 
     /** Future published schedules include films whose booking window has not opened. */
@@ -144,16 +181,20 @@ public class CatalogService {
     public void delete(String resource, long id) {
         rejectUserMutation(resource);
         if ("screenings".equals(resource)) { scheduleEditor.delete(id); return; }
+        if ("movies".equals(resource)) {
+            try { lifecycle.delete(id); }
+            catch (DataIntegrityViolationException exception) {
+                throw new BusinessException(409, "影片关联记录已变化，未执行删除，请刷新后重试");
+            }
+            return;
+        }
         ResourceDefinition definition = definition(resource);
         try {
             if (jdbcTemplate.update(definition.deleteSql(), id) == 0) {
                 throw new BusinessException(404, "资源不存在");
             }
         } catch (DataIntegrityViolationException exception) {
-            String message = "movies".equals(resource)
-                    ? "影片已关联放映场次，请先处理排片后再删除，或将影片下线"
-                    : "资源仍有关联数据，无法删除";
-            throw new BusinessException(409, message);
+            throw new BusinessException(409, "资源仍有关联数据，无法删除");
         }
     }
 
@@ -296,7 +337,7 @@ public class CatalogService {
             return of("movie", "title,description,duration,release_date,sale_start_time,sale_end_time,director,actors,genre,status",
                     "title,description,duration,release_date,sale_start_time,sale_end_time,director,actors,genre, "
                             + "CASE WHEN status='ON_SHOW' THEN 'ON_SHELF' ELSE status END status, "
-                            + "CASE WHEN status = 'OFFLINE' THEN 'OFFLINE' "
+                            + "CASE WHEN status = 'ARCHIVED' THEN 'ARCHIVED' WHEN status = 'OFFLINE' THEN 'OFFLINE' "
                             + "WHEN sale_start_time IS NOT NULL AND sale_start_time > DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR) THEN 'NOT_STARTED' "
                             + "WHEN sale_end_time IS NOT NULL AND sale_end_time <= DATE_ADD(UTC_TIMESTAMP(), INTERVAL 8 HOUR) THEN 'ENDED' "
                             + "WHEN EXISTS(SELECT 1 FROM screening s JOIN hall h ON h.id=s.hall_id JOIN cinema c ON c.id=h.cinema_id "

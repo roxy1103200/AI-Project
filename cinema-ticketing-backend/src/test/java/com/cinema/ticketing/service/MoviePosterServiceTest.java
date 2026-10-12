@@ -52,6 +52,8 @@ class MoviePosterServiceTest {
         JdbcTemplate jdbcTemplate = mock(JdbcTemplate.class);
         when(jdbcTemplate.queryForObject(eq("SELECT COUNT(*) FROM movie WHERE id = ?"), eq(Integer.class), eq(7L)))
                 .thenReturn(1);
+        when(jdbcTemplate.queryForList("SELECT id FROM movie WHERE id=? FOR SHARE", 7L))
+                .thenReturn(java.util.List.of(java.util.Map.of("id", 7L)));
         return new MoviePosterService(jdbcTemplate, imageDirectory.toString());
     }
 }

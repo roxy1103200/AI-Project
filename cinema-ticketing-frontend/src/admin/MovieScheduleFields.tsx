@@ -11,6 +11,9 @@ export type DraftScreening = {
   price: string;
   status: string;
   has_orders?: boolean | number;
+  mutable?: boolean;
+  mutation_reason?: string;
+  active_lock_count?: number;
 };
 
 export type ScheduleHall = { id: number; cinema_id: number; name: string; status?: string };
@@ -38,7 +41,7 @@ export default function MovieScheduleFields({ slots, halls, cinemas, duration, l
   const [expandedIndex, setExpandedIndex] = useState<number | null>(null);
   useEffect(() => {
     const normalized = slots.map((slot) => {
-      if (slot.has_orders || wallTime(slot.start_time) <= Date.now()) return slot;
+      if (slot.has_orders || slot.mutable === false || wallTime(slot.start_time) <= Date.now()) return slot;
       const end = endAfterDuration(slot.start_time, duration);
       return end && end !== slot.end_time ? { ...slot, end_time: end } : slot;
     });
@@ -60,16 +63,16 @@ export default function MovieScheduleFields({ slots, halls, cinemas, duration, l
       <button className="movie-admin-sort-slots" type="button" disabled={disabled || loading} onClick={() => { setExpandedIndex(null); onChange([...slots].sort((a, b) => (a.start_time || "9999").localeCompare(b.start_time || "9999"))); }}>按开场时间排序</button>
       {loading ? <p role="status">正在读取影厅与现有场次…</p> : error ? <p className="movie-admin-form-error" role="alert">{error}，请关闭编辑窗口后重新打开。</p> : slots.length === 0 ? <p>尚未排期。仅上架影片不会生成场次，添加场次后观众才可订购。</p> : null}
       {slots.map((slot, index) => {
-        const locked = Boolean(slot.has_orders);
+        const locked = Boolean(slot.has_orders) || slot.mutable === false;
         const hall = halls.find((item) => String(item.id) === slot.hall_id);
         const expanded = expandedIndex === index;
         return <div className="schedule-list-item" key={slot.id ?? `new-${index}`}>
           <button className="schedule-list-summary" type="button" aria-expanded={expanded} onClick={() => setExpandedIndex(expanded ? null : index)}>
             <span><strong>{slot.start_time ? slot.start_time.replace("T", " ").slice(0, 16) : "待设置开场时间"}</strong><small>{hall ? `${cinemaById.get(hall.cinema_id)?.name ?? ""} · ${hall.name}` : "选择影厅"}</small></span>
-            <span>{slot.price ? `¥${slot.price}` : "待设票价"}<small>{locked ? "已有订单" : slot.status === "CANCELLED" ? "已取消" : slot.id ? "已保存" : "新场次"}</small></span><span aria-hidden="true">{expanded ? "−" : "＋"}</span>
+            <span>{slot.price ? `¥${slot.price}` : "待设票价"}<small>{locked ? slot.has_orders ? "已有订单" : "正在锁座" : slot.status === "CANCELLED" ? "已取消" : slot.id ? "已保存" : "新场次"}</small></span><span aria-hidden="true">{expanded ? "−" : "＋"}</span>
           </button>
           <fieldset hidden={!expanded} className="movie-admin-schedule-row" disabled={disabled || locked || loading}>
-          <legend>{slot.id ? `场次 #${slot.id}` : `新场次 ${index + 1}`}{locked ? " · 已有订单，保留原排期" : ""}</legend>
+          <legend>{slot.id ? `场次 #${slot.id}` : `新场次 ${index + 1}`}{locked ? ` · ${slot.mutation_reason || "已有订单，保留原排期"}` : ""}</legend>
           <label><span>影院 / 影厅 <b>*</b></span><select required value={slot.hall_id} onChange={(event) => change(index, { hall_id: event.target.value })}>
             <option value="">选择影厅</option>
             {halls.filter((hall) => String(hall.id) === slot.hall_id || (hall.status === "ACTIVE" && cinemaById.get(hall.cinema_id)?.status === "ACTIVE"))

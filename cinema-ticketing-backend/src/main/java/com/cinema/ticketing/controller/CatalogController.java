@@ -59,6 +59,27 @@ public class CatalogController {
         return ApiResponse.success(catalogService.movieScreenings(id));
     }
 
+    @GetMapping("/admin/movies")
+    public ApiResponse<List<Map<String, Object>>> adminMovies(@RequestHeader("X-Auth-Token") String token) {
+        authService.requireAdmin(token);
+        return ApiResponse.success(catalogService.adminMovies());
+    }
+
+    @GetMapping("/movies/{id}/deletion-assessment")
+    public ApiResponse<Map<String, Object>> deletionAssessment(@PathVariable @Positive long id,
+            @RequestHeader("X-Auth-Token") String token) {
+        authService.requireAdmin(token);
+        return ApiResponse.success(catalogService.movieDeletionAssessment(id));
+    }
+
+    @PostMapping("/movies/{id}/lifecycle/{action}")
+    public ApiResponse<Void> movieLifecycle(@PathVariable @Positive long id, @PathVariable String action,
+            @RequestHeader("X-Auth-Token") String token) {
+        authService.requireAdmin(token);
+        catalogService.movieLifecycle(id, action);
+        return ApiResponse.success(null);
+    }
+
     @GetMapping("/halls/schedule")
     public ApiResponse<List<Map<String, Object>>> hallSchedule(
             @RequestParam @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate from,

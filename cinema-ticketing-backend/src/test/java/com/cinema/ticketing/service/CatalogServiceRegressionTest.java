@@ -5,6 +5,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.dao.EmptyResultDataAccessException;
 import org.springframework.jdbc.core.JdbcTemplate;
+import org.springframework.data.redis.core.StringRedisTemplate;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -20,7 +21,7 @@ import static org.mockito.Mockito.when;
 
 class CatalogServiceRegressionTest {
     private final JdbcTemplate jdbc = mock(JdbcTemplate.class);
-    private final CatalogService service = new CatalogService(jdbc);
+    private final CatalogService service = new CatalogService(jdbc, mock(StringRedisTemplate.class));
 
     @Test
     void missingDetailReturnsNotFound() {
@@ -40,6 +41,8 @@ class CatalogServiceRegressionTest {
 
     @Test
     void referencedMovieCannotBeDeleted() {
+        when(jdbc.queryForList("SELECT id,status FROM movie WHERE id=? FOR UPDATE", 7L))
+                .thenReturn(List.of(Map.of("id", 7L, "status", "OFFLINE")));
         when(jdbc.update(anyString(), any(Object[].class)))
                 .thenThrow(new DataIntegrityViolationException("foreign key"));
         BusinessException error = assertThrows(BusinessException.class,

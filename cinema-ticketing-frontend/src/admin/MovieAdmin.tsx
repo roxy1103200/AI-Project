@@ -33,6 +33,13 @@ type MovieForm = {
 };
 
 type ApiRequest = <T>(path: string, init?: RequestInit, token?: string) => Promise<T>;
+type LifecycleAction = "delete" | "offline" | "archive" | "restore";
+type DeletionAssessment = {
+  can_delete: boolean; can_archive: boolean; reasons: string[];
+  screening_count: number; order_count: number; review_count: number;
+  active_lock_count: number; unfinished_screening_count: number;
+};
+const ACTION_LABELS: Record<LifecycleAction, string> = { delete: "删除", offline: "下线", archive: "归档", restore: "恢复" };
 
 type MovieAdminProps = {
   movies: AdminMovie[];
@@ -63,6 +70,7 @@ const STATUS_LABELS: Record<string, string> = {
   ON_SHELF: "正在上映",
   ON_SHOW: "正在上映",
   OFFLINE: "已下线",
+  ARCHIVED: "已归档",
 };
 
 function formFromMovie(movie?: AdminMovie): MovieForm {
@@ -88,7 +96,7 @@ function statusLabel(status?: string | null): string {
 
 function statusClass(status?: string | null): string {
   if (status === "ON_SHELF" || status === "ON_SHOW") return "is-showing";
-  if (status === "OFFLINE") return "is-offline";
+  if (status === "OFFLINE" || status === "ARCHIVED") return "is-offline";
   return "is-upcoming";
 }
 
@@ -107,6 +115,10 @@ export default function MovieAdmin({ movies, isLoading, errorMessage, imageVersi
   const [isCreating, setIsCreating] = useState(false);
   const [form, setForm] = useState<MovieForm>(EMPTY_FORM);
   const [pendingDelete, setPendingDelete] = useState<AdminMovie | null>(null);
+  const [lifecycleAction, setLifecycleAction] = useState<LifecycleAction>("delete");
+  const [assessment, setAssessment] = useState<DeletionAssessment | null>(null);
+  const [assessmentError, setAssessmentError] = useState("");
+  const [assessmentVersion, setAssessmentVersion] = useState(0);
   const [isSaving, setIsSaving] = useState(false);
   const [deletingId, setDeletingId] = useState<number | null>(null);
   const [feedback, setFeedback] = useState<{ kind: "success" | "error"; text: string } | null>(null);
@@ -121,6 +133,22 @@ export default function MovieAdmin({ movies, isLoading, errorMessage, imageVersi
   const [scheduleError, setScheduleError] = useState("");
   const [scheduleVersion, setScheduleVersion] = useState(0);
   const [editorTab, setEditorTab] = useState<"basic" | "release" | "schedule">("basic");
+
+  useEffect(() => {
+    setAssessment(null);
+    setAssessmentError("");
+    if (!pendingDelete || (lifecycleAction !== "delete" && lifecycleAction !== "archive")) return;
+    const abort = new AbortController();
+    void request<DeletionAssessment>(`/api/movies/${pendingDelete.id}/deletion-assessment`, { signal: abort.signal }, token)
+      .then((value) => { if (!abort.signal.aborted) setAssessment(value); })
+      .catch((cause: unknown) => { if (!abort.signal.aborted) setAssessmentError(cause instanceof Error ? cause.message : "关联数据检查失败"); });
+    return () => abort.abort();
+  }, [pendingDelete?.id, lifecycleAction, assessmentVersion, request, token]);
+
+  function beginAction(movie: AdminMovie, action: LifecycleAction) {
+    setAssessment(null); setAssessmentError(""); setFeedback(null);
+    setLifecycleAction(action); setPendingDelete(movie);
+  }
 
   useEffect(() => {
     if (!isCreating) return;
@@ -157,16 +185,18 @@ export default function MovieAdmin({ movies, isLoading, errorMessage, imageVersi
   }, [posterFile]);
 
   const counts = useMemo(() => ({
-    total: movies.length,
+    total: movies.filter((movie) => movie.status !== "ARCHIVED").length,
     showing: movies.filter((movie) => (movie.status === "ON_SHELF" || movie.status === "ON_SHOW") && movie.sales_status === "AVAILABLE").length,
     pending: movies.filter((movie) => movie.sales_status === "NO_SCREENINGS" && movie.status !== "UPCOMING" && movie.status !== "OFFLINE").length,
     upcoming: movies.filter((movie) => movie.status !== "OFFLINE" && (movie.status === "UPCOMING" || movie.sales_status === "NOT_STARTED")).length,
     offline: movies.filter((movie) => movie.status === "OFFLINE").length,
+    archived: movies.filter((movie) => movie.status === "ARCHIVED").length,
   }), [movies]);
 
   const filteredMovies = useMemo(() => {
     const normalizedSearch = search.trim().toLocaleLowerCase("zh-CN");
     return movies.filter((movie) => {
+      if (movie.status === "ARCHIVED" && statusFilter !== "ARCHIVED") return false;
       const matchesSearch = !normalizedSearch || [movie.title, movie.director, movie.actors, movie.genre]
         .some((value) => value?.toLocaleLowerCase("zh-CN").includes(normalizedSearch));
       const matchesStatus = statusFilter === "ALL"
@@ -302,21 +332,25 @@ export default function MovieAdmin({ movies, isLoading, errorMessage, imageVersi
 
   async function deleteMovie() {
     if (!pendingDelete) return;
+    if (lifecycleAction === "delete" && !assessment?.can_delete) return;
+    if (lifecycleAction === "archive" && !assessment?.can_archive) return;
     setDeletingId(pendingDelete.id);
     setFeedback(null);
     try {
-      await request<void>(`/api/movies/${pendingDelete.id}`, { method: "DELETE" }, token);
+      await request<void>(lifecycleAction === "delete" ? `/api/movies/${pendingDelete.id}` : `/api/movies/${pendingDelete.id}/lifecycle/${lifecycleAction}`,
+        { method: lifecycleAction === "delete" ? "DELETE" : "POST" }, token);
       const title = pendingDelete.title;
       setPendingDelete(null);
       try {
         await onRefresh();
-        setFeedback({ kind: "success", text: `《${title}》已从片库删除。` });
+        setFeedback({ kind: "success", text: lifecycleAction === "restore" ? `《${title}》已恢复为已下线，请编辑上映信息后再开放购票。` : `《${title}》已${ACTION_LABELS[lifecycleAction]}。` });
       } catch {
-        setFeedback({ kind: "error", text: `《${title}》已删除，但片库刷新失败，请稍后手动刷新。` });
+        setFeedback({ kind: "error", text: `《${title}》操作已完成，但片库刷新失败，请稍后手动刷新。` });
       }
     } catch (error) {
-      setPendingDelete(null);
-      setFeedback({ kind: "error", text: error instanceof Error ? error.message : "删除失败，请稍后重试。" });
+      setFeedback({ kind: "error", text: error instanceof Error ? error.message : "操作失败，请稍后重试。" });
+      setAssessment(null);
+      setAssessmentVersion((version) => version + 1);
     } finally {
       setDeletingId(null);
     }
@@ -353,11 +387,12 @@ export default function MovieAdmin({ movies, isLoading, errorMessage, imageVersi
         <label className="movie-admin-filter">
           <span>上映状态</span>
           <select value={statusFilter} onChange={(event) => { setStatusFilter(event.target.value); setPage(1); }}>
-            <option value="ALL">全部状态</option>
+            <option value="ALL">日常片库（全部状态）</option>
             <option value="ON_SHELF">正在上映</option>
             <option value="PENDING">待排期</option>
             <option value="UPCOMING">即将上映</option>
             <option value="OFFLINE">已下线</option>
+            <option value="ARCHIVED">历史归档（{counts.archived}）</option>
           </select>
         </label>
         <button className="movie-admin-refresh" type="button" disabled={isLoading} onClick={() => { void onRefresh().catch((error: unknown) => setFeedback({ kind: "error", text: error instanceof Error ? error.message : "片库刷新失败，请稍后重试。" })); }}>
@@ -384,7 +419,17 @@ export default function MovieAdmin({ movies, isLoading, errorMessage, imageVersi
                 <td>{displayDate(movie.release_date)}</td>
                 <td>{movie.duration ? `${movie.duration} 分钟` : "—"}</td>
                 <td><span className={`movie-admin-status ${statusClass(movie.sales_status === "NOT_STARTED" ? "UPCOMING" : movie.status)}`}><i />{movie.sales_status === "NOT_STARTED" ? "待上架" : statusLabel(movie.status)}</span><small className="movie-admin-sales-note">{movie.sales_status === "NO_SCREENINGS" ? "待排期" : movie.sales_status === "NOT_STARTED" ? Number(movie.future_screening_count) > 0 ? `已排 ${movie.future_screening_count} 场，未到上架时间` : "未到上架时间，尚未排期" : movie.sales_status === "ENDED" ? "上架已截止" : movie.sales_status === "AVAILABLE" ? "可订购" : ""}</small></td>
-                <td><div className="movie-admin-row-actions"><button type="button" onClick={() => startEdit(movie)}>编辑</button><button type="button" className="danger" onClick={() => setPendingDelete(movie)}>删除</button></div></td>
+                <td><div className="movie-admin-row-actions">
+                  {movie.status !== "ARCHIVED" && <button type="button" disabled={deletingId !== null} onClick={() => startEdit(movie)}>编辑</button>}
+                  <select aria-label={`管理《${movie.title}》`} value="" disabled={deletingId !== null} onChange={(event) => beginAction(movie, event.target.value as LifecycleAction)}>
+                    <option value="" disabled>更多操作</option>
+                    {movie.status === "ARCHIVED" ? <option value="restore">恢复到已下线</option> : <>
+                      {movie.status !== "OFFLINE" && <option value="offline">下线 · 停止新购票</option>}
+                      <option value="archive">归档 · 保留历史记录</option>
+                    </>}
+                    <option value="delete">删除 · 检查关联数据</option>
+                  </select>
+                </div></td>
               </tr>
             ))}
             {isLoading && <tr><td className="movie-admin-state" colSpan={6}>正在同步片库…</td></tr>}
@@ -463,10 +508,21 @@ export default function MovieAdmin({ movies, isLoading, errorMessage, imageVersi
         <div className="movie-admin-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && deletingId === null) setPendingDelete(null); }}>
           <section className="movie-admin-confirm" role="alertdialog" aria-modal="true" aria-labelledby="delete-movie-title" aria-describedby="delete-movie-description">
             <span className="movie-admin-warning" aria-hidden="true">!</span>
-            <p className="eyebrow">REMOVE FROM CATALOG</p>
-            <h2 id="delete-movie-title">确认删除这部影片？</h2>
-            <p id="delete-movie-description">《{pendingDelete.title}》将从片库中移除。若影片已关联放映场次，系统会阻止删除并显示原因。</p>
-            <div className="movie-admin-form-actions"><button type="button" disabled={deletingId !== null} onClick={() => setPendingDelete(null)}>取消</button><button className="delete" type="button" disabled={deletingId !== null} onClick={() => void deleteMovie()}>{deletingId ? "正在删除…" : "确认删除"}</button></div>
+            <p className="eyebrow">CATALOG MANAGEMENT</p>
+            <h2 id="delete-movie-title">{ACTION_LABELS[lifecycleAction]}《{pendingDelete.title}》</h2>
+            <p id="delete-movie-description">{lifecycleAction === "delete" ? "永久删除影片、海报及无订单场次，不可恢复。有订单历史、影评或有效座位锁时不可删除。" : lifecycleAction === "offline" ? "停止新的选座和下单。已有订单、电影票、影评和报表继续保留；已下单且未超时的订单仍可支付。" : lifecycleAction === "archive" ? "移入历史归档，观众片单和日常片库不再展示。已有订单、影评和报表保留；仍有未来或进行中的开放场次时不能归档。" : "恢复到已下线状态，不会自动开放售票。之后可编辑上映信息和排期。"}</p>
+            {(lifecycleAction === "delete" || lifecycleAction === "archive") && <div className="movie-deletion-assessment" aria-live="polite">
+              {!assessment && !assessmentError && <p role="status">正在检查关联记录与座位锁…</p>}
+              {assessmentError && <p role="alert">{assessmentError}</p>}
+              {assessment && <>
+                <p>场次 {assessment.screening_count} · 订单 {assessment.order_count} · 影评 {assessment.review_count} · 锁座 {assessment.active_lock_count}</p>
+                {lifecycleAction === "delete" ? assessment.can_delete ? <p>可以删除。将同时清理 {assessment.screening_count} 个无订单场次。</p> : <ul>{assessment.reasons.map((reason) => <li key={reason}>{reason}</li>)}</ul>
+                  : !assessment.can_archive && <p>仍有 {assessment.unfinished_screening_count} 个未结束的开放场次、{assessment.active_lock_count} 个有效座位锁，请先处理后再归档。</p>}
+              </>}
+              <button type="button" disabled={deletingId !== null} onClick={() => { setAssessment(null); setAssessmentError(""); setAssessmentVersion((version) => version + 1); }}>重新检查</button>
+            </div>}
+            {feedback?.kind === "error" && <p className="movie-admin-form-error" role="alert">{feedback.text}</p>}
+            <div className="movie-admin-form-actions"><button type="button" disabled={deletingId !== null} onClick={() => setPendingDelete(null)}>取消</button><button className={lifecycleAction === "delete" ? "delete" : "save"} type="button" disabled={deletingId !== null || (lifecycleAction === "delete" && !assessment?.can_delete) || (lifecycleAction === "archive" && !assessment?.can_archive)} onClick={() => void deleteMovie()}>{deletingId ? "正在处理…" : `确认${ACTION_LABELS[lifecycleAction]}`}</button></div>
           </section>
         </div>
       )}
