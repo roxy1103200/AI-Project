@@ -1,0 +1,12 @@
+{
+  "pid": 31960,
+  "started_at": "2026-10-13T18:31:38+08:00",
+  "interval_seconds": 1.0,
+  "files": 160,
+  "copied": 0,
+  "removed": 0,
+  "last_sync": "2026-10-13T21:05:24+08:00",
+  "error": null,
+  "state": "watching",
+  "heartbeat": "2026-10-13T21:05:24+08:00"
+}

@@ -1,0 +1,230 @@
+[
+  {
+    "case_id": "F_C01",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E4",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E3",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_C02",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E3",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_C04",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_C02",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_G02",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_C03",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_C03",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E5",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E1",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E4",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E2",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_C01",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E1",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_C04",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E5",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E2",
+    "repetition": 1,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_C04",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_C01",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E4",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E5",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_C02",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_C03",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E1",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_G02",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_C01",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E2",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E1",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E3",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_E2",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_C02",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E4",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E3",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_C04",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "F_E5",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  },
+  {
+    "case_id": "Q_C03",
+    "repetition": 2,
+    "variant": "current",
+    "source_stop_reason": "needs_user"
+  }
+]
