@@ -1,17 +1,7 @@
 import { invalidateToken } from "../auth/client";
 
-export type ChatEvent = { type: string; text?: string; message?: string; code?: string; messageId?: string; normalized_question?: string; content?: string; category?: string };
-export type ChatChannel = "dify" | "agent";
-export type ChatContext = { channel: ChatChannel; bindingKey: string; sessionId?: string; token?: string };
-
-/** Provider routes and tab bindings never fall back to the old mixed conversation. */
-export function bindingStorageKey(channel: ChatChannel, userId?: number): string {
-  return `cinema-ai-binding:${channel}:${userId ?? "guest"}`;
-}
-
-export function gatewayPath(channel: ChatChannel, path: string): string {
-  return `/ai-gateway/${channel}/${path}`;
-}
+export type ChatEvent = { type: string; text?: string; message?: string; code?: string; handoffSuggested?: boolean; messageId?: string; normalized_question?: string };
+export type ChatContext = { bindingKey: string; sessionId?: string; token?: string };
 
 function contextHeaders(context: ChatContext, original?: HeadersInit): Headers {
   const headers = new Headers(original);
@@ -30,7 +20,7 @@ export class GatewayError extends Error {
 }
 
 export async function gatewayRequest<T>(path: string, init: RequestInit, context: ChatContext): Promise<T> {
-  const response = await fetch(gatewayPath(context.channel, path), { ...init, headers: contextHeaders(context, init.headers), credentials: "omit", cache: "no-store" });
+  const response = await fetch(`/ai-gateway/${path}`, { ...init, headers: contextHeaders(context, init.headers), credentials: "omit", cache: "no-store" });
   const payload = await response.json().catch(() => null);
   init.signal?.throwIfAborted();
   checkLogin(response, context);
@@ -40,7 +30,7 @@ export async function gatewayRequest<T>(path: string, init: RequestInit, context
 
 /** Parse complete SSE frames, including frames split across UTF-8 network chunks. */
 export async function streamChat(body: object, signal: AbortSignal, onEvent: (event: ChatEvent) => void, context: ChatContext): Promise<void> {
-  const response = await fetch(gatewayPath(context.channel, "chat"), {
+  const response = await fetch("/ai-gateway/chat", {
     method: "POST", credentials: "omit", headers: contextHeaders(context, { "Content-Type": "application/json" }),
     body: JSON.stringify(body), signal,
   });
@@ -67,7 +57,6 @@ export async function streamChat(body: object, signal: AbortSignal, onEvent: (ev
         if (!raw || raw === "[DONE]") continue;
         const packet = JSON.parse(raw) as ChatEvent;
         if (packet.type === "error") {
-          if (packet.code === "auth_expired") invalidateToken(context.token);
           onEvent(packet);
           throw new Error(packet.message ?? "回答失败，请稍后重试");
         }

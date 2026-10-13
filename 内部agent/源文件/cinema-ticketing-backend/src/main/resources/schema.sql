@@ -11,7 +11,6 @@ CREATE TABLE IF NOT EXISTS users (
     phone VARCHAR(32) UNIQUE,
     role VARCHAR(32) NOT NULL DEFAULT 'USER',
     status VARCHAR(32) NOT NULL DEFAULT 'ACTIVE',
-    session_version BIGINT NOT NULL DEFAULT 0,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
@@ -84,14 +83,6 @@ CREATE TABLE IF NOT EXISTS screening (
     CONSTRAINT fk_screening_hall FOREIGN KEY (hall_id) REFERENCES hall(id)
 );
 
-CREATE TABLE IF NOT EXISTS screening_capacity_snapshot (
-    screening_id BIGINT PRIMARY KEY,
-    sellable_seat_count INT NOT NULL,
-    captured_at DATETIME NOT NULL,
-    CONSTRAINT fk_capacity_screening FOREIGN KEY (screening_id) REFERENCES screening(id) ON DELETE CASCADE,
-    CONSTRAINT ck_capacity_positive CHECK (sellable_seat_count > 0)
-);
-
 CREATE TABLE IF NOT EXISTS ticket_order (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     order_no VARCHAR(64) NOT NULL UNIQUE,
@@ -133,7 +124,6 @@ CREATE TABLE IF NOT EXISTS payment_transaction (
     paid_at DATETIME,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_payment_order (order_id),
-    INDEX idx_payment_report_time (status, paid_at, order_id),
     CONSTRAINT fk_payment_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
 );
 
@@ -155,10 +145,8 @@ CREATE TABLE IF NOT EXISTS refund_record (
     amount DECIMAL(10, 2) NOT NULL,
     reason VARCHAR(255),
     status VARCHAR(32) NOT NULL DEFAULT 'REFUNDED',
-    refunded_at DATETIME,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_refund_order_created (order_id, created_at),
-    INDEX idx_refund_report_time (status, refunded_at, order_id),
     CONSTRAINT fk_refund_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
 );
 

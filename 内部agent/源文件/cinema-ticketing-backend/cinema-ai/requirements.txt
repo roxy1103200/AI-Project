@@ -1,16 +1,8 @@
 fastapi==0.115.12
 httpx==0.28.1
-mcp==1.28.0
-# Newer sse-starlette releases require Starlette versions outside FastAPI 0.115.x.
-sse-starlette==2.2.1
 langchain-core==0.3.58
-langsmith==0.3.45
 langgraph==0.3.34
 langchain-openai==0.3.16
 langchain-text-splitters==0.3.8
 pydantic==2.11.3
 uvicorn[standard]==0.34.2
-chromadb==1.5.9
-sentence-transformers==6.1.0
-torch==2.14.1
-transformers==5.18.0
