@@ -17,3 +17,4 @@ docker-compose.yml
 /langsmith(tracing)/*
 !/langsmith(tracing)/.gitkeep
 AAA.pem
+/内部agent/.sync/

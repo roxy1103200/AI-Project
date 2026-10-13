@@ -1,6 +1,15 @@
 ﻿param([string]$InternalToken = $env:AI_INTERNAL_TOKEN,
       [ValidateSet('all','mcp','agent','gateway','chroma','memory')][string]$Service = 'all')
 $ErrorActionPreference = 'Stop'
+# 源码副本同步独立于服务生命周期；已运行时该命令不会重复创建进程。
+$syncLauncher = Join-Path (Split-Path $PSScriptRoot -Parent) '内部agent/同步工具/sync-agent.cmd'
+if (Test-Path -LiteralPath $syncLauncher) {
+    try {
+        & $syncLauncher --start
+        if ($LASTEXITCODE -ne 0) { throw '同步启动失败，请查看 内部agent/.sync/sync.log。' }
+    }
+    catch { Write-Warning "内部agent源码同步未启动：$($_.Exception.Message)" }
+}
 $aiDirectory = Join-Path $PSScriptRoot 'cinema-ai'
 $gatewayDirectory = Join-Path $PSScriptRoot 'cinema-ai-gateway'
 $pythonPath = Join-Path $aiDirectory '.venv/Scripts/python.exe'

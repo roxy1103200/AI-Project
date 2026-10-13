@@ -1,39 +1,52 @@
-# 内部 Agent 源码备份
+# 内部 Agent 实时源码副本
 
-备份日期：2026-09-28。源仓库提交：`7c39c19e3e906d124b8c8d6c8f98a11d42d1eac7`。
+自 2026-10-13 起，本目录从静态快照改为自动同步副本。`源文件/` 保留项目相对路径和源文件原始字节；文件说明放在本目录，避免修改副本内容。服务仍从原后端目录运行。
 
-本目录保存影院售票项目中**实际运行的内部 Agent 链路**及直接相关的集成文件。`源文件/` 下保留原项目相对路径，文件内容与备份时的源文件完全一致；阅读注释见 [注释说明.md](注释说明.md)。[文件清单.csv](文件清单.csv) 列出每个文件的大小和 SHA-256，可用于逐个核对。共备份 53 个文件。
+同步程序在后台每秒发起一次检查，通常在保存后 1～3 秒内完成复制。新增文件、修改、重命名和删除都会更新到副本；同步成功后自动更新 [文件清单.csv](文件清单.csv) 的路径、大小及 SHA-256。
 
-## 运行链路
+## 同步范围
 
-```text
-浏览器 CinemaAssistant
-  ├─ 常见问题 → /ai-gateway/chat → AI 网关 → Dify
-  └─ 用户点击转接 → Java /api/ai/handoff 签发短期凭证
-                     → /ai-gateway/chat（agent 模式）
-                     → Java /internal/ai/handoff/resolve 校验身份与会话
-                     → 内部 Agent /ai/live
-                     → Java /internal/* 只读业务查询
-                     → Agent / 网关 SSE → 浏览器
+- `源文件/cinema-ticketing-backend/cinema-ai/`：内部 Agent、MCP Server/Client、模型配置、版本、提示词、知识文档、长期记忆、rerank、评测源码、测试及依赖定义。
+- `源文件/cinema-ticketing-backend/cinema-ai-gateway/`：Dify/Agent 两个独立会话通道、身份检查、SSE、反馈、测试和依赖定义。
+- Java `Ai*.java`、`InternalAi*.java`、AI 数据库定义及原备份中的共享集成文件；新增匹配文件也会同步。
+- 原备份的前端聊天、认证、AI 反馈界面、启动和部署配置，以及当前 Agent/MCP/记忆/rerank 文档。
+
+完整范围见 [sync-config.json](同步工具/sync-config.json)。只有列入范围的文件会进入副本。`.env.example` 会复制；实际 `.env`、密钥目录、虚拟环境、模型、向量库、日志、缓存、构建产物和业务数据排除。Nginx 配置属于源码中的可选部署模板，不表示当前服务器部署了 Nginx。
+
+## 自动运行与操作
+
+当前电脑配置为登录 Windows 后自动启动；同步进程独立于 Agent/网关，关闭启动窗口或停止 AI 服务不影响同步。运行后端的 `start-ai-local.ps1` 也会尝试启动同步；已有进程时不会重复启动。
+
+在项目根目录执行：
+
+```powershell
+# 查看进程是否运行、最后同步时间、文件数和错误状态
+.\内部agent\同步工具\sync-agent.cmd --status
+
+# 启动后台同步
+.\内部agent\同步工具\sync-agent.cmd --start
+
+# 停止后台同步；下次登录或启动 AI 服务会再次启动
+.\内部agent\同步工具\sync-agent.cmd --stop
+
+# 同步一次；后台已运行时由现有进程继续同步
+.\内部agent\同步工具\sync-agent.cmd
+
+# 项目路径或 Python 安装位置更换后，重新设置登录自动启动
+.\内部agent\同步工具\sync-agent.cmd --install-autostart
+
+# 取消登录自动启动，当前进程需要另用 --stop 停止
+.\内部agent\同步工具\sync-agent.cmd --remove-autostart
 ```
 
-内部 Agent 负责理解问题、选择固定工具、查询实时业务数据并生成回复。网关负责会话、身份绑定、限流、流式转发与反馈；Java 负责登录校验、转接凭证和业务查询。订单归属由网关解析出的登录身份约束，模型输出不能自行指定身份或执行下单、支付、退款。
+工具只依赖 Python 3.10+ 的标准库，不依赖 AI 虚拟环境或模型 API。Windows 命令入口使用 PATH 中的 `python.exe` 及同目录的 `pythonw.exe`，隐藏运行，不需要调整 PowerShell 的脚本执行策略。登录启动快捷方式名为 `AI-Project-InternalAgent-Sync.lnk`，位于当前用户的 Windows 启动目录。
 
-## 目录内容
+状态和滚动日志位于 `.sync/status.json`、`.sync/sync.log`，均不提交到 Git。状态中的时间使用北京时间。修改同步配置后，先 `--stop`，等待状态显示停止，再重新启动。
 
-- `源文件/cinema-ticketing-backend/cinema-ai/`：FastAPI、LangGraph、意图理解、Java 查询工具、Qwen 配置及本地知识文档。
-- `源文件/cinema-ticketing-backend/cinema-ai-gateway/`：Dify 与内部 Agent 的统一网关、Redis 会话、SSE 协议和反馈处理。
-- `源文件/cinema-ticketing-backend/src/main/`：Java 转接、内部只读接口、反馈接口、兼容接口及相关配置和数据库定义。
-- `源文件/cinema-ticketing-frontend/`：聊天面板、前端 SSE 客户端、反馈界面、登录会话关联和开发代理配置。
-- `源文件/cinema-ticketing-backend/start-ai-local.ps1`、`stop-ai-local.ps1`、`docker-compose.yml`、`nginx/nginx.conf`：本地启动与部署接线。
-- `源文件/docs/`：当前配置说明与 Dify 转接方案说明。
+## 同步规则
 
-其中 Java `AiGatewayController` / `AiGatewayService` 提供旧版 `/api/ai/chat`、`/api/ai/stream` 兼容接口；目前前端使用 `/ai-gateway/*`。这两条路径都已备份，并在注释中标明，避免恢复时误判入口。
+这是从原项目到 `源文件/` 的单向同步。请在原后端修改代码；直接修改已管理副本会被下一轮同步覆盖。删除原文件会删除对应副本，因此本目录用于保留最新源码，不提供历史版本留存；历史恢复使用 Git。
 
-## 备份边界与使用
+同步只删除上次清单中登记、且本次源列表已经消失的副本文件；未登记的个人文件不会删除。源文件读取失败、Agent/网关根目录临时缺失时保留副本并记录错误，下轮自动重试。写入采用临时文件后替换，拒绝路径越界、符号链接和 Windows junction，避免误写原项目或其他目录。
 
-这是**相关源码快照**，不是可独立启动的完整项目。Java 文件仍依赖原后端其他业务类和数据库；前端文件仍依赖原 React 项目。需要恢复时，先查看 `文件清单.csv` 和 `注释说明.md`，再将 `源文件/` 中对应文件复制回相同的项目相对路径，并按 [启动说明](源文件/docs/dify-agent-setup.md) 安装依赖及配置环境。
-
-没有备份实际密钥、`API/`、`.env`、`application-local.yml`、虚拟环境、构建产物、日志或 Redis/MySQL 业务数据。两个 `.env.example` 仅为配置模板；`docker-compose.yml` 中的演示默认值也不能当作生产凭证。若要在另一台机器运行，需要单独提供环境配置、模型与 Dify 密钥以及基础服务。
-
-原项目源码未因本次备份修改。说明文档与清单放在备份目录外层，确保 `源文件/` 内的内容可按 SHA-256 与原文件核对。
+本目录是相关源码副本，Java/前端部分仍依赖完整项目。它不保存 MySQL/Redis/Chroma 数据，也不替代数据库备份。运行链路和文件职责见 [注释说明.md](注释说明.md)。
