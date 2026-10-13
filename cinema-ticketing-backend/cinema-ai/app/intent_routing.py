@@ -7,13 +7,16 @@ from typing import Any
 
 from app.intent_classifier import predict_intent
 from app.query_semantics import movie_fields, policy_kind, prose, query_domains
+from app.time_normalization import temporal_clarification
 
 
-def preliminary_route(rules: Any, question: str, history: list[dict[str, str]]) -> tuple[str, str]:
+def preliminary_route(rules: Any, question: str, history: list[dict[str, str]], *, unfiltered: bool = False) -> tuple[str, str]:
     """Return the winning layer and its reason; empty layer requires the LLM."""
     text = prose(question)
     domains = query_domains(question, bool(rules.order_no))
     multiple = len(domains - {"general_policy"}) > 1 or len(rules.order_nos) > 1 or question.count("《") > 1
+    if temporal_clarification(rules.temporal, rules.intent):
+        return "preflight", "invalid_date" if any(window.status == "invalid" for window in rules.temporal.windows) else "unresolved_time"
     if rules.screening_date:
         try:
             date.fromisoformat(rules.screening_date)
@@ -32,7 +35,7 @@ def preliminary_route(rules: Any, question: str, history: list[dict[str, str]]) 
     if (
         rules.intent == "seats"
         and not rules.screening_id
-        and not (rules.movie_query or rules.cinema_query or rules.screening_date)
+        and not (rules.movie_query or rules.cinema_query or rules.screening_date or rules.screening_date_from)
     ):
         return "preflight", "missing_screening_id"
     unresolved_date = re.search(r"本周|下周|这周|本月|周末|最近|过几天|这个月|下个月|\d+[月号日]", text)
@@ -43,6 +46,7 @@ def preliminary_route(rules: Any, question: str, history: list[dict[str, str]]) 
             or (rules.intent == "seats" and not rules.screening_id)
         )
         and not rules.screening_date
+        and not rules.screening_date_from
         and unresolved_date
     ):
         return "preflight", "missing_date"
@@ -52,6 +56,9 @@ def preliminary_route(rules: Any, question: str, history: list[dict[str, str]]) 
         return "", "llm_required"
     if history and re.search(r"那|它|这部|刚才|前面|下一页|第\s*\d+\s*页", text):
         return "", "context_requires_understanding"
+    grounded_time_query = unfiltered or bool(rules.movie_query) or (rules.intent == "recommend" and bool(rules.preference) and not re.search(r"影院|影城|电影城", text))
+    if grounded_time_query and rules.temporal.windows and rules.intent in ("recommend", "movies", "screenings"):
+        return "l0", "normalized_time"
     if rules.intent in ("order", "refund") and rules.order_no:
         return "l0", "explicit_order"
     if rules.intent == "seats" and rules.screening_id:
@@ -89,6 +96,7 @@ def slot_summary(plan: dict[str, Any], reason: str = "") -> dict[str, Any]:
         "missing_date": ["screening_date"],
         "invalid_date": ["valid_date"],
         "policy_source_unavailable": ["policy_source"],
+        "unresolved_time": ["time_range"],
     }.get(reason, [])
     if not missing and plan.get("clarification"):
         if plan["intent"] in ("order", "refund") and not entities.get("order_no"):
@@ -97,7 +105,8 @@ def slot_summary(plan: dict[str, Any], reason: str = "") -> dict[str, Any]:
             missing = ["screening_id"]
     return {
         "order_no": bool(entities.get("order_no")),
-        "screening_date": True if entities.get("screening_date") else None,
+        "screening_date": True if entities.get("screening_date") or entities.get("screening_date_from") else None,
+        "release_date_range": bool(entities.get("release_date_from")),
         "screening_id": bool(entities.get("screening_id")),
         "movie_query": bool(entities.get("movie_query")),
         "cinema_query": bool(entities.get("cinema_query")),

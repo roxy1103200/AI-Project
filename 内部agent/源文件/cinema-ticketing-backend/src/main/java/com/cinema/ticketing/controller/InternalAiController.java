@@ -4,6 +4,7 @@ import com.cinema.ticketing.common.BusinessException;
 import com.cinema.ticketing.common.JdbcTimes;
 import com.cinema.ticketing.common.RefundPolicyText;
 import com.cinema.ticketing.service.AiMovieQueryService;
+import com.cinema.ticketing.service.AiDateWindow;
 import com.cinema.ticketing.service.KnowledgeSearchService;
 
 import org.springframework.beans.factory.annotation.Autowired;
@@ -57,10 +58,18 @@ public class InternalAiController {
             @RequestParam(defaultValue = "") String cinemaQuery,
             @RequestParam(defaultValue = "false") boolean showingOnly,
             @RequestParam(defaultValue = "1") int page,
-            @RequestParam(defaultValue = "20") int pageSize) {
+            @RequestParam(defaultValue = "20") int pageSize,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate releaseDateFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate releaseDateTo,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate screeningDateFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate screeningDateTo,
+            @RequestParam(required = false) Integer screeningHourFrom,
+            @RequestParam(required = false) Integer screeningHourTo) {
         verify(token);
         return movieQueries.movies(
-                query, movieScope, screeningDate, cinemaQuery, showingOnly, page, pageSize);
+                query, movieScope, screeningDate, cinemaQuery, showingOnly, page, pageSize,
+                new AiDateWindow(releaseDateFrom, releaseDateTo, screeningDateFrom, screeningDateTo,
+                        screeningHourFrom, screeningHourTo));
     }
 
     @GetMapping("/movies")
@@ -94,10 +103,15 @@ public class InternalAiController {
             @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE)
                     LocalDate screeningDate,
             @RequestParam(defaultValue = "bookable") String queryScope,
-            @RequestParam(defaultValue = "false") boolean showingOnly) {
+            @RequestParam(defaultValue = "false") boolean showingOnly,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate screeningDateFrom,
+            @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate screeningDateTo,
+            @RequestParam(required = false) Integer screeningHourFrom,
+            @RequestParam(required = false) Integer screeningHourTo) {
         verify(token);
         return movieQueries.screenings(
-                movieId, cinemaId, movieQuery, cinemaQuery, screeningDate, queryScope, showingOnly);
+                movieId, cinemaId, movieQuery, cinemaQuery, screeningDate, queryScope, showingOnly,
+                new AiDateWindow(null, null, screeningDateFrom, screeningDateTo, screeningHourFrom, screeningHourTo));
     }
 
     @GetMapping("/orders/{orderNo}")
@@ -185,19 +199,30 @@ public class InternalAiController {
         verify(token);
         String preference =
                 request == null ? null : String.valueOf(request.getOrDefault("preference", ""));
-        if (preference == null || preference.isBlank()) {
-            return jdbcTemplate.queryForList(
-                    "SELECT id, title, description, genre, director, actors FROM movie WHERE status"
-                            + " NOT IN ('OFFLINE','ARCHIVED') ORDER BY release_date DESC, id DESC LIMIT 5");
+        Map<String, Object> values = request == null ? Map.of() : request;
+        Object preferred = values.getOrDefault("releaseDatePreferred", false);
+        if (!(preferred instanceof Boolean)) throw new BusinessException(400, "日期偏好参数无效");
+        return movieQueries.recommendations(preference,
+                requestDate(values.get("releaseDateFrom")), requestDate(values.get("releaseDateTo")),
+                Boolean.TRUE.equals(preferred),
+                new AiDateWindow(null, null, requestDate(values.get("screeningDateFrom")),
+                        requestDate(values.get("screeningDateTo")), requestHour(values.get("screeningHourFrom")),
+                        requestHour(values.get("screeningHourTo"))));
+    }
+
+    private LocalDate requestDate(Object value) {
+        if (value == null) return null;
+        try {
+            return LocalDate.parse(String.valueOf(value));
+        } catch (java.time.DateTimeException exception) {
+            throw new BusinessException(400, "日期格式无效，请使用 YYYY-MM-DD");
         }
-        String keyword = "%" + preference + "%";
-        return jdbcTemplate.queryForList(
-                "SELECT id, title, description, genre, director, actors FROM movie WHERE status"
-                        + " NOT IN ('OFFLINE','ARCHIVED') AND (genre LIKE ? OR title LIKE ? OR actors LIKE ?) ORDER BY"
-                        + " release_date DESC, id DESC LIMIT 5",
-                keyword,
-                keyword,
-                keyword);
+    }
+
+    private Integer requestHour(Object value) {
+        if (value == null) return null;
+        if (!(value instanceof Integer)) throw new BusinessException(400, "场次时段参数无效");
+        return (Integer) value;
     }
 
     private void verify(String token) {

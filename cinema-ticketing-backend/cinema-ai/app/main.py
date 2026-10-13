@@ -112,10 +112,21 @@ def create_tools(
     # 为紧随其后的函数或类设置装饰行为。
     @tool
     # 声明当前处理单元及其入口。
-    async def recommend_movies(user_id: int, preference: str = "") -> Any:
+    async def recommend_movies(
+        user_id: int, preference: str = "", release_date_from: str | None = None,
+        release_date_to: str | None = None, release_date_preferred: bool = False,
+        screening_date_from: str | None = None, screening_date_to: str | None = None,
+        screening_hour_from: int | None = None, screening_hour_to: int | None = None,
+    ) -> Any:
         """Recommend movies using the Java recommendation endpoint."""
         # 将当前计算结果返回给调用方。
-        return await client.post("/internal/recommendations", {"userId": user_id, "preference": preference})
+        return await client.post("/internal/recommendations", {
+            "userId": user_id, "preference": preference,
+            "releaseDateFrom": release_date_from, "releaseDateTo": release_date_to,
+            "releaseDatePreferred": release_date_preferred,
+            "screeningDateFrom": screening_date_from, "screeningDateTo": screening_date_to,
+            "screeningHourFrom": screening_hour_from, "screeningHourTo": screening_hour_to,
+        })
 
     # 将当前计算结果返回给调用方。
     return {
@@ -188,6 +199,7 @@ class ChatResponse(BaseModel):
     token_usage: dict[str, Any] = Field(default_factory=dict)
     pending_tasks: list[str] = Field(default_factory=list)
     slot_summary: dict[str, Any] = Field(default_factory=dict)
+    temporal_summary: dict[str, Any] = Field(default_factory=dict)
     understanding_layer: str = "fallback"
     preflight_reason: str = "none"
     runtime_version: dict[str, Any] = Field(default_factory=dict)
@@ -306,7 +318,7 @@ class Assistant:
                     "route", "route_reason", "stop_reason", "circuit_open", "step_count",
                     "tool_call_count", "invalid_call_count", "model_call_count",
                     "reflection_call_count", "reflection_status", "token_usage",
-                    "slot_summary", "understanding_layer", "preflight_reason",
+                    "slot_summary", "understanding_layer", "preflight_reason", "temporal_summary",
                     "runtime_version", "l1_status", "l1_duration_ms", "l1_attempted",
                 )
                 if key in result
@@ -527,6 +539,10 @@ def _business_answer(state: AgentState) -> str:
     if intent == "screenings":
         # 将当前计算结果返回给调用方。
         return screening_answer(data, state.get("entities", {}))
+    if intent == "recommend":
+        from app.query_answers import recommendation_answer
+
+        return recommendation_answer(data, state.get("entities", {}))
     # 检查 `if isinstance(data, list) and not data`，据此选择当前处理分支。
     if isinstance(data, list) and not data:
         # 将当前计算结果返回给调用方。

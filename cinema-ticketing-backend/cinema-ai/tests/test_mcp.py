@@ -224,6 +224,19 @@ class CinemaMcpTests(unittest.IsolatedAsyncioTestCase):
             await self.client.call_tool("search_movies", {"movie_scope": "wrong"}, user_id=2)
         self.assertEqual(len(self.requests), count)
 
+    async def test_temporal_ranges_cross_real_mcp_transport(self) -> None:
+        await self.client.call_tool("search_movies", {
+            "query": "悬疑", "release_date_from": "2026-10-02", "release_date_to": "2026-10-08",
+        }, user_id=2)
+        self.assertEqual(self.requests[-1].url.path, "/internal/movies/query")
+        self.assertEqual(self.requests[-1].url.params["releaseDateFrom"], "2026-10-02")
+        await self.client.call_tool("search_screenings", {
+            "screening_date_from": "2026-10-08", "screening_date_to": "2026-10-14",
+            "screening_hour_from": 18, "screening_hour_to": 24,
+        }, user_id=2)
+        self.assertEqual(self.requests[-1].url.params["screeningDateTo"], "2026-10-14")
+        self.assertEqual(self.requests[-1].url.params["screeningHourFrom"], "18")
+
     async def test_agent_schedule_listing_keeps_date_and_does_not_recall_memory(self) -> None:
         with patch("app.model_config.create_model", return_value=None):
             from app.main import Assistant, LiveChatRequest

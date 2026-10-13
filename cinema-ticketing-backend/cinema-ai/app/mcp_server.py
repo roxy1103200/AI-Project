@@ -180,6 +180,12 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
         page: Annotated[int, Field(ge=1, le=10000)] = 1,
         # 设置当前结构中的 `page_size` 字段。
         page_size: Annotated[int, Field(ge=1, le=50)] = 20,
+        release_date_from: date | None = None,
+        release_date_to: date | None = None,
+        screening_date_from: date | None = None,
+        screening_date_to: date | None = None,
+        screening_hour_from: Annotated[int, Field(ge=0, le=23)] | None = None,
+        screening_hour_to: Annotated[int, Field(ge=1, le=24)] | None = None,
     # 执行当前步骤中的业务处理表达式。
     ) -> QueryResult:
         """查询影片资料 catalog、上映中 showing、真实已排期 scheduled。
@@ -202,6 +208,12 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
             and page == 1
             # 执行当前步骤中的业务处理表达式。
             and page_size == 20
+            and release_date_from is None
+            and release_date_to is None
+            and screening_date_from is None
+            and screening_date_to is None
+            and screening_hour_from is None
+            and screening_hour_to is None
         # 执行当前步骤中的业务处理表达式。
         ):
             # 将当前计算结果返回给调用方。
@@ -212,6 +224,12 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
             "query": query,
             # 设置当前结构中的 `movieScope` 字段。
             "movieScope": movie_scope,
+            "releaseDateFrom": release_date_from.isoformat() if release_date_from else None,
+            "releaseDateTo": release_date_to.isoformat() if release_date_to else None,
+            "screeningDateFrom": screening_date_from.isoformat() if screening_date_from else None,
+            "screeningDateTo": screening_date_to.isoformat() if screening_date_to else None,
+            "screeningHourFrom": screening_hour_from,
+            "screeningHourTo": screening_hour_to,
             # 设置当前结构中的 `cinemaQuery` 字段。
             "cinemaQuery": cinema_query,
             # 设置当前结构中的 `showingOnly` 字段。
@@ -242,6 +260,10 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
         screening_date: date | None = None,
         # 设置当前结构中的 `query_scope` 字段。
         query_scope: Literal["scheduled", "bookable"] = "bookable",
+        screening_date_from: date | None = None,
+        screening_date_to: date | None = None,
+        screening_hour_from: Annotated[int, Field(ge=0, le=23)] | None = None,
+        screening_hour_to: Annotated[int, Field(ge=1, le=24)] | None = None,
         # 设置当前结构中的 `showing_only` 字段。
         showing_only: bool = False,
     # 执行当前步骤中的业务处理表达式。
@@ -257,6 +279,10 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
             "movieId": movie_id,
             # 设置当前结构中的 `cinemaId` 字段。
             "cinemaId": cinema_id,
+            "screeningDateFrom": screening_date_from.isoformat() if screening_date_from else None,
+            "screeningDateTo": screening_date_to.isoformat() if screening_date_to else None,
+            "screeningHourFrom": screening_hour_from,
+            "screeningHourTo": screening_hour_to,
             # 设置当前结构中的 `movieQuery` 字段。
             "movieQuery": movie_query,
             # 设置当前结构中的 `cinemaQuery` 字段。

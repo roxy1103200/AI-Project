@@ -115,7 +115,7 @@ class QueryIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result["entities"]["movie_query"], "")
         self.assertEqual(result["entities"]["screening_date"], "2026-10-08")
 
-    async def test_weekdays_are_resolved_and_week_ranges_require_clarification(self) -> None:
+    async def test_weekdays_and_week_ranges_are_resolved(self) -> None:
         for text, day in (("本周三", "2026-10-07"), ("周三", "2026-10-14"), ("下周一", "2026-10-12")):
             plan = await understand(None, f"{text}已排期的电影有哪些", [])
             self.assertEqual(plan["entities"]["screening_date"], day)
@@ -128,7 +128,10 @@ class QueryIntentTests(unittest.IsolatedAsyncioTestCase):
             screening_date="2026-10-09",
         ).model_dump_json()
         model.bind.return_value.ainvoke = AsyncMock(return_value=SimpleNamespace(content=payload))
-        self.assertTrue((await understand(model, "下周已排期的电影有哪些", []))["clarification"])
+        result = await understand(model, "下周已排期的电影有哪些", [])
+        self.assertFalse(result["clarification"])
+        self.assertEqual(result["entities"]["screening_date_from"], "2026-10-12")
+        self.assertEqual(result["entities"]["screening_date_to"], "2026-10-18")
 
     async def test_title_words_do_not_change_intent_or_allow_invented_dates(self) -> None:
         model = Mock()

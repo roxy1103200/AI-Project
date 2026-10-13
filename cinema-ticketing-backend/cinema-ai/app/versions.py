@@ -13,6 +13,7 @@ EXPERIMENT_ID = "glm-l1-v1"
 PROMPT_VERSION = "cinema-p1"
 RULES_VERSION = "cost-r1"
 RULE_FILES = (
+    "time_normalization.py",
     "intent.py",
     "intent_routing.py",
     "query_semantics.py",

@@ -11,16 +11,17 @@ from datetime import date
 from typing import Annotated, Any, Literal
 
 # 导入当前步骤使用的模块或类型。
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
 
 # 导入当前步骤使用的模块或类型。
 from app.failures import CinemaQueryError
 # 导入当前步骤使用的模块或类型。
 from app.intent import ORDER_PATTERN, SCREENING_PATTERN, normalize_question
 # 导入当前步骤使用的模块或类型。
-from app.query_answers import valid_movie_result, valid_screening_result
+from app.query_answers import valid_movie_result, valid_screening_result, valid_release_result
 # 导入当前步骤使用的模块或类型。
 from app.task_progress import progress
+from app.time_normalization import TIME_FILTERS
 # isort: on
 
 # 为 `Keyword` 保存当前步骤所需的值。
@@ -36,7 +37,27 @@ class ToolArguments(BaseModel):
 
 
 # 声明当前处理单元及其入口。
-class MovieArguments(ToolArguments):
+class DateRangeArguments(ToolArguments):
+    """Validate independently grounded release and screening intervals."""
+
+    release_date_from: date | None = None
+    release_date_to: date | None = None
+    screening_date_from: date | None = None
+    screening_date_to: date | None = None
+    screening_hour_from: int | None = Field(default=None, ge=0, le=23)
+    screening_hour_to: int | None = Field(default=None, ge=1, le=24)
+    release_date_preferred: bool = False
+
+    @model_validator(mode="after")
+    def valid_intervals(self) -> "DateRangeArguments":
+        for prefix in ("release_date", "screening_date", "screening_hour"):
+            start, end = getattr(self, prefix + "_from"), getattr(self, prefix + "_to")
+            if (start is None) != (end is None) or (start is not None and start > end):
+                raise ValueError("Intervals need both endpoints in chronological order")
+        return self
+
+
+class MovieArguments(DateRangeArguments):
     """Search film facts, showing status, or actual scheduled films."""
 
     # 设置当前结构中的 `query` 字段。
@@ -59,7 +80,7 @@ class MovieArguments(ToolArguments):
 
 
 # 声明当前处理单元及其入口。
-class ScreeningArguments(ToolArguments):
+class ScreeningArguments(DateRangeArguments):
     """Use search keywords rather than invented database IDs."""
 
     # 设置当前结构中的 `movie_query` 字段。
@@ -102,7 +123,7 @@ class PolicyArguments(ToolArguments):
 
 
 # 声明当前处理单元及其入口。
-class RecommendationArguments(ToolArguments):
+class RecommendationArguments(DateRangeArguments):
     """Identity is injected by the executor, never included in this schema."""
 
     # 设置当前结构中的 `preference` 字段。
@@ -147,7 +168,7 @@ DESCRIPTIONS = {
     # 设置当前结构中的 `query_ticket_policy` 字段。
     "query_ticket_policy": "检索购票与退票规则及来源；具体订单能否退票以 query_order 的实时资格为准。",
     # 设置当前结构中的 `recommend_movies` 字段。
-    "recommend_movies": "按用户给出的偏好推荐电影；用户身份由服务器自动注入，不能传 user_id。",
+    "recommend_movies": "按偏好及上映日期范围推荐电影；release_date_preferred=true 时允许明确标注的范围外补充推荐。观影日期和时段要求须有实际可订购场次。日期使用已校验的任务参数；身份由服务器注入，不能传 user_id。",
     # 设置当前结构中的 `ask_user` 字段。
     "ask_user": "缺少条件或有多个候选场次需用户选择时，提出明确的问题并结束本轮，不能猜测编号。",
 }
@@ -218,7 +239,7 @@ def validate_arguments(
             # 抛出当前异常，交由上层错误处理流程处理。
             raise CinemaQueryError("invalid_tool_call", "用户已提供订单号，请逐一查询，无需重复索要。")
         # 检查 `if "日期" in supplied["question"] and entities.get("screening_date")`，据此选择当前处理分支。
-        if "日期" in supplied["question"] and entities.get("screening_date"):
+        if "日期" in supplied["question"] and (entities.get("screening_date") or entities.get("screening_date_from") or entities.get("release_date_from")):
             # 抛出当前异常，交由上层错误处理流程处理。
             raise CinemaQueryError("invalid_tool_call", "用户已提供有效日期，请使用该日期查询。")
     # 设置当前结构中的 `constraints` 字段。
@@ -321,7 +342,21 @@ def validate_arguments(
     # 进入对应的循环、异常处理或资源管理分支。
     try:
         # 为 `arguments` 保存当前步骤所需的值。
+        if name in ("search_movies", "search_screenings", "recommend_movies"):
+            for key in (*TIME_FILTERS, "release_date_preferred"):
+                expected = constraints.get(key) if "tasks" in state else entities.get(key)
+                if name == "search_screenings" and key.startswith("release_"):
+                    expected = None
+                if key == "release_date_preferred" and name != "recommend_movies":
+                    expected = False
+                if key in supplied and supplied[key] not in (expected, None, False):
+                    raise CinemaQueryError("invalid_tool_call", f"时间参数缺少用户依据：{key}。")
+                if expected is not None:
+                    arguments[key] = expected
         arguments = ARGUMENT_MODELS[name].model_validate(arguments).model_dump(mode="json")
+        for key in (*TIME_FILTERS, "release_date_preferred"):
+            if arguments.get(key) is None or arguments.get(key) is False:
+                arguments.pop(key, None)
     # 进入对应的循环、异常处理或资源管理分支。
     except (ValidationError, TypeError, ValueError) as exc:
         # 抛出当前异常，交由上层错误处理流程处理。
@@ -431,6 +466,11 @@ def validate_result(name: str, data: Any, arguments: dict[str, Any], *, user_id:
     elif name == "recommend_movies":
         # 为 `valid` 保存当前步骤所需的值。
         valid = isinstance(data, list) and all(isinstance(row, dict) and "title" in row for row in data)
+        valid = valid and valid_release_result(data, arguments)
+        if valid and any(arguments.get(key) is not None for key in ("screening_date_from", "screening_hour_from")):
+            valid = all(isinstance(row.get("screenings"), list) and row["screenings"] and valid_screening_result(
+                [{**slot, "title": row["title"]} for slot in row["screenings"]], arguments
+            ) for row in data)
     # 检查 `if not valid`，据此选择当前处理分支。
     if not valid:
         # 抛出当前异常，交由上层错误处理流程处理。

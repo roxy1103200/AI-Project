@@ -43,6 +43,7 @@ from app.task_progress import build_tasks, is_complete, matching_task, next_call
 from app.tracing import tool_span
 from app.versions import load_prompt, runtime_version
 from app.clarification_feedback import record_feedback
+from app.time_normalization import recommendation_time_arguments
 # isort: on
 
 # 为 `DECISION_PROMPT` 保存当前步骤所需的值。
@@ -136,6 +137,7 @@ class AgentState(TypedDict, total=False):
     l1_status: str
     l1_duration_ms: int
     l1_attempted: bool
+    temporal_summary: dict[str, Any]
 
 
 # 声明当前处理单元及其入口。
@@ -192,6 +194,7 @@ def emit_context(state: AgentState) -> None:
                     "slot_summary",
                     "understanding_layer",
                     "preflight_reason",
+                    "temporal_summary",
                     "runtime_version", "l1_status", "l1_duration_ms", "l1_attempted",
                 )
             },
@@ -333,7 +336,7 @@ class CinemaReAct:
                         "requested_tasks": tasks,
                         "history": state["messages"][:-1],
                         "preferences": [item["content"] for item in prepared["memories"]],
-                        "today_beijing": beijing_today().isoformat(),
+                        "today_beijing": entities.get("temporal", {}).get("reference_date") or beijing_today().isoformat(),
                         "max_tool_calls": self.max_tool_calls,
                         "max_steps": self.max_steps,
                     }
@@ -437,7 +440,7 @@ class CinemaReAct:
         # 检查 `elif name == "recommend_movies"`，据此选择当前处理分支。
         elif name == "recommend_movies":
             # 为 `args` 保存当前步骤所需的值。
-            args = {"preference": entities["preference"]}
+            args = {"preference": entities["preference"], **recommendation_time_arguments(entities)}
             # 检查 `if not args["preference"]`，据此选择当前处理分支。
             if not args["preference"]:
                 args["preference"] = next(
@@ -451,7 +454,7 @@ class CinemaReAct:
                         if memory["category"] == "GENRE"
                         and not any(word in memory["content"] for word in ("不", "讨厌", "避免"))
                         # 进入对应的循环、异常处理或资源管理分支。
-                        for genre in ("科幻", "喜剧", "动漫", "爱情", "恐怖", "动作")
+                        for genre in ("悬疑", "犯罪", "惊悚", "科幻", "喜剧", "动漫", "爱情", "恐怖", "动作")
                         # 检查 `if genre in memory["content"]`，据此选择当前处理分支。
                         if genre in memory["content"]
                     ),
