@@ -16,7 +16,11 @@ def preliminary_route(rules: Any, question: str, history: list[dict[str, str]], 
     domains = query_domains(question, bool(rules.order_no))
     multiple = len(domains - {"general_policy"}) > 1 or len(rules.order_nos) > 1 or question.count("《") > 1
     if temporal_clarification(rules.temporal, rules.intent):
-        return "preflight", "invalid_date" if any(window.status == "invalid" for window in rules.temporal.windows) else "unresolved_time"
+        if any(window.status == "invalid" for window in rules.temporal.windows):
+            return "preflight", "invalid_date"
+        if any(window.target == "unspecified" for window in rules.temporal.windows):
+            return "preflight", "ambiguous_time_target"
+        return "preflight", "unresolved_time"
     if rules.screening_date:
         try:
             date.fromisoformat(rules.screening_date)
@@ -97,9 +101,12 @@ def slot_summary(plan: dict[str, Any], reason: str = "") -> dict[str, Any]:
         "invalid_date": ["valid_date"],
         "policy_source_unavailable": ["policy_source"],
         "unresolved_time": ["time_range"],
+        "ambiguous_time_target": ["time_target"],
     }.get(reason, [])
     if not missing and plan.get("clarification"):
-        if plan["intent"] in ("order", "refund") and not entities.get("order_no"):
+        if any(window.get("target") == "unspecified" for window in entities.get("temporal", {}).get("windows", [])):
+            missing = ["time_target"]
+        elif plan["intent"] in ("order", "refund") and not entities.get("order_no"):
             missing = ["order_no"]
         elif plan["intent"] == "seats" and not entities.get("screening_id"):
             missing = ["screening_id"]

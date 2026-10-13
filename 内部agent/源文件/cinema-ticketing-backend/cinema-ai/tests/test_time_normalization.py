@@ -15,7 +15,8 @@ from app.time_normalization import normalize_times
 from app.tracing import summarize_payload
 
 TODAY = date(2026, 10, 13)
-QUESTION = "你给我推荐悬疑题材的电影，最好是最近一周的电影，然后给我明确的时间信息"
+QUESTION = "你给我推荐悬疑题材的电影，最好是最近一周上映的电影，然后给我明确的时间信息"
+AMBIGUOUS_QUESTION = "这周的悬疑题材电影有哪部"
 
 
 class RelativeTimeTests(unittest.IsolatedAsyncioTestCase):
@@ -42,7 +43,7 @@ class RelativeTimeTests(unittest.IsolatedAsyncioTestCase):
         state["tasks"] = build_tasks(state)
         return state
 
-    async def test_original_question_becomes_one_grounded_recommendation(self) -> None:
+    async def test_explicit_release_question_becomes_one_grounded_recommendation(self) -> None:
         state = await self.state(QUESTION)
         self.assertEqual(state["intent"], "recommend")
         self.assertEqual(state["clarification"], "")
@@ -96,7 +97,7 @@ class RelativeTimeTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_releasing_this_week_does_not_mean_screenings_this_week(self) -> None:
         release = await self.state("推荐本周上映的悬疑电影")
-        self.assertEqual(release["entities"]["release_date_to"], "2026-10-13")
+        self.assertEqual(release["entities"]["release_date_to"], "2026-10-18")
         screening = await self.state("本周有哪些场次")
         self.assertEqual(screening["entities"]["screening_date_to"], "2026-10-18")
         listing = await self.state("未来一周上映的电影有哪些")
@@ -225,3 +226,140 @@ class RelativeTimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(execute.await_args.args[1]["release_date_from"], "2026-10-07")
         self.assertIn("上映日期：2026-10-08", result["answer"])
         self.assertFalse(result["needs_clarification"])
+
+    async def test_trace_question_asks_for_target_before_any_model_or_business_query(self) -> None:
+        model = Mock()
+        model.bind.return_value.ainvoke = AsyncMock()
+        for question in (
+            AMBIGUOUS_QUESTION,
+            "推荐这周的悬疑电影",
+            "你给我推荐悬疑题材的电影，最好是最近一周的电影，然后给我明确的时间信息",
+        ):
+            with self.subTest(question=question):
+                result = await understand(model, question, [])
+                self.assertIn("新上映", result["clarification"])
+                self.assertIn("可购票场次", result["clarification"])
+                self.assertEqual(result["entities"]["preference"], "悬疑")
+                self.assertEqual(result["preflight_reason"], "ambiguous_time_target")
+                self.assertEqual(result["slot_summary"]["missing_slots"], ["time_target"])
+                self.assertIsNone(result["entities"]["release_date_from"])
+                self.assertIsNone(result["entities"]["screening_date_from"])
+                state = {**initial_state(1, "target-choice", question, []), **result}
+                self.assertEqual(build_tasks(state), [])
+                safe = summarize_payload(result)
+                self.assertEqual(safe["temporal_summary"]["windows"][0]["target"], "unspecified")
+                self.assertEqual(safe["slot_summary"]["missing_slots"], ["time_target"])
+        model.bind.return_value.ainvoke.assert_not_awaited()
+
+    async def test_explicit_targets_and_choices_use_only_the_corresponding_filter(self) -> None:
+        pending = (await understand(None, AMBIGUOUS_QUESTION, []))["clarification"]
+        history = [{"role": "user", "content": AMBIGUOUS_QUESTION}, {"role": "assistant", "content": pending}]
+        for question, messages, prefix in (
+            ("本周新上映的悬疑片有哪些", [], "release"),
+            ("本周有票的悬疑片有哪些", [], "screening"),
+            ("新上映的", history, "release"),
+            ("前者", history, "release"),
+            ("有票的", history, "screening"),
+            ("第二个", history, "screening"),
+        ):
+            with self.subTest(question=question):
+                state = await self.state(question, messages)
+                self.assertFalse(state["clarification"])
+                self.assertEqual(len(state["tasks"]), 1)
+                arguments = validate_arguments("recommend_movies", {}, state)
+                self.assertEqual(arguments["preference"], "悬疑")
+                self.assertEqual(arguments[f"{prefix}_date_from"], "2026-10-12")
+                self.assertEqual(arguments[f"{prefix}_date_to"], "2026-10-18")
+                other = "release" if prefix == "screening" else "screening"
+                self.assertNotIn(f"{other}_date_from", arguments)
+
+    async def test_choice_keeps_displayed_dates_across_week_boundary_and_followups_keep_target(self) -> None:
+        first = await understand(None, AMBIGUOUS_QUESTION, [])
+        history = [
+            {"role": "user", "content": AMBIGUOUS_QUESTION},
+            {"role": "assistant", "content": first["clarification"]},
+        ]
+        with patch("app.intent.beijing_today", return_value=date(2026, 10, 19)):
+            chosen = await self.state("新上映的", history)
+        self.assertEqual(chosen["entities"]["release_date_from"], "2026-10-12")
+        self.assertEqual(chosen["entities"]["release_date_to"], "2026-10-18")
+        history.extend([{"role": "user", "content": "新上映的"}, {"role": "assistant", "content": "查询结果"}])
+        followup = await self.state("那下周呢", history)
+        self.assertFalse(followup["clarification"])
+        self.assertEqual(followup["entities"]["preference"], "悬疑")
+        self.assertEqual(followup["entities"]["release_date_from"], "2026-10-19")
+        self.assertIsNone(followup["entities"]["screening_date_from"])
+        # A new standalone request does not silently inherit the earlier choice.
+        fresh = await self.state(AMBIGUOUS_QUESTION, history)
+        self.assertTrue(fresh["clarification"])
+
+    async def test_ambiguous_graph_does_not_query_and_empty_result_cannot_claim_success(self) -> None:
+        execute = AsyncMock(return_value=[])
+        workflow = CinemaReAct(
+            lambda: None,
+            execute,
+            AsyncMock(return_value=[]),
+            lambda state: "以下影片具有符合条件的当前可订购场次。",
+        )
+        first = await workflow.graph.ainvoke(
+            initial_state(1, "target-choice", AMBIGUOUS_QUESTION, []), config=workflow.config
+        )
+        execute.assert_not_awaited()
+        self.assertIn("2026-10-12 至 2026-10-18", first["answer"])
+        history = [{"role": "user", "content": AMBIGUOUS_QUESTION}, {"role": "assistant", "content": first["answer"]}]
+        result = await workflow.graph.ainvoke(
+            initial_state(1, "target-choice", "有票的", history), config=workflow.config
+        )
+        execute.assert_awaited_once()
+        self.assertEqual(execute.await_args.args[1]["screening_date_to"], "2026-10-18")
+        self.assertEqual(execute.await_args.args[1]["preference"], "悬疑")
+        self.assertIn("没有查到", result["answer"])
+        self.assertIn("观影日期", result["answer"])
+        self.assertNotIn("以下影片", result["answer"])
+        self.assertNotIn("扩大上映日期", result["answer"])
+
+    def test_empty_release_result_uses_release_scope(self) -> None:
+        answer = recommendation_answer([], {"release_date_from": "2026-10-12", "release_date_to": "2026-10-18"})
+        self.assertIn("上映日期", answer)
+        self.assertNotIn("可购票场次", answer)
+        self.assertNotIn("以下影片", answer)
+
+    async def test_title_choice_queries_bookable_screenings_and_soft_preference_survives_choice(self) -> None:
+        question = "《测试电影》这周有吗"
+        first = await understand(None, question, [])
+        history = [{"role": "user", "content": question}, {"role": "assistant", "content": first["clarification"]}]
+        result = await self.state("有票的", history)
+        self.assertFalse(result["clarification"])
+        arguments = validate_arguments("search_screenings", {}, result)
+        self.assertEqual(arguments["movie_query"], "测试电影")
+        self.assertEqual(arguments["query_scope"], "bookable")
+        question = "推荐悬疑电影，最好是最近一周的"
+        first = await understand(None, question, [])
+        history = [{"role": "user", "content": question}, {"role": "assistant", "content": first["clarification"]}]
+        for reply, end in (("新上映的", "2026-10-13"), ("改成下周新上映的", "2026-10-25")):
+            with self.subTest(reply=reply):
+                result = await self.state(reply, history)
+                self.assertFalse(result["clarification"])
+                arguments = validate_arguments("recommend_movies", {}, result)
+                self.assertTrue(arguments["release_date_preferred"])
+                self.assertEqual(arguments["release_date_to"], end)
+
+    async def test_model_intent_cannot_invent_the_time_target_for_an_unrecognized_phrase(self) -> None:
+        for intent in ("recommend", "screenings"):
+            with self.subTest(intent=intent):
+                payload = QuestionPlan(
+                    intent=intent,
+                    normalized_question="推荐烧脑电影",
+                    confidence=0.9,
+                    preference="烧脑",
+                    movie_scope="scheduled",
+                    screening_date="2001-01-01",
+                ).model_dump_json()
+                model = Mock()
+                model.bind.return_value.ainvoke = AsyncMock(return_value=SimpleNamespace(content=payload))
+                result = await understand(model, "这周烧脑一点的有哪些", [])
+                model.bind.return_value.ainvoke.assert_awaited_once()
+                self.assertEqual(result["preflight_reason"], "ambiguous_time_target")
+                self.assertEqual(result["slot_summary"]["missing_slots"], ["time_target"])
+                self.assertIsNone(result["entities"]["screening_date"])
+                self.assertIn("新上映", result["clarification"])

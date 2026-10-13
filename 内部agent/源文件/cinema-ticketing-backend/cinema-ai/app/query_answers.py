@@ -54,17 +54,28 @@ def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) 
             lines[-1] = f"优先推荐上映日期在 {start} 至 {end} 的影片（北京时间，含起止日）。"
     windows = entities.get("temporal", {}).get("windows", [])
     if any(window.get("assumed_target") for window in windows if window.get("target") == "release"):
-        lines.append("这里将你的时间条件理解为影片上映日期；以下列出实际上映日期。")
+        lines.append("这里按已确认的影片上映日期条件查询。")
     if any(window.get("status") == "ambiguous" for window in windows):
         lines.append("你未限定具体时间范围，先按上映日期由近到远推荐。")
-    if entities.get("screening_date_from") or entities.get("screening_hour_from") is not None:
-        period = f"观影日期：{entities['screening_date_from']} 至 {entities['screening_date_to']}（北京时间，含起止日）" if entities.get("screening_date_from") else "观影范围：今天及之后（北京时间）"
+    viewing = bool(entities.get("screening_date_from") or entities.get("screening_date") or entities.get("screening_hour_from") is not None)
+    if viewing:
+        viewing_start = entities.get("screening_date_from") or entities.get("screening_date")
+        viewing_end = entities.get("screening_date_to") or viewing_start
+        period = f"观影日期：{viewing_start} 至 {viewing_end}（北京时间，含起止日）" if viewing_start else "观影范围：今天及之后（北京时间）"
         if entities.get("screening_hour_from") is not None:
             period += f"，每天 {entities['screening_hour_from']:02d}:00 至 {entities['screening_hour_to']:02d}:00（不含结束时刻）"
-        lines.append(period + "。以下影片具有符合条件的当前可订购场次。")
+        lines.append(period + "。")
     if not data:
-        lines.append("没有查到符合条件的影片，可以调整类型或扩大上映日期范围。")
+        if viewing:
+            detail = "同时满足上映日期条件且有可购票场次的影片" if start else "有可购票场次的影片"
+            lines.append(f"没有查到符合上述条件的{detail}。可以调整题材或观影日期；未查到可购票场次不代表没有排期。")
+        elif start:
+            lines.append("没有查到符合上述上映日期和题材条件的影片。可以调整题材或扩大上映日期范围。")
+        else:
+            lines.append("没有查到符合题材或偏好的影片，可以换一个题材或补充其他偏好。")
         return "\n".join(lines)
+    if viewing:
+        lines.append("以下影片具有符合条件的当前可订购场次：")
     for row in data:
         alternative = ""
         if entities.get("release_date_preferred") and row.get("matches_release_window") is False:

@@ -30,6 +30,7 @@ from app.failures import CinemaQueryError, describe_failure
 
 # 导入当前步骤使用的模块或类型。
 from app.intent import beijing_today, understand
+from app.query_answers import recommendation_answer
 
 # 导入当前步骤使用的模块或类型。
 from app.react_tools import TOOL_LABELS, TOOL_SPECS, observation_text, validate_arguments, validate_result
@@ -677,6 +678,9 @@ class CinemaReAct:
                     },
                 }
             )
+            # Empty recommendations use the deterministic response even with a custom formatter.
+            if name == "recommend_movies" and data == []:
+                answer = recommendation_answer([], {**state["entities"], **arguments})
             # 检查 `if name == "query_seats"`，据此选择当前处理分支。
             if name == "query_seats":
                 # 为 `answer` 保存当前步骤所需的值。

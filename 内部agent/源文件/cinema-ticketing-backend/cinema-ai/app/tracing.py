@@ -376,7 +376,7 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
         "invalid_date", "greeting", "unsupported_transaction", "policy_source_unavailable",
         "missing_order_no", "missing_screening_id", "missing_date", "explicit_order",
         "explicit_screening", "explicit_movie_fields", "ticket_policy", "explicit_screening_date",
-        "validated_local_classifier", "glm_high_confidence", "none", "normalized_time", "unresolved_time",
+        "validated_local_classifier", "glm_high_confidence", "none", "normalized_time", "unresolved_time", "ambiguous_time_target",
     }:
         summary["preflight_reason"] = payload["preflight_reason"]
     if type(payload.get("l1_attempted")) is bool:
@@ -405,7 +405,7 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
         safe = {key: slots[key] for key in ("order_no", "screening_id", "movie_query", "cinema_query", "release_date_range") if type(slots.get(key)) is bool}
         if slots.get("screening_date") is None or type(slots.get("screening_date")) is bool:
             safe["screening_date"] = slots.get("screening_date")
-        allowed_slots = {"order_no", "screening_date", "screening_id", "valid_date", "policy_source", "time_range"}
+        allowed_slots = {"order_no", "screening_date", "screening_id", "valid_date", "policy_source", "time_range", "time_target"}
         values = slots.get("missing_slots")
         if isinstance(values, list):
             safe["missing_slots"] = sorted({value for value in values if isinstance(value, str) and value in allowed_slots})

@@ -8,6 +8,11 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from app.query_semantics import query_domains
+
+TimeTarget = Literal["release", "screening", "unspecified"]
+ResolvedTimeTarget = Literal["release", "screening"]
+
 RELEASE_FILTERS = ("release_date_from", "release_date_to")
 SCREENING_FILTERS = ("screening_date_from", "screening_date_to", "screening_hour_from", "screening_hour_to")
 TIME_FILTERS = RELEASE_FILTERS + SCREENING_FILTERS
@@ -32,7 +37,7 @@ class TimeWindow(BaseModel):
     """Keep an interval, its business meaning, and any unresolved assumption."""
 
     expression: str = Field(max_length=120)
-    target: Literal["release", "screening"]
+    target: TimeTarget
     status: Literal["resolved", "ambiguous", "invalid"] = "resolved"
     strength: Literal["hard", "soft"] = "hard"
     date_from: str | None = None
@@ -40,7 +45,7 @@ class TimeWindow(BaseModel):
     hour_from: int | None = None
     hour_to: int | None = None
     assumed_target: bool = False
-    reason: Literal["none", "vague", "year_required", "invalid_date", "conflict"] = "none"
+    reason: Literal["none", "vague", "year_required", "invalid_date", "conflict", "target_required"] = "none"
 
 
 class TemporalContext(BaseModel):
@@ -146,8 +151,6 @@ def _bounds(expression: str, today: date, target: str, context: str) -> tuple[da
                 day += timedelta(days=7)
             return day, day
         end = monday + timedelta(days=6)
-        if target == "release" and week[1] in ("本", "这"):
-            end = today
         return monday, end
     month = re.fullmatch(r"(上|下|本|这|这个)(?:个)?月", expression)
     if month:
@@ -187,7 +190,7 @@ def daypart_interval(text: str) -> tuple[int | None, int | None]:
     return None, None
 
 
-def normalize_times(question: str, today: date, default_target: str) -> TemporalContext:
+def normalize_times(question: str, today: date, default_target: TimeTarget) -> TemporalContext:
     """Resolve common Chinese day/range expressions; preserve ambiguity explicitly."""
     text = re.sub(r"《[^》]+》", lambda match: " " * len(match[0]), question)
     result = TemporalContext(reference_date=today.isoformat())
@@ -197,20 +200,26 @@ def normalize_times(question: str, today: date, default_target: str) -> Temporal
         context = text[left:right]
         after = text[match.end() : right]
         before = text[left : match.start()]
-        if re.match(r"(?:内|之内|期间|的)?(?:上映|首映|发行)", after) or re.search(
+        if re.match(r"(?:内|之内|期间|的)?(?:新)?(?:上映|首映|发行|新片)", after) or re.search(
             r"(?:上映|首映|发行)(?:于|日期为|日期是)?\s*$", before
         ):
             target, assumed = "release", False
-        elif re.search(
-            r"场次|排期|排片|开场|有票|买票|座位|余票|影院.*放映|(?:能|可以|想|准备).{0,3}看|今晚|明晚|明早|今早",
-            context,
+        elif (
+            re.search(
+                r"场次|排期|排片|排场|排上了|开场|票价|多少钱|几点|有票|买票|购票|订购|座位|余票|放啥片|放映的电影|放映哪些电影|放映安排|影院.*放映|(?:能|可以|想|准备).{0,3}看|今晚|明晚|明早|今早",
+                context,
+            )
+            or daypart_interval(context)[0] is not None
+            or bool(query_domains(context) & {"screenings", "seats"})
         ):
             target, assumed = "screening", False
+        elif re.search(r"新上映|上映日期|首映|发行|新片|上映的", context):
+            target, assumed = "release", False
         else:
-            target, assumed = default_target, default_target == "release" and "上映" not in context
+            target, assumed = default_target, default_target != "unspecified"
         strength = (
             "soft"
-            if target == "release"
+            if target != "screening"
             and re.search(r"最好|优先|尽量|偏好", context)
             and not re.search(r"必须|只要|仅限|一定要", context)
             else "hard"
@@ -219,6 +228,8 @@ def normalize_times(question: str, today: date, default_target: str) -> Temporal
         try:
             start, end = _bounds(match[0], today, target, context)
             window.date_from, window.date_to = start.isoformat(), end.isoformat()
+            if target == "unspecified":
+                window.status, window.reason = "ambiguous", "target_required"
         except LookupError as error:
             window.status, window.reason = "ambiguous", str(error)
         except (ValueError, OverflowError):
@@ -264,7 +275,7 @@ def apply_time_filters(plan: Any, context: TemporalContext) -> None:
             plan.screening_hour_from, plan.screening_hour_to = window.hour_from, window.hour_to
 
 
-def temporal_clarification(context: TemporalContext, intent: str) -> str:
+def temporal_clarification(context: TemporalContext, intent: str, preference: str = "", movie_query: str = "") -> str:
     """Ask only when an unresolved condition is required for the requested task."""
     for window in context.windows:
         if window.status == "resolved":
@@ -275,11 +286,65 @@ def temporal_clarification(context: TemporalContext, intent: str) -> str:
             return f"“{window.expression}”指哪一年？请补充年份，以便准确查询。"
         if window.reason == "conflict":
             return "你提供了多个时间范围，请确认要查询的起止日期，或分别说明每个范围对应的影片。"
+        if window.target == "unspecified":
+            period = (
+                f"（{window.date_from} 至 {window.date_to}，北京时间）" if window.date_from and window.date_to else ""
+            )
+            subject = f"《{movie_query}》" if movie_query else f"{preference}片" if preference else "影片"
+            return f"你想找“{window.expression}”{period}新上映的{subject}，还是这个期间有可购票场次的{subject}？"
         if window.target == "release" and intent == "recommend" and window.strength == "soft":
             continue
         kind = "上映日期范围" if window.target == "release" else "场次日期范围"
         return f"请明确“{window.expression}”的{kind}，例如最近7天，或提供起止日期。"
     return ""
+
+
+def time_target_choice(question: str, history: list[dict[str, str]]) -> ResolvedTimeTarget | None:
+    """Recognize a choice only while the immediately preceding turn asks for it."""
+    if not history or history[-1].get("role") != "assistant":
+        return None
+    pending = history[-1].get("content", "")
+    if not re.search(r"新上映的.*还是.*可购票场次", pending, re.DOTALL):
+        return None
+    text = EXPRESSION.sub("", question).strip(" ，,。？?！!；;")
+    if len(text) > 60:
+        return None
+    release = bool(re.search(r"新上映|上映的|上映日期|首映|新片|前者|第一[个种项]", text))
+    screening = bool(re.search(r"有票|买票|购票|订购|场次|排期|排片|观影|放映|能看|后者|第二[个种项]", text))
+    return ("release" if release else "screening") if release != screening else None
+
+
+def clarify_time_target(
+    prior: TemporalContext, target: ResolvedTimeTarget, question: str, pending: str, today: date
+) -> TemporalContext:
+    """Resolve a user's choice while keeping the dates displayed in the pending question."""
+    context = normalize_times(question, today, target)
+    if context.windows:
+        if target == "release" and not re.search(r"必须|只要|仅限|一定要|最好|优先|尽量|偏好", question):
+            for window in context.windows:
+                window.strength = (
+                    "soft" if prior.windows and all(item.strength == "soft" for item in prior.windows) else "hard"
+                )
+        return context
+    context = prior.model_copy(deep=True)
+    context.reference_date = today.isoformat()
+    displayed = re.search(r"（(\d{4}-\d{2}-\d{2}) 至 (\d{4}-\d{2}-\d{2})，北京时间）", pending)
+    for window in context.windows:
+        if window.target != "unspecified":
+            continue
+        window.target, window.assumed_target = target, False
+        if displayed and len(context.windows) == 1:
+            with suppress(ValueError):
+                start, end = date.fromisoformat(displayed[1]), date.fromisoformat(displayed[2])
+                if start <= end:
+                    window.date_from, window.date_to = start.isoformat(), end.isoformat()
+        if window.date_from and window.date_to:
+            window.status, window.reason = "resolved", "none"
+        elif window.reason == "target_required":
+            window.reason = "vague"
+        if target == "screening":
+            window.strength = "hard"
+    return context
 
 
 def time_arguments(entities: dict[str, Any], target: str, *, include_preference: bool = False) -> dict[str, Any]:
@@ -327,10 +392,10 @@ def sanitize_temporal_summary(value: Any) -> dict[str, Any]:
             continue
         clean = {}
         for key, allowed in (
-            ("target", {"release", "screening"}),
+            ("target", {"release", "screening", "unspecified"}),
             ("status", {"resolved", "ambiguous", "invalid"}),
             ("strength", {"hard", "soft"}),
-            ("reason", {"none", "vague", "year_required", "invalid_date", "conflict"}),
+            ("reason", {"none", "vague", "year_required", "invalid_date", "conflict", "target_required"}),
         ):
             if isinstance(window.get(key), str) and window[key] in allowed:
                 clean[key] = window[key]

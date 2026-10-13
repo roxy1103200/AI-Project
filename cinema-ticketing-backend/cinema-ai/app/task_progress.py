@@ -23,6 +23,8 @@ SEAT_WORDS = ("座位", "空座", "空位", "选座", "余座", "还有座", "�
 # 声明当前处理单元及其入口。
 def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Combine one understanding result with explicit outcome and dependency rules."""
+    if state.get("clarification") or state.get("needs_clarification"):
+        return []
     question, entities = state["question"], state["entities"]
     text = re.sub(r"《[^》]+》", "", question)
     reference = entities.get("temporal", {}).get("reference_date")
