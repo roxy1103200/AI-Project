@@ -52,6 +52,13 @@ public class AiMovieQueryService {
             boolean showingOnly,
             int page,
             int pageSize) {
+        return movies(query, scope, date, cinema, showingOnly, page, pageSize, AiDateWindow.EMPTY);
+    }
+
+    @Transactional(readOnly = true)
+    public Map<String, Object> movies(
+            String query, String scope, LocalDate date, String cinema, boolean showingOnly,
+            int page, int pageSize, AiDateWindow window) {
         if (!List.of("catalog", "showing", "scheduled").contains(scope)
                 || page < 1
                 || page > 10000
@@ -64,7 +71,7 @@ public class AiMovieQueryService {
         }
         LocalDateTime now = LocalDateTime.now(clock);
         LocalDate effectiveDate = date == null ? now.toLocalDate() : date;
-        Filter scheduled = scheduleFilter(date, cinema, now);
+        Filter scheduled = scheduleFilter(date, cinema, now, window);
         StringBuilder where = new StringBuilder("m.status NOT IN ('OFFLINE','ARCHIVED')");
         List<Object> args = new ArrayList<>();
         if ("showing".equals(scope) || showingOnly) {
@@ -80,6 +87,7 @@ public class AiMovieQueryService {
             args.add(keyword);
             args.add(keyword);
         }
+        appendRelease(where, args, window.releaseFrom(), window.releaseTo());
         if ("scheduled".equals(scope)) {
             where.append(
                             " AND EXISTS (SELECT 1 FROM screening s JOIN hall h ON h.id=s.hall_id"
@@ -113,6 +121,12 @@ public class AiMovieQueryService {
         result.put("total", total);
         result.put("has_more", (long) page * pageSize < total);
         result.put("items", items);
+        result.put("release_date_from", window.releaseFrom());
+        result.put("release_date_to", window.releaseTo());
+        result.put("screening_date_from", window.screeningFrom());
+        result.put("screening_date_to", window.screeningTo());
+        result.put("screening_hour_from", window.hourFrom());
+        result.put("screening_hour_to", window.hourTo());
         return result;
     }
 
@@ -124,18 +138,24 @@ public class AiMovieQueryService {
             LocalDate date,
             String scope,
             boolean showingOnly) {
+        return screenings(movieId, cinemaId, movieQuery, cinemaQuery, date, scope, showingOnly, AiDateWindow.EMPTY);
+    }
+
+    public List<Map<String, Object>> screenings(
+            Long movieId, Long cinemaId, String movieQuery, String cinemaQuery, LocalDate date,
+            String scope, boolean showingOnly, AiDateWindow window) {
         if (!List.of("scheduled", "bookable").contains(scope))
             throw new BusinessException(400, "场次查询范围无效");
         LocalDateTime now = LocalDateTime.now(clock);
         Filter filter =
                 "scheduled".equals(scope)
-                        ? scheduleFilter(date, cinemaQuery, now)
+                        ? scheduleFilter(date, cinemaQuery, now, window)
                         : new Filter(
                                 SellableScreenings.WHERE, new ArrayList<>(List.of(now, now, now)));
         StringBuilder where = new StringBuilder(filter.sql());
         List<Object> args = new ArrayList<>(filter.args());
         if ("bookable".equals(scope)) {
-            appendDate(where, args, date);
+            appendScreeningWindow(where, args, date, window);
             appendKeyword(where, args, "c.name", cinemaQuery);
         }
         if (movieId != null) {
@@ -165,13 +185,14 @@ public class AiMovieQueryService {
                         args.toArray()));
     }
 
-    private Filter scheduleFilter(LocalDate date, String cinema, LocalDateTime now) {
+    private Filter scheduleFilter(LocalDate date, String cinema, LocalDateTime now, AiDateWindow window) {
         StringBuilder where = new StringBuilder(PUBLISHED);
         List<Object> args = new ArrayList<>();
-        if (date == null) {
+        if (date == null && window.screeningFrom() == null) {
             where.append(" AND s.start_time>=?");
             args.add(now.toLocalDate().atStartOfDay());
-        } else appendDate(where, args, date);
+        }
+        appendScreeningWindow(where, args, date, window);
         appendKeyword(where, args, "c.name", cinema);
         return new Filter(where.toString(), args);
     }
@@ -181,6 +202,81 @@ public class AiMovieQueryService {
         where.append(" AND s.start_time>=? AND s.start_time<?");
         args.add(date.atStartOfDay());
         args.add(date.plusDays(1).atStartOfDay());
+    }
+
+    private void appendScreeningWindow(StringBuilder where, List<Object> args, LocalDate date, AiDateWindow window) {
+        if (window.screeningFrom() != null) {
+            if (date != null && (!date.equals(window.screeningFrom()) || !date.equals(window.screeningTo()))) {
+                throw new BusinessException(400, "单日与场次日期范围冲突");
+            }
+            where.append(" AND s.start_time>=? AND s.start_time<?");
+            args.add(window.screeningFrom().atStartOfDay());
+            args.add(window.screeningTo().plusDays(1).atStartOfDay());
+        } else appendDate(where, args, date);
+        if (window.hourFrom() != null) {
+            where.append(" AND HOUR(s.start_time)>=? AND HOUR(s.start_time)<?");
+            args.add(window.hourFrom());
+            args.add(window.hourTo());
+        }
+    }
+
+    private void appendRelease(StringBuilder where, List<Object> args, LocalDate from, LocalDate to) {
+        if (from != null) {
+            where.append(" AND m.release_date>=? AND m.release_date<=?");
+            args.add(from);
+            args.add(to);
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> recommendations(
+            String preference, LocalDate from, LocalDate to, boolean preferred) {
+        return recommendations(preference, from, to, preferred, AiDateWindow.EMPTY);
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> recommendations(
+            String preference, LocalDate from, LocalDate to, boolean preferred, AiDateWindow viewing) {
+        new AiDateWindow(from, to, null, null, null, null);
+        StringBuilder where = new StringBuilder("m.status NOT IN ('OFFLINE','ARCHIVED')");
+        List<Object> args = new ArrayList<>();
+        Filter screeningFilter = null;
+        if (viewing.screeningFrom() != null || viewing.hourFrom() != null) {
+            LocalDateTime now = LocalDateTime.now(clock);
+            StringBuilder sql = new StringBuilder(SellableScreenings.WHERE);
+            List<Object> slots = new ArrayList<>(List.of(now, now, now));
+            appendScreeningWindow(sql, slots, null, viewing);
+            screeningFilter = new Filter(sql.toString(), slots);
+            where.append(" AND EXISTS (SELECT 1 FROM screening s JOIN hall h ON h.id=s.hall_id"
+                    + " JOIN cinema c ON c.id=h.cinema_id WHERE s.movie_id=m.id AND ")
+                    .append(screeningFilter.sql()).append(")");
+            args.addAll(slots);
+        }
+        if (preference != null && !preference.isBlank()) {
+            where.append(" AND (m.genre LIKE ? OR m.title LIKE ? OR m.actors LIKE ?)");
+            String keyword = "%" + preference.trim() + "%";
+            args.addAll(List.of(keyword, keyword, keyword));
+        }
+        if (!preferred) appendRelease(where, args, from, to);
+        String ordering = "";
+        if (preferred && from != null) {
+            ordering = "CASE WHEN m.release_date>=? AND m.release_date<=? THEN 0 ELSE 1 END,";
+            args.add(from);
+            args.add(to);
+        }
+        var rows = jdbc.queryForList(
+                "SELECT m.id,m.title,m.description,m.duration,m.genre,m.director,m.actors,m.release_date"
+                        + " FROM movie m WHERE " + where + " ORDER BY " + ordering
+                        + " m.release_date DESC,m.id DESC LIMIT 5", args.toArray());
+        if (screeningFilter != null && !rows.isEmpty()) attachScreenings(rows, screeningFilter);
+        for (var row : rows) {
+            Object raw = row.get("release_date");
+            LocalDate released = raw == null ? null : LocalDate.parse(raw.toString());
+            if (released != null) row.put("release_date", released.toString());
+            if (from != null) row.put("matches_release_window",
+                    released != null && !released.isBefore(from) && !released.isAfter(to));
+        }
+        return rows;
     }
 
     private void appendKeyword(

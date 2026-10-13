@@ -1,6 +1,6 @@
 # 内部 Agent Python 代码全量说明
 
-本文按当前仓库中的运行代码说明内部 Agent 的 Python 实现，重点解释各文件的职责、主要函数、数据流和安全边界。代码目录是 `cinema-ticketing-backend/cinema-ai/`；根目录的 `内部agent/源文件/` 是较早的备份快照，不是启动时导入的代码。
+本文按当前仓库中的运行代码说明内部 Agent 的 Python 实现，重点解释各文件的职责、主要函数、数据流和安全边界。代码目录是 `cinema-ticketing-backend/cinema-ai/`；根目录的 `内部agent/源文件/` 由后台工具同步为最新源码副本，服务仍从原目录导入代码。同步方式见 [内部 Agent 同步说明](../内部agent/README.md)。
 
 本说明覆盖 `cinema-ai` 下的应用源码、离线评估、脚本和测试。`cinema-ai-gateway/` 也是 Python 项目，但它是与 Agent 分开的接入服务，本文末尾单独说明。按模块和关键函数解释，比把每个赋值、括号和导入逐行换成中文更适合实际阅读；涉及的 Python 文件均在下面逐一列出。
 

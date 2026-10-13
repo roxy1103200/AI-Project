@@ -2,10 +2,88 @@
 
 # 导入当前步骤使用的模块或类型。
 # isort: off
-from datetime import date, datetime
+from datetime import date, datetime, timedelta, timezone
 from app.query_semantics import GENERAL_POLICY_WORDS, movie_fields
 # 导入当前步骤使用的模块或类型。
 from typing import Any
+from app.time_normalization import TIME_FILTERS
+
+
+def valid_release_result(rows: list[dict[str, Any]], entities: dict[str, Any]) -> bool:
+    """Check real release dates, including labelled soft-constraint alternatives."""
+    start, end = entities.get("release_date_from"), entities.get("release_date_to")
+    if not start:
+        return True
+    for row in rows:
+        raw_date = row.get("release_date")
+        if raw_date in (None, ""):
+            matches = False
+        else:
+            try:
+                released = date.fromisoformat(str(raw_date))
+                matches = start <= released.isoformat() <= end
+            except (TypeError, ValueError):
+                return False
+        if entities.get("release_date_preferred"):
+            if type(row.get("matches_release_window")) is not bool or row["matches_release_window"] != matches:
+                return False
+        elif not matches:
+            return False
+    return True
+
+
+def _valid_screening_time(start: datetime, entities: dict[str, Any]) -> bool:
+    if start.tzinfo is not None:
+        start = start.astimezone(timezone(timedelta(hours=8)))
+    day = start.date().isoformat()
+    if entities.get("screening_date") and day != entities["screening_date"]:
+        return False
+    if entities.get("screening_date_from") and not entities["screening_date_from"] <= day <= entities["screening_date_to"]:
+        return False
+    hour_from, hour_to = entities.get("screening_hour_from"), entities.get("screening_hour_to")
+    return hour_from is None or hour_from <= start.hour < hour_to
+
+
+def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) -> str:
+    """Show the chosen release interval and explicitly label relaxed preferences."""
+    start, end = entities.get("release_date_from"), entities.get("release_date_to")
+    lines = []
+    if start:
+        lines.append(f"按上映日期筛选：{start} 至 {end}（北京时间，含起止日）。")
+        if entities.get("release_date_preferred"):
+            lines[-1] = f"优先推荐上映日期在 {start} 至 {end} 的影片（北京时间，含起止日）。"
+    windows = entities.get("temporal", {}).get("windows", [])
+    if any(window.get("assumed_target") for window in windows if window.get("target") == "release"):
+        lines.append("这里按已确认的影片上映日期条件查询。")
+    if any(window.get("status") == "ambiguous" for window in windows):
+        lines.append("你未限定具体时间范围，先按上映日期由近到远推荐。")
+    viewing = bool(entities.get("screening_date_from") or entities.get("screening_date") or entities.get("screening_hour_from") is not None)
+    if viewing:
+        viewing_start = entities.get("screening_date_from") or entities.get("screening_date")
+        viewing_end = entities.get("screening_date_to") or viewing_start
+        period = f"观影日期：{viewing_start} 至 {viewing_end}（北京时间，含起止日）" if viewing_start else "观影范围：今天及之后（北京时间）"
+        if entities.get("screening_hour_from") is not None:
+            period += f"，每天 {entities['screening_hour_from']:02d}:00 至 {entities['screening_hour_to']:02d}:00（不含结束时刻）"
+        lines.append(period + "。")
+    if not data:
+        if viewing:
+            detail = "同时满足上映日期条件且有可购票场次的影片" if start else "有可购票场次的影片"
+            lines.append(f"没有查到符合上述条件的{detail}。可以调整题材或观影日期；未查到可购票场次不代表没有排期。")
+        elif start:
+            lines.append("没有查到符合上述上映日期和题材条件的影片。可以调整题材或扩大上映日期范围。")
+        else:
+            lines.append("没有查到符合题材或偏好的影片，可以换一个题材或补充其他偏好。")
+        return "\n".join(lines)
+    if viewing:
+        lines.append("以下影片具有符合条件的当前可订购场次：")
+    for row in data:
+        alternative = ""
+        if entities.get("release_date_preferred") and row.get("matches_release_window") is False:
+            alternative = "｜超出优先日期范围，作为补充推荐" if row.get("release_date") else "｜上映日期未收录，无法确认是否符合时间偏好"
+        lines.append(f"• {row['title']}｜{row.get('genre', '')}｜上映日期：{row.get('release_date') or '暂未收录'}{alternative}")
+        for slot in row.get("screenings", [])[:3]:
+            lines.append(f"  场次 {slot['id']}｜{slot['start_time']}｜{slot['cinema_name']} {slot['hall_name']}｜¥{slot['price']}")
+    return "\n".join(lines)
 # isort: on
 
 
@@ -17,7 +95,7 @@ def valid_movie_result(data: Any, entities: dict[str, Any]) -> bool:
     # 检查 `if isinstance(data, list)`，据此选择当前处理分支。
     if isinstance(data, list):
         # 将当前计算结果返回给调用方。
-        return scope == "catalog" and all(isinstance(row, dict) and "title" in row for row in data)
+        return scope == "catalog" and not any(entities.get(key) is not None for key in TIME_FILTERS) and all(isinstance(row, dict) and "title" in row for row in data)
     # 为 `required` 保存当前步骤所需的值。
     required = {
         # 补充当前表达式的 `"movie_scope"` 参数或元素。
@@ -55,6 +133,9 @@ def valid_movie_result(data: Any, entities: dict[str, Any]) -> bool:
         return False
     # 为 `rows` 保存当前步骤所需的值。
     rows = data["items"]
+    for key in TIME_FILTERS:
+        if entities.get(key) is not None and data.get(key) != entities[key]:
+            return False
     # 检查 `if not isinstance(rows, list) or len(rows) > data["total"]`，据此选择当前处理分支。
     if not isinstance(rows, list) or len(rows) > data["total"]:
         # 将当前计算结果返回给调用方。
@@ -74,6 +155,8 @@ def valid_movie_result(data: Any, entities: dict[str, Any]) -> bool:
         return False
     # 为 `seen` 保存当前步骤所需的值。
     seen = set()
+    if not all(isinstance(row, dict) for row in rows) or not valid_release_result(rows, entities):
+        return False
     # 进入对应的循环、异常处理或资源管理分支。
     for row in rows:
         # 检查 `if not isinstance(row, dict) or "title" not in row or type(row.get("id")) is not int or row["id"] in seen`，据此选择当前处理分支。
@@ -113,13 +196,13 @@ def valid_movie_result(data: Any, entities: dict[str, Any]) -> bool:
             day = slot["start_time"][:10]
             # 进入对应的循环、异常处理或资源管理分支。
             try:
-                datetime.fromisoformat(slot["start_time"])
+                start = datetime.fromisoformat(slot["start_time"])
             # 进入对应的循环、异常处理或资源管理分支。
             except ValueError:
                 # 将当前计算结果返回给调用方。
                 return False
             # 检查 `if (requested_day and day != requested_day) or (not requested_day and day < data["from_date"])`，据此选择当前处理分支。
-            if (requested_day and day != requested_day) or (not requested_day and day < data["from_date"]):
+            if not _valid_screening_time(start, entities) or (not requested_day and not entities.get("screening_date_from") and day < data["from_date"]):
                 # 将当前计算结果返回给调用方。
                 return False
     # 将当前计算结果返回给调用方。
@@ -152,7 +235,7 @@ def valid_screening_result(data: Any, entities: dict[str, Any]) -> bool:
             # 将当前计算结果返回给调用方。
             return False
         # 检查 `if entities.get("screening_date") and start.date().isoformat() != entities["screening_date"]`，据此选择当前处理分支。
-        if entities.get("screening_date") and start.date().isoformat() != entities["screening_date"]:
+        if not _valid_screening_time(start, entities):
             # 将当前计算结果返回给调用方。
             return False
     # 将当前计算结果返回给调用方。
@@ -219,6 +302,12 @@ def movie_answer(data: Any, question: str = "") -> str:
     # 进入对应的循环、异常处理或资源管理分支。
     else:
         period, kind = "", "影片资料"
+    if data.get("screening_date_from"):
+        period = f"{data['screening_date_from']} 至 {data['screening_date_to']}（北京时间，含起止日）"
+    if data.get("release_date_from"):
+        period += f"上映日期 {data['release_date_from']} 至 {data['release_date_to']}："
+    if data.get("screening_hour_from") is not None:
+        period += f"，每天 {data['screening_hour_from']:02d}:00 至 {data['screening_hour_to']:02d}:00（不含结束时刻）"
     rows, total = data["items"], data["total"]
     # 检查 `if not rows`，据此选择当前处理分支。
     if not rows:
@@ -246,7 +335,7 @@ def movie_answer(data: Any, question: str = "") -> str:
             )
         )
         # 检查 `if any(word in question for word in ("导演", "主演", "演员", "简介", "资料", "介绍", "上映日期"))`，据此选择当前处理分支。
-        if movie_fields(question) or any(word in question for word in ("资料", "介绍")):
+        if data.get("release_date_from") or movie_fields(question) or any(word in question for word in ("资料", "介绍")):
             # 继续构造当前业务表达式或数据结构。
             lines.extend(movie_details(movie))
         # 检查 `if scope == "scheduled" and any(word in question for word in ("片长", "时长")) and movie.get("duration")`，据此选择当前处理分支。
@@ -302,6 +391,10 @@ def screening_answer(data: list[dict[str, Any]], entities: dict[str, Any]) -> st
     if scope == "scheduled" and not day:
         # 为 `period` 保存当前步骤所需的值。
         period = "今天及之后（北京时间）"
+    if entities.get("screening_date_from"):
+        period = f"{entities['screening_date_from']} 至 {entities['screening_date_to']}（北京时间，含起止日）"
+    if entities.get("screening_hour_from") is not None:
+        period += f"，每天 {entities['screening_hour_from']:02d}:00 至 {entities['screening_hour_to']:02d}:00（不含结束时刻）"
     # 检查 `if not data`，据此选择当前处理分支。
     if not data:
         # 将当前计算结果返回给调用方。

@@ -47,6 +47,7 @@ export function useTabSession() {
     sessionStorage.removeItem(STORAGE_KEY);
     clearChatBindings();
     sessionStorage.removeItem("cinema-ai-handoff-pending");
+    sessionStorage.removeItem("cinema-agent-login-pending");
     setSession(null); setChecking(false); setError("");
   }
 
@@ -101,5 +102,5 @@ export function useTabSession() {
     if (token) void apiRequest("/api/auth/logout", { method: "POST" }, token).catch(() => undefined);
   }
 
-  return { session, checking, error, signIn, signOut, retry: () => setRetry((value) => value + 1) };
+  return { session, checking, error, signIn, signOut, forgetSession: clear, retry: () => setRetry((value) => value + 1) };
 }

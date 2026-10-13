@@ -111,4 +111,4 @@ asyncio.run(main())
 
 测试使用实际 SDK 客户端和本地 HTTP 服务，Java 接口使用 MockTransport，不读取线上数据库或调用收费模型。覆盖四类工具发现、查询映射、座位状态、并发订单身份隔离、缺少身份、跨用户拒绝、参数校验、服务凭证/Host/Origin 校验、上游超时和 Agent 普通/流式/退票调用链。
 
-`内部agent/源文件` 是 2026-09-28 的历史备份快照，不随此次迁移覆盖；当前可运行实现位于 `cinema-ticketing-backend/cinema-ai/app/`。
+`内部agent/源文件` 是由后台同步工具维护的最新源码副本，通常在源文件变动后数秒更新；同步范围与运行状态见 [内部 Agent 同步说明](../内部agent/README.md)。服务仍从 `cinema-ticketing-backend/cinema-ai/app/` 加载代码。

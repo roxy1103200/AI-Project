@@ -1,0 +1,21 @@
+{
+  "version": "golden-v1",
+  "n": 168,
+  "source_questions": 144,
+  "new_followup_questions": 24,
+  "observed_clarification_events": 38,
+  "distinct_clarified_questions": 19,
+  "frozen_business_date": "2026-10-11",
+  "use": "held_out_acceptance_only; never train from this set",
+  "source_cases_sha256": "60c44fa0daa0eb61c426f64710da1d4848d41bf7186f8e4acd0dc86eb63ca330",
+  "cases_sha256": "690eb897825f975030aaa1b2d94faa3da0f6ca6189164cb881cdc43eea1f123d",
+  "snapshot_sha256": "1a89487ee4ddc690f3fc551fa46a1ddda84259de71474b6f595fc906d34dfb02",
+  "clarification_note": "Observed clarification does not mean clarification is the desired outcome; gold plans remain authoritative",
+  "bindings_required_for_live": [
+    "OGOLD000001",
+    "OGOLD000002",
+    "OGOLD000003",
+    "OGOLD000004"
+  ],
+  "duplicate_events_are_not_additional_questions": true
+}

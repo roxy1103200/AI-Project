@@ -24,6 +24,10 @@ from app.intent_routing import preliminary_route, slot_summary
 from app.query_semantics import movie_fields, policy_kind, query_domains
 from app.glm_router import classify, eligible
 from app.versions import load_prompt
+from app.time_normalization import (
+    EXPRESSION, TIME_FILTERS, TemporalContext, apply_time_filters, normalize_times,
+    TimeTarget, clarify_time_target, temporal_clarification, temporal_summary, time_target_choice,
+)
 # isort: on
 
 # 为 `Intent` 保存当前步骤所需的值。
@@ -87,6 +91,14 @@ class QuestionPlan(BaseModel):
     cinema_query: str = Field(default="", max_length=120)
     # 设置当前结构中的 `screening_date` 字段。
     screening_date: str | None = Field(default=None, pattern=r"^\d{4}-\d{2}-\d{2}$")
+    release_date_from: str | None = None
+    release_date_to: str | None = None
+    screening_date_from: str | None = None
+    screening_date_to: str | None = None
+    screening_hour_from: int | None = None
+    screening_hour_to: int | None = None
+    release_date_preferred: bool = False
+    temporal: TemporalContext = Field(default_factory=TemporalContext)
     # 设置当前结构中的 `screening_id` 字段。
     screening_id: int | None = Field(default=None, gt=0)
     # 设置当前结构中的 `order_no` 字段。
@@ -171,7 +183,7 @@ def listing_kind(question: str) -> tuple[str, str, str, bool]:
     # 为 `showing` 保存当前步骤所需的值。
     showing = any(word in text for word in ("上映", "热映", "还在放", "正在放"))
     # 为 `detail` 保存当前步骤所需的值。
-    detail = any(word in text for word in ("场次", "几点", "时间", "票价", "多少钱", "什么时候放"))
+    detail = any(word in text for word in ("场次", "几点", "开场", "放映时间", "场次时间", "票价", "多少钱", "什么时候放"))
     detail = detail or bool(re.search(r"排(?:了)?[啥哪]场|排场|几号场|安排.*影院|电影院.*放[啥哪].*片", text))
     if movie_fields(question) and not re.search(r"场次|排期|排场|票价|安排.*影院", text):
         detail = False
@@ -210,6 +222,7 @@ def general_listing(question: str) -> bool:
         # 将当前计算结果返回给调用方。
         return False
     # 为 `text` 保存当前步骤所需的值。
+    text = EXPRESSION.sub("", text)
     text = re.sub(r"\d{4}[-/]\d{1,2}[-/]\d{1,2}|\d{1,2}月\d{1,2}(?:日|号)?|第\d+页", "", text)
     # 为 `text` 保存当前步骤所需的值。
     text = re.sub(r"(?:下周|本周|这周|周|下星期|本星期|星期)[一二三四五六日天]", "", text)
@@ -361,13 +374,12 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
         # 为 `intent` 保存当前步骤所需的值。
         intent = "policy"
     # 检查 `elif intent == "screenings" or movie_scope != "catalog"`，据此选择当前处理分支。
+    elif any(word in request_text for word in ("推荐", "喜欢", "适合")) and not re.search(r"推荐.{0,4}座位|座位.{0,4}推荐", request_text):
+        intent = "recommend"
+        movie_scope = "catalog"
     elif intent == "screenings" or movie_scope != "catalog":
         # 此分支不执行额外操作。
         pass
-    # 检查 `elif any(word in request_text for word in ("推荐", "喜欢", "适合"))`，据此选择当前处理分支。
-    elif any(word in request_text for word in ("推荐", "喜欢", "适合")):
-        # 为 `intent` 保存当前步骤所需的值。
-        intent = "recommend"
     # 检查 `elif any(word in request_text for word in ("电影", "影片", "导演", "主演", "片长", "上映")) or "《" in question`，据此选择当前处理分支。
     elif any(word in request_text for word in ("电影", "影片", "导演", "主演", "片长", "上映")) or "《" in question:
         # 为 `intent` 保存当前步骤所需的值。
@@ -399,7 +411,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
         # 为 `screening_id` 保存当前步骤所需的值。
         screening_id=int(screening_match.group(1)) if screening_match else None,
         # 为 `preference` 保存当前步骤所需的值。
-        preference=next((genre for genre in ("动漫", "喜剧", "恐怖", "科幻", "爱情") if genre in normalized), ""),
+        preference=next((genre for genre in ("悬疑", "犯罪", "惊悚", "动作", "剧情", "动漫", "喜剧", "恐怖", "科幻", "爱情") if genre in normalized), ""),
         # 为 `movie_scope` 保存当前步骤所需的值。
         movie_scope=movie_scope,
         # 为 `screening_scope` 保存当前步骤所需的值。
@@ -409,7 +421,19 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
         # 为 `page` 保存当前步骤所需的值。
         page=min(10000, max(1, int(match[1]))) if (match := re.search(r"第\s*(\d+)\s*页", question)) else 1,
     )
+    if (
+        plan.intent in ("movies", "screenings")
+        and plan.preference
+        and not plan.movie_query
+        and not movie_fields(question)
+        and not query_domains(question)
+        and re.search(r"有哪部|有哪些|有什么|哪部|找.*片", request_text)
+    ):
+        plan.intent, plan.movie_scope = "recommend", "catalog"
     # 为 `screening_reply` 保存当前步骤所需的值。
+    prior = None
+    target_choice = time_target_choice(question, history)
+    temporal_reply = EXPRESSION.fullmatch(question.strip(" ？?！!。").removeprefix("那").removesuffix("呢")) is not None
     screening_reply = SCREENING_PATTERN.fullmatch(question.strip())
     # 为 `page_reply` 保存当前步骤所需的值。
     page_reply = bool(re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()))
@@ -426,7 +450,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
         # 继续构造当前业务表达式或数据结构。
         history
         # 调用 `and` 执行当前业务操作。
-        and (not general_listing(question) or page_reply)
+        and (not general_listing(question) or page_reply or temporal_reply or target_choice)
         # 调用 `and` 执行当前业务操作。
         and (
             # 调用 `any` 执行当前业务操作。
@@ -435,6 +459,8 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             or ORDER_PATTERN.fullmatch(question.strip())
             # 继续构造当前业务表达式或数据结构。
             or screening_reply
+            or temporal_reply
+            or target_choice
             or order_slot_reply
             or "下一页" in question
             or re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip())
@@ -453,7 +479,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             # 为 `prior` 保存当前步骤所需的值。
             prior = rule_plan(previous, history[:previous_index], today)
             # 检查 `if plan.intent == "unsupported" or ORDER_PATTERN.fullmatch(question.strip())`，据此选择当前处理分支。
-            if plan.intent == "unsupported" or ORDER_PATTERN.fullmatch(question.strip()) or order_slot_reply:
+            if plan.intent == "unsupported" or ORDER_PATTERN.fullmatch(question.strip()) or order_slot_reply or target_choice:
                 # 为 `plan.intent` 保存当前步骤所需的值。
                 plan.intent = prior.intent if prior.intent != "unsupported" else plan.intent
                 # 为 `plan.movie_scope` 保存当前步骤所需的值。
@@ -489,6 +515,40 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             # 为 `plan.normalized_question` 保存当前步骤所需的值。
             plan.normalized_question = f"{normalized}（承接问题：{prior.normalized_question[:400]}）"[:1000]
     # 将当前计算结果返回给调用方。
+    default_target: TimeTarget = "unspecified"
+    if temporal_reply and prior is not None:
+        targets = {window.target for window in prior.temporal.windows}
+        if len(targets) == 1:
+            default_target = next(iter(targets))
+    temporal = normalize_times(question, today, default_target) if plan.intent in ("recommend", "movies", "screenings", "seats") else TemporalContext(reference_date=today.isoformat())
+    if prior is not None and target_choice:
+        temporal = clarify_time_target(prior.temporal, target_choice, question, history[-1]["content"], today)
+        if plan.intent == "movies":
+            plan.movie_scope = "catalog"
+            if plan.preference and not plan.movie_query:
+                plan.intent = "recommend"
+            elif target_choice == "screening":
+                plan.intent = "screenings"
+        plan.screening_scope = "bookable"
+    elif prior is not None and not temporal.windows and plan.intent in ("recommend", "movies", "screenings", "seats"):
+        temporal = prior.temporal.model_copy(deep=True)
+    elif prior is not None and plan.intent in ("recommend", "movies", "screenings", "seats"):
+        for window in temporal.windows:
+            previous_window = next((previous for previous in prior.temporal.windows if previous.target == window.target), None)
+            if previous_window is None:
+                continue
+            if temporal_reply and not re.search(r"必须|只要|仅限|一定要|最好|优先|尽量", question):
+                window.strength = previous_window.strength
+            if window.target == "screening" and window.status == "resolved":
+                if window.date_from is None:
+                    window.date_from, window.date_to = previous_window.date_from, previous_window.date_to
+                if window.hour_from is None and temporal_reply:
+                    window.hour_from, window.hour_to = previous_window.hour_from, previous_window.hour_to
+    apply_time_filters(plan, temporal)
+    if plan.intent == "movies" and plan.movie_scope == "catalog" and plan.screening_hour_from is not None and not movie_fields(question):
+        plan.movie_scope = "scheduled"
+    if plan.release_date_from and not plan.screening_date_from and not plan.screening_date and plan.movie_scope == "showing" and not re.search(r"上映中|正在上映|热映", question):
+        plan.movie_scope = "catalog"
     return plan
 
 
@@ -501,7 +561,7 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
     today = beijing_today()
     # 为 `rules` 保存当前步骤所需的值。
     rules = rule_plan(question, history, today)
-    layer, preflight_reason = preliminary_route(rules, question, history)
+    layer, preflight_reason = preliminary_route(rules, question, history, unfiltered=general_listing(question))
     if layer:
         source = "small_model" if layer == "l1" else "rules"
     # 为 `plan` 保存当前步骤所需的值。
@@ -520,26 +580,20 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
             )
         )
     )
-    # 为 `ambiguous_listing` 保存当前步骤所需的值。
-    ambiguous_listing = (
-        # 为 `rules.intent` 保存当前步骤所需的值。
-        rules.intent == "movies"
-        and rules.movie_scope == "catalog"
-        # 继续构造当前业务表达式或数据结构。
-        and bool(rules.screening_date)
-        # 继续构造当前业务表达式或数据结构。
-        and general_listing(question)
-    )
-    # 检查 `if model and plan.intent != "chat" and not ambiguous_listing and not (fixed_lookup and general_listing(question))`，据此选择当前处理分支。
-    if classifier_model is not None and not layer and not ambiguous_listing and not (fixed_lookup and general_listing(question)) and eligible(question, history, rules, preflight_reason):
+    if classifier_model is not None and not layer and not (fixed_lookup and general_listing(question)) and eligible(question, history, rules, preflight_reason):
         l1_attempted = True
         candidate, l1_status, elapsed = await classify(classifier_model, question, rules)
         l1_duration_ms = int(elapsed)
         if candidate is not None:
             plan, layer, source, preflight_reason = candidate, "l1", "small_model", "glm_high_confidence"
-    if model and not layer and plan.intent != "chat" and not ambiguous_listing and not (fixed_lookup and general_listing(question)):
+    if model and not layer and plan.intent != "chat" and not (fixed_lookup and general_listing(question)):
         # 为 `prompt` 保存当前步骤所需的值。
-        prompt = load_prompt("understanding").replace("{{TODAY}}", today.isoformat()).replace("{{SCHEMA}}", json.dumps(QuestionPlan.model_json_schema(), ensure_ascii=False))
+        schema = QuestionPlan.model_json_schema()
+        for field in (*TIME_FILTERS, "release_date_preferred", "temporal"):
+            schema["properties"].pop(field, None)
+        schema.get("$defs", {}).pop("TemporalContext", None)
+        schema.get("$defs", {}).pop("TimeWindow", None)
+        prompt = load_prompt("understanding").replace("{{TODAY}}", today.isoformat()).replace("{{SCHEMA}}", json.dumps(schema, ensure_ascii=False))
         # 进入对应的循环、异常处理或资源管理分支。
         try:
             # 进入对应的循环、异常处理或资源管理分支。
@@ -618,6 +672,7 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         or (rules.intent == "recommend" and "推荐" in question)
         # 调用 `or` 执行当前业务操作。
         or (rules.intent == "policy" and any(word in question for word in ("规则", "须知", "条件")))
+        or time_target_choice(question, history)
     # 继续构造当前业务表达式或数据结构。
     ):
         # 为 `plan.intent` 保存当前步骤所需的值。
@@ -625,7 +680,8 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         # 为 `plan.confidence` 保存当前步骤所需的值。
         plan.confidence = max(plan.confidence, rules.confidence)
     # 检查 `if general_listing(question) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip())`，据此选择当前处理分支。
-    if general_listing(question) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()):
+    time_followup = bool(history) and EXPRESSION.fullmatch(question.strip(" ？?！!。").removeprefix("那").removesuffix("呢")) is not None
+    if general_listing(question) and not time_followup and not time_target_choice(question, history) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()):
         # 为 `plan.movie_query` 保存当前步骤所需的值。
         plan.movie_query = ""
         # 为 `plan.cinema_query` 保存当前步骤所需的值。
@@ -682,6 +738,16 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
     if plan.screening_id not in {int(match.group(1)) for match in SCREENING_PATTERN.finditer(user_text)}:
         # 为 `plan.screening_id` 保存当前步骤所需的值。
         plan.screening_id = None
+    # Resolve temporal meaning after the final intent; contextual choices remain user constraints.
+    if time_followup or time_target_choice(question, history):
+        temporal = rules.temporal.model_copy(deep=True)
+    elif plan.intent in ("recommend", "movies", "screenings", "seats"):
+        temporal = normalize_times(question, today, "unspecified")
+    else:
+        temporal = TemporalContext(reference_date=today.isoformat())
+    apply_time_filters(plan, temporal)
+    if plan.intent == "recommend" and "screenings" not in query_domains(question):
+        plan.requested_intents = [intent for intent in plan.requested_intents if intent != "screenings"]
     # 为 `invalid_date` 保存当前步骤所需的值。
     invalid_date = ""
     # 检查 `if plan.screening_date`，据此选择当前处理分支。
@@ -719,17 +785,10 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         )
     # 检查 `elif (`，据此选择当前处理分支。
     elif (
-        # 为 `plan.intent` 保存当前步骤所需的值。
-        plan.intent == "movies" and plan.movie_scope == "catalog" and rules.screening_date and general_listing(question)
-    # 继续构造当前业务表达式或数据结构。
-    ):
-        # 为 `clarification` 保存当前步骤所需的值。
-        clarification = "你想查询该日期上映中的影片，还是实际安排了场次的电影？"
-    # 检查 `elif (`，据此选择当前处理分支。
-    elif (
         (plan.intent == "screenings" or plan.movie_scope == "scheduled")
         # 继续构造当前业务表达式或数据结构。
         and not plan.screening_date
+        and not plan.screening_date_from
         and re.search(r"本周|下周|这周|本月|下个月|周末|最近|过几天|\d+[月号日]", re.sub(r"《[^》]+》", "", question))
     # 继续构造当前业务表达式或数据结构。
     ):
@@ -745,6 +804,9 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         plan.movie_query or plan.cinema_query or plan.screening_date
     ) and not invalid_date and preflight_reason != "missing_date":
         clarification = ""
+    time_question = temporal_clarification(plan.temporal, plan.intent, plan.preference, plan.movie_query)
+    if time_question:
+        clarification = time_question
     if plan.intent == "policy" or policy_kind(question) != "ticket_policy":
         plan.policy_kind = policy_kind(question)
     # 将当前计算结果返回给调用方。
@@ -765,6 +827,9 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
     }
     result["understanding_layer"] = layer or ("llm" if source == "model" else "fallback")
     result["preflight_reason"] = preflight_reason if layer else "none"
-    result["slot_summary"] = slot_summary(result, preflight_reason)
+    if time_question and any(window.target == "unspecified" and window.status != "invalid" for window in plan.temporal.windows):
+        result["preflight_reason"] = "ambiguous_time_target"
+    result["slot_summary"] = slot_summary(result, result["preflight_reason"])
     result.update(l1_status=l1_status, l1_duration_ms=l1_duration_ms, l1_attempted=l1_attempted)
+    result["temporal_summary"] = temporal_summary(plan.temporal)
     return result

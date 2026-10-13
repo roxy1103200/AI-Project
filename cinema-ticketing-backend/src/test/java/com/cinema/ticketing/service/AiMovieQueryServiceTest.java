@@ -2,6 +2,7 @@ package com.cinema.ticketing.service;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.*;
 
 import com.cinema.ticketing.common.BusinessException;
@@ -120,6 +121,78 @@ class AiMovieQueryServiceTest {
         return items(result).stream()
                 .map(row -> ((Number) row.get("id")).longValue())
                 .collect(Collectors.toSet());
+    }
+
+    private void releaseCandidates() {
+        LocalDate[] dates = {TODAY.minusDays(6), TODAY, TODAY.minusDays(7), TODAY.plusDays(1), null};
+        for (int index = 0; index < dates.length; index++) {
+            jdbc.update("INSERT INTO movie (id,title,genre,status,release_date) VALUES (?,?,?,'ON_SHELF',?)",
+                    101 + index, "日期边界电影" + index, "悬疑", dates[index]);
+        }
+        jdbc.update("INSERT INTO movie (id,title,genre,status,release_date) VALUES (106,'下线电影','悬疑','OFFLINE',?)", TODAY);
+    }
+
+    @Test
+    void recommendationsFilterReleaseDatesBeforeApplyingLimit() {
+        releaseCandidates();
+        var rows = service.recommendations("悬疑", TODAY.minusDays(6), TODAY, false);
+        assertEquals(List.of(102L, 101L), rows.stream().map(row -> ((Number) row.get("id")).longValue()).toList());
+        assertTrue(rows.stream().allMatch(row -> Boolean.TRUE.equals(row.get("matches_release_window"))));
+        assertEquals(TODAY.toString(), rows.get(0).get("release_date"));
+        var result = service.movies("悬疑", "catalog", null, "", false, 1, 20,
+                new AiDateWindow(TODAY.minusDays(6), TODAY, null, null, null, null));
+        assertEquals(Set.of(101L, 102L), ids(result));
+        assertEquals(TODAY.minusDays(6), result.get("release_date_from"));
+    }
+
+    @Test
+    void preferredReleaseDatesRankMatchingFilmsAheadOfNewerAlternatives() {
+        releaseCandidates();
+        var rows = service.recommendations("悬疑", TODAY.minusDays(6), TODAY, true);
+        assertEquals(5, rows.size());
+        assertEquals(102L, ((Number) rows.get(0).get("id")).longValue());
+        assertEquals(101L, ((Number) rows.get(1).get("id")).longValue());
+        assertEquals(Boolean.FALSE, rows.get(2).get("matches_release_window"));
+        assertEquals(Boolean.FALSE, rows.get(4).get("matches_release_window"));
+    }
+
+    @Test
+    void screeningDateRangesAndEveningHoursKeepBothBoundaries() {
+        var window = new AiDateWindow(null, null, TODAY, TODAY.plusDays(1), 18, 24);
+        var rows = service.screenings(null, null, "", "", null, "scheduled", false, window);
+        assertEquals(Set.of(2L, 3L, 4L, 10L), rows.stream().map(row -> ((Number) row.get("movie_id")).longValue()).collect(Collectors.toSet()));
+        var bookable = service.screenings(null, null, "", "", null, "bookable", false, window);
+        assertEquals(Set.of(3L, 10L), bookable.stream().map(row -> ((Number) row.get("movie_id")).longValue()).collect(Collectors.toSet()));
+        assertThrows(BusinessException.class, () -> new AiDateWindow(null, null, TODAY, TODAY.minusDays(1), null, null));
+        assertThrows(BusinessException.class, () -> new AiDateWindow(null, null, null, null, 18, 18));
+    }
+
+    @Test
+    void viewingDateRecommendationsIncludeActualSellableScreeningEvidence() {
+        var window = new AiDateWindow(null, null, TODAY.plusDays(1), TODAY.plusDays(1), 18, 24);
+        var rows = service.recommendations("科幻", null, null, false, window);
+        assertEquals(1, rows.size());
+        assertEquals(10L, ((Number) rows.get(0).get("id")).longValue());
+        assertEquals(1L, ((Number) rows.get(0).get("screening_count")).longValue());
+        assertFalse(((List<?>) rows.get(0).get("screenings")).isEmpty());
+    }
+
+    @Test
+    void temporalParametersCrossControllerBoundaryAndRejectInvalidRanges() throws Exception {
+        releaseCandidates();
+        mvc.perform(post("/internal/recommendations").header("X-Internal-Token", "fixture-token")
+                        .contentType("application/json")
+                        .content("{\"preference\":\"悬疑\",\"releaseDateFrom\":\"2026-10-02\",\"releaseDateTo\":\"2026-10-08\"}"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].release_date").value("2026-10-08"));
+        mvc.perform(get("/internal/screenings").header("X-Internal-Token", "fixture-token")
+                        .param("screeningDateFrom", TODAY.toString()).param("screeningDateTo", TODAY.plusDays(1).toString())
+                        .param("screeningHourFrom", "18").param("screeningHourTo", "24").param("queryScope", "scheduled"))
+                .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(4));
+        mvc.perform(post("/internal/recommendations").header("X-Internal-Token", "fixture-token")
+                        .contentType("application/json")
+                        .content("{\"releaseDateFrom\":\"2026-10-08\",\"releaseDateTo\":\"2026-10-02\"}"))
+                .andExpect(status().isBadRequest());
     }
 
     private Map<String, Object> query(String scope, LocalDate date) {

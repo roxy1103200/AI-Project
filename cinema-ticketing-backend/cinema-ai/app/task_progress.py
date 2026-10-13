@@ -3,6 +3,7 @@
 # 导入当前步骤使用的模块或类型。
 # isort: off
 import re
+from datetime import date
 
 # 导入当前步骤使用的模块或类型。
 from typing import Any
@@ -10,6 +11,7 @@ from typing import Any
 # 导入当前步骤使用的模块或类型。
 from app.intent import SCREENING_PATTERN, rule_plan
 from app.query_semantics import movie_fields, query_domains
+from app.time_normalization import time_arguments, recommendation_time_arguments
 # isort: on
 
 # 为 `FACT_WORDS` 保存当前步骤所需的值。
@@ -21,9 +23,12 @@ SEAT_WORDS = ("座位", "空座", "空位", "选座", "余座", "还有座", "�
 # 声明当前处理单元及其入口。
 def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
     """Combine one understanding result with explicit outcome and dependency rules."""
+    if state.get("clarification") or state.get("needs_clarification"):
+        return []
     question, entities = state["question"], state["entities"]
     text = re.sub(r"《[^》]+》", "", question)
-    rules = rule_plan(question, state["messages"][:-1])
+    reference = entities.get("temporal", {}).get("reference_date")
+    rules = rule_plan(question, state["messages"][:-1], date.fromisoformat(reference) if reference else None)
     requested = set(state.get("requested_intents", []))
     domains = query_domains(question, bool(entities.get("order_no")))
     if "screenings" not in domains and (entities.get("order_no") or entities.get("screening_id")):
@@ -41,7 +46,10 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
     if state["intent"] in ("order", "refund") or order_nos:
         for number in order_nos:
             add("query_order", {"order_no": number}, f"查询订单 {number}")
-    facts = bool(movie_fields(question)) or any(word in text for word in FACT_WORDS)
+    recommendation_dates = state["intent"] == "recommend" and set(movie_fields(question)) <= {"release_date"} and not entities["movie_query"]
+    facts = (bool(movie_fields(question)) or any(word in text for word in FACT_WORDS)) and not recommendation_dates
+    if recommendation_dates:
+        requested.discard("movies")
     seats = state["intent"] == "seats" or "seats" in requested or "seats" in domains or any(word in text for word in SEAT_WORDS)
     explicit_ids = list(dict.fromkeys(int(match[1]) for match in SCREENING_PATTERN.finditer(question)))
     if not explicit_ids and entities["screening_id"]:
@@ -75,6 +83,8 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
                     "cinema_query": "" if facts else entities["cinema_query"],
                     "showing_only": False if facts else rules.showing_only,
                     "page": entities["page"],
+                    **time_arguments(entities, "release"),
+                    **({} if facts else time_arguments(entities, "screening")),
                 },
                 "查询影片资料" if facts else "查询影片列表",
             )
@@ -88,6 +98,7 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
                     "screening_date": entities["screening_date"],
                     "query_scope": rules.screening_scope,
                     "showing_only": rules.showing_only,
+                    **time_arguments(entities, "screening"),
                 },
                 "查询场次与票价",
             )
@@ -98,7 +109,7 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
         else:
             add("query_seats", {}, "查询指定场次的座位")
     if state["intent"] == "recommend" or "recommend" in requested:
-        add("recommend_movies", {"preference": entities["preference"]}, "按偏好推荐电影")
+        add("recommend_movies", {"preference": entities["preference"], **recommendation_time_arguments(entities)}, "按偏好推荐电影")
     policy_words = ("规则", "须知", "政策", "退票期限", "退票截止", "提前多久", "最晚多久", "啥时候不能退")
     if state["intent"] == "policy" or "policy" in requested or "policy" in domains or any(word in text for word in policy_words):
         add("query_ticket_policy", {}, "检索当前票务规则")
