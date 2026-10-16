@@ -1,0 +1,163 @@
+{
+  "generated_on": "2026-10-16",
+  "time_zone": "Asia/Shanghai",
+  "counts": {
+    "sessions": 5,
+    "traces": 19,
+    "events": 448,
+    "spans": 224
+  },
+  "days": {
+    "2026_10_13": {
+      "request_count": 11,
+      "statuses": {
+        "completed": 11
+      },
+      "outcomes": {
+        "needs_user": 5,
+        "verifier_incomplete": 2,
+        "done_verified": 3,
+        "simple_verified": 1
+      },
+      "routes": {
+        "direct": 5,
+        "simple": 3,
+        "react": 3
+      },
+      "root_counters": {
+        "model_call_count": 13,
+        "tool_call_count": 9,
+        "input_tokens": 22590,
+        "output_tokens": 1579,
+        "total_tokens": 24169,
+        "failure_count": 0,
+        "reflection_call_count": 6,
+        "invalid_call_count": 0
+      },
+      "observed_model_spans": 13,
+      "observed_model_tokens": {
+        "prompt_tokens": 22590,
+        "completion_tokens": 1579,
+        "total_tokens": 24169
+      },
+      "observed_tool_spans": 9,
+      "tool_names": {
+        "tool.recommend_movies": 6,
+        "tool.search_screenings": 3
+      },
+      "list_tool_calls": 9,
+      "empty_list_tool_calls": 5,
+      "mean_seconds_all": 3.052224727272727,
+      "median_seconds_all": 2.753822,
+      "mean_seconds_queried_recommendations": 5.535240833333333,
+      "queried_recommendation_count": 6
+    },
+    "2026_10_15": {
+      "request_count": 8,
+      "statuses": {
+        "completed": 7,
+        "interrupted": 1
+      },
+      "outcomes": {
+        "needs_user": 3,
+        "simple_verified": 3,
+        "done_verified": 1,
+        "unrecorded": 1
+      },
+      "routes": {
+        "direct": 3,
+        "simple": 3,
+        "react": 1,
+        "unrecorded": 1
+      },
+      "root_counters": {
+        "model_call_count": 6,
+        "tool_call_count": 4,
+        "input_tokens": 8347,
+        "output_tokens": 597,
+        "total_tokens": 8944,
+        "failure_count": 0,
+        "reflection_call_count": 3,
+        "invalid_call_count": 0
+      },
+      "observed_model_spans": 7,
+      "observed_model_tokens": {
+        "prompt_tokens": 10285,
+        "completion_tokens": 752,
+        "total_tokens": 11037
+      },
+      "observed_tool_spans": 4,
+      "tool_names": {
+        "tool.recommend_movies": 3,
+        "tool.query_ticket_policy": 1
+      },
+      "list_tool_calls": 3,
+      "empty_list_tool_calls": 2,
+      "mean_seconds_all": 2.533398375,
+      "median_seconds_all": 1.279608,
+      "mean_seconds_queried_recommendations": 5.834880666666667,
+      "queried_recommendation_count": 3
+    }
+  },
+  "total": {
+    "request_count": 19,
+    "statuses": {
+      "completed": 18,
+      "interrupted": 1
+    },
+    "outcomes": {
+      "needs_user": 8,
+      "verifier_incomplete": 2,
+      "done_verified": 4,
+      "simple_verified": 4,
+      "unrecorded": 1
+    },
+    "routes": {
+      "direct": 8,
+      "simple": 6,
+      "react": 4,
+      "unrecorded": 1
+    },
+    "root_counters": {
+      "model_call_count": 19,
+      "tool_call_count": 13,
+      "input_tokens": 30937,
+      "output_tokens": 2176,
+      "total_tokens": 33113,
+      "failure_count": 0,
+      "reflection_call_count": 9,
+      "invalid_call_count": 0
+    },
+    "observed_model_spans": 20,
+    "observed_model_tokens": {
+      "prompt_tokens": 32875,
+      "completion_tokens": 2331,
+      "total_tokens": 35206
+    },
+    "observed_tool_spans": 13,
+    "tool_names": {
+      "tool.recommend_movies": 9,
+      "tool.search_screenings": 3,
+      "tool.query_ticket_policy": 1
+    },
+    "list_tool_calls": 12,
+    "empty_list_tool_calls": 7,
+    "mean_seconds_all": 2.8337715263157897,
+    "median_seconds_all": 2.42625,
+    "mean_seconds_queried_recommendations": 5.635120777777778,
+    "queried_recommendation_count": 9
+  },
+  "integrity": {
+    "all_spans_have_created_and_updated": true,
+    "all_spans_closed": true,
+    "unique_trace_ids": 19
+  },
+  "limitations": [
+    "local metadata-only traces",
+    "no raw questions or answers",
+    "no cloud readback",
+    "small manual sample",
+    "mixed runtime versions",
+    "cancel source unknown"
+  ]
+}

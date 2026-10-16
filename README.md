@@ -167,6 +167,7 @@ mvn test
 ## 文档导航
 
 - [当前业务流程与实现边界](docs/business-logic.md)
+- [Redis Lua 锁：座位锁和 AI 网关租约](docs/redis-lua-lock-explained.md)
 - [AI 网关、Dify 与内部 Agent 配置](docs/dify-agent-setup.md)
 - [Agent ReAct 工具循环与流程图](docs/agent-react-flow.md)
 - [Agent 轻重分流、Reflection 与硬熔断](docs/react-reflection-circuit-breaker-guide.md)
