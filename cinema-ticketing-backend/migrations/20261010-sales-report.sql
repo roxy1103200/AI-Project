@@ -11,6 +11,6 @@ CREATE TABLE IF NOT EXISTS screening_capacity_snapshot (
 ALTER TABLE refund_record ADD COLUMN refunded_at DATETIME NULL;
 UPDATE refund_record
 SET refunded_at=TIMESTAMPADD(SECOND,UNIX_TIMESTAMP(created_at),'1970-01-01 08:00:00')
-WHERE refunded_at IS NULL;
+WHERE refunded_at IS NULL AND status='REFUNDED';
 CREATE INDEX idx_payment_report_time ON payment_transaction(status,paid_at,order_id);
 CREATE INDEX idx_refund_report_time ON refund_record(status,refunded_at,order_id);

@@ -50,6 +50,21 @@ public class OrderService {
     private final JdbcTemplate jdbcTemplate;
     private final StringRedisTemplate redisTemplate;
     private final OrderMessagePublisher orderMessagePublisher;
+    private com.cinema.ticketing.payment.PaymentStore paymentStore;
+    private com.cinema.ticketing.payment.PaymentProperties paymentProperties;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configurePayments(com.cinema.ticketing.payment.PaymentStore store,
+                                  com.cinema.ticketing.payment.PaymentProperties properties) {
+        paymentStore = store;
+        paymentProperties = properties;
+    }
+
+    private void requireLegacyOrder(String orderNo) {
+        if (paymentStore != null && paymentStore.findByOrder(orderNo).isPresent()) {
+            throw new BusinessException(409, "该订单必须通过支付宝渠道处理，请刷新后重试");
+        }
+    }
 
     public OrderService(JdbcTemplate jdbcTemplate, StringRedisTemplate redisTemplate,
                         OrderMessagePublisher orderMessagePublisher) {
@@ -111,6 +126,10 @@ public class OrderService {
     @Transactional
     public OrderView pay(long userId, String owner, String orderNo, String paymentNo) {
         OrderSnapshot order = lockOrderSnapshot(userId, orderNo);
+        requireLegacyOrder(orderNo);
+        if (paymentProperties != null && !paymentProperties.isMockEnabled()) {
+            throw new BusinessException(403, "模拟支付已关闭，请使用支付宝沙箱收银台");
+        }
         if ("ISSUED".equals(order.status())) {
             String existingPaymentNo = paymentNoForOrder(order.id());
             if (paymentNo.equals(existingPaymentNo)) {
@@ -148,6 +167,7 @@ public class OrderService {
     @Transactional
     public OrderView refund(long userId, String orderNo, String reason) {
         OrderSnapshot order = lockOrderSnapshot(userId, orderNo);
+        requireLegacyOrder(orderNo);
         if ("REFUNDED".equals(order.status())) {
             return findOrder(userId, orderNo);
         }
@@ -189,7 +209,7 @@ public class OrderService {
         List<Map<String, Object>> seats = jdbcTemplate.queryForList(
                 "SELECT s.id, s.hall_id, s.row_no, s.column_no, s.seat_code, s.seat_type, s.status, "
                         + "CASE WHEN EXISTS (SELECT 1 FROM ticket_order o JOIN order_item oi ON oi.order_id = o.id "
-                        + "WHERE o.screening_id = ? AND oi.seat_id = s.id AND o.status IN ('UNPAID', 'PAID', 'ISSUED')) "
+                        + "WHERE o.screening_id = ? AND oi.seat_id = s.id AND o.status IN ('UNPAID', 'PAID', 'ISSUED', 'REFUNDING')) "
                         + "THEN 'SOLD' ELSE s.status END AS booking_status "
                         + "FROM seat s WHERE s.hall_id = ? ORDER BY s.row_no, s.column_no",
                 screeningId, screening.hallId());
@@ -274,6 +294,7 @@ public class OrderService {
         if (!"UNPAID".equals(order.get("status"))) {
             return false;
         }
+        requireLegacyOrder(orderNo);
         LocalDateTime expireAt = JdbcTimes.asLocalDateTime(order.get("expire_at"));
         // 留 CANCEL_GRACE 的余量：延迟消息的 TTL 有毫秒级抖动，可能恰好比 expire_at 早一点点落地，
         // 那是正常现象而不是错误。只有确实还差得远（重试路径上提前送达的消息）才拒绝。
@@ -295,6 +316,7 @@ public class OrderService {
     @Transactional
     public OrderView cancel(long userId, String orderNo) {
         OrderSnapshot order = lockOrderSnapshot(userId, orderNo);
+        requireLegacyOrder(orderNo);
         if ("CANCELLED".equals(order.status())) {
             return findOrder(userId, orderNo);
         }
@@ -341,7 +363,7 @@ public class OrderService {
         Integer count = jdbcTemplate.queryForObject(
                 "SELECT COUNT(*) FROM seat s WHERE s.hall_id = ? AND s.status = 'AVAILABLE' AND s.id IN (" + placeholders + ") "
                         + "AND NOT EXISTS (SELECT 1 FROM ticket_order o JOIN order_item oi ON oi.order_id = o.id "
-                        + "WHERE o.screening_id = ? AND oi.seat_id = s.id AND o.status IN ('UNPAID', 'PAID', 'ISSUED'))",
+                        + "WHERE o.screening_id = ? AND oi.seat_id = s.id AND o.status IN ('UNPAID', 'PAID', 'ISSUED', 'REFUNDING'))",
                 Integer.class, parameters.toArray());
         if (count == null || count != seatIds.size()) {
             throw new BusinessException(409, "座位不存在、已被占用或不属于当前场次");
@@ -378,7 +400,7 @@ public class OrderService {
         List<Long> occupied = jdbcTemplate.queryForList(
                 "SELECT oi.seat_id FROM order_item oi JOIN ticket_order o ON o.id = oi.order_id "
                         + "WHERE o.screening_id = ? AND oi.seat_id IN (" + placeholders + ") "
-                        + "AND o.status IN ('UNPAID', 'PAID', 'ISSUED') FOR UPDATE",
+                        + "AND o.status IN ('UNPAID', 'PAID', 'ISSUED', 'REFUNDING') FOR UPDATE",
                 Long.class, parameters.toArray());
         if (!occupied.isEmpty()) {
             throw new BusinessException(409, "所选座位已被其他订单占用，请刷新座位图");

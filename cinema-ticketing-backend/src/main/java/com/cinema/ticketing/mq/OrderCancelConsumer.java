@@ -20,6 +20,10 @@ public class OrderCancelConsumer {
 
     private final OrderService orderService;
     private final RabbitTemplate rabbitTemplate;
+    private com.cinema.ticketing.payment.PaymentService payments;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configurePayments(com.cinema.ticketing.payment.PaymentService payments) { this.payments = payments; }
 
     public OrderCancelConsumer(OrderService orderService, RabbitTemplate rabbitTemplate) {
         this.orderService = orderService;
@@ -30,7 +34,8 @@ public class OrderCancelConsumer {
     public void consume(OrderCancelMessage event, Message message, Channel channel) throws IOException {
         long deliveryTag = message.getMessageProperties().getDeliveryTag();
         try {
-            orderService.cancelIfUnpaid(event.messageId(), event.orderNo());
+            if (payments != null && payments.manages(event.orderNo())) payments.cancelOverdue(event.orderNo());
+            else orderService.cancelIfUnpaid(event.messageId(), event.orderNo());
             channel.basicAck(deliveryTag, false);
         } catch (Exception exception) {
             if (event.attempt() < MAX_ATTEMPTS - 1) {

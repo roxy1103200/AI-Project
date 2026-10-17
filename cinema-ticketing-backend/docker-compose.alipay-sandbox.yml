@@ -1,0 +1,23 @@
+# Use with docker-compose.yml only after preparing the two key files.
+services:
+  cinema-api:
+    environment:
+      PAYMENT_ENABLED: ${PAYMENT_ENABLED:-false}
+      PAYMENT_MOCK_ENABLED: "false"
+      PAYMENT_INITIALIZE_SCHEMA: ${PAYMENT_INITIALIZE_SCHEMA:-true}
+      ALIPAY_GATEWAY_URL: ${ALIPAY_GATEWAY_URL:-https://openapi-sandbox.dl.alipaydev.com/gateway.do}
+      ALIPAY_APP_ID: ${ALIPAY_APP_ID:-}
+      ALIPAY_SELLER_ID: ${ALIPAY_SELLER_ID:-}
+      ALIPAY_NOTIFY_URL: ${ALIPAY_NOTIFY_URL:-}
+      ALIPAY_RETURN_URL: ${ALIPAY_RETURN_URL:-http://localhost:5173/payment/result}
+      ALIPAY_PRIVATE_KEY_FILE: /run/secrets/alipay_private_key
+      ALIPAY_PUBLIC_KEY_FILE: /run/secrets/alipay_public_key
+    secrets:
+      - alipay_private_key
+      - alipay_public_key
+
+secrets:
+  alipay_private_key:
+    file: ${ALIPAY_PRIVATE_KEY_SOURCE:?Set ALIPAY_PRIVATE_KEY_SOURCE to an existing private key file}
+  alipay_public_key:
+    file: ${ALIPAY_PUBLIC_KEY_SOURCE:?Set ALIPAY_PUBLIC_KEY_SOURCE to the Alipay public key file}

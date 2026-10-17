@@ -96,8 +96,8 @@ export default function SalesReportAdmin({ request, token, cinemas, movies }: {
   }
 
   return <section className="content-width sales-report-admin">
-    <div className="section-heading"><div><p className="eyebrow">TICKETING REPORTS</p><h2>经营报表</h2></div><span className="report-simulation">模拟支付数据</span></div>
-    <p className="section-note">所有日期均按北京时间统计。当前支付与退款为系统模拟记录。</p>
+    <div className="section-heading"><div><p className="eyebrow">TICKETING REPORTS</p><h2>经营报表</h2></div><span className="report-simulation">非生产票务数据</span></div>
+    <p className="section-note">所有日期均按北京时间统计。汇总可包含支付宝沙箱交易与历史模拟记录；导出明细可查看每笔记录的渠道与环境。</p>
     <form className="report-filters" onSubmit={apply}>
       <label>开始日期<input type="date" required value={draft.from} onChange={(event) => setDraft({ ...draft, from: event.target.value })} /></label>
       <label>结束日期<input type="date" required value={draft.to} min={draft.from} onChange={(event) => setDraft({ ...draft, to: event.target.value })} /></label>

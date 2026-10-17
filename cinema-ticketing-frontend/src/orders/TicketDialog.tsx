@@ -3,7 +3,7 @@ import type { ApiRequest } from "../admin/movie-save";
 
 type TicketSeat = { id: number; row_no: number; column_no: number; seat_code: string; is_order_seat: boolean | number; ticket_status?: string; checked_in_at?: string | null };
 type Ticket = { orderNo: string; status: string; totalAmount: number | string; movieTitle: string; cinemaName: string; hallName: string; startTime: string; rowCount: number; columnCount: number; seats: TicketSeat[] };
-const statusLabels: Record<string, string> = { UNPAID: "待支付", PAID: "已支付", ISSUED: "已出票", REFUNDED: "已退票", CANCELLED: "已取消" };
+const statusLabels: Record<string, string> = { UNPAID: "待支付", PAID: "已支付", ISSUED: "已出票", REFUNDING: "退款处理中", REFUNDED: "已退票", CANCELLED: "已取消" };
 
 export default function TicketDialog({ orderNo, token, request, onClose }: { orderNo: string; token: string; request: ApiRequest; onClose: () => void }) {
   const [ticket, setTicket] = useState<Ticket | null>(null);
@@ -51,7 +51,7 @@ export default function TicketDialog({ orderNo, token, request, onClose }: { ord
         <div className="ticket-heading"><h3>{ticket.movieTitle}</h3><span className={`order-status status-${ticket.status.toLowerCase()}`}>{statusLabels[ticket.status] ?? ticket.status}</span></div>
         <p className="ticket-venue">{ticket.cinemaName} · {ticket.hallName}</p>
         <p className="ticket-time">{ticket.startTime.replace("T", " ").slice(0, 16)}（北京时间）</p>
-        {ticket.status !== "ISSUED" && <p className="ticket-state-note">{ticket.status === "UNPAID" ? "订单尚未支付，座位图仅展示本订单所选位置。" : ticket.status === "PAID" ? "订单已支付，正在等待出票。" : "此订单已失效，座位图仅用于查看购票记录。"}</p>}
+        {ticket.status !== "ISSUED" && <p className="ticket-state-note">{ticket.status === "REFUNDING" ? "退款正在确认，电影票暂不可使用。" : ticket.status === "UNPAID" ? "订单尚未支付，座位图仅展示本订单所选位置。" : ticket.status === "PAID" ? "订单已支付，正在等待出票。" : "此订单已失效，座位图仅用于查看购票记录。"}</p>}
         <div className="seat-legend"><span><i className="legend-seat selected" />本订单座位</span><span><i className="legend-seat available" />其他座位位置</span></div>
         <div className="screen-label">银幕方向</div>
         <div className="ticket-seat-scroll"><div className="seat-map" aria-label="电影票座位位置图" style={{ minWidth: `${columns * 32 + 38}px` }}>

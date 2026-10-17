@@ -131,8 +131,13 @@ CREATE TABLE IF NOT EXISTS payment_transaction (
     amount DECIMAL(10, 2) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'SUCCESS',
     paid_at DATETIME,
+    channel VARCHAR(16) NOT NULL DEFAULT 'MOCK',
+    environment VARCHAR(16) NOT NULL DEFAULT 'MOCK',
+    channel_trade_no VARCHAR(64),
+    payment_order_id BIGINT,
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     UNIQUE KEY uk_payment_order (order_id),
+    UNIQUE KEY uk_receipt_channel_payment (payment_order_id),
     INDEX idx_payment_report_time (status, paid_at, order_id),
     CONSTRAINT fk_payment_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
 );
@@ -156,8 +161,23 @@ CREATE TABLE IF NOT EXISTS refund_record (
     reason VARCHAR(255),
     status VARCHAR(32) NOT NULL DEFAULT 'REFUNDED',
     refunded_at DATETIME,
+    refund_no VARCHAR(64),
+    payment_order_id BIGINT,
+    channel VARCHAR(16) NOT NULL DEFAULT 'MOCK',
+    environment VARCHAR(16) NOT NULL DEFAULT 'MOCK',
+    reason_type VARCHAR(32),
+    policy_version VARCHAR(64),
+    requested_at DATETIME,
+    attempts INT NOT NULL DEFAULT 0,
+    next_check_at DATETIME,
+    lease_owner VARCHAR(64),
+    lease_until DATETIME,
+    last_error_code VARCHAR(64),
     created_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,
     INDEX idx_refund_order_created (order_id, created_at),
+    UNIQUE KEY uk_channel_refund_no (refund_no),
+    UNIQUE KEY uk_channel_refund_payment (payment_order_id),
+    INDEX idx_channel_refund_check (status,next_check_at,lease_until),
     INDEX idx_refund_report_time (status, refunded_at, order_id),
     CONSTRAINT fk_refund_order FOREIGN KEY (order_id) REFERENCES ticket_order(id)
 );
@@ -291,4 +311,55 @@ CREATE TABLE IF NOT EXISTS movie_review_moderation (
     admin_id BIGINT NOT NULL,
     created_at DATETIME NOT NULL,
     INDEX idx_review_moderation_target (target_kind, target_id, id)
+);
+
+-- Alipay sandbox payment state and notification receipts.
+CREATE TABLE IF NOT EXISTS payment_order (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    order_id BIGINT NOT NULL UNIQUE,
+    out_trade_no VARCHAR(64) NOT NULL UNIQUE,
+    channel VARCHAR(16) NOT NULL DEFAULT 'ALIPAY',
+    environment VARCHAR(16) NOT NULL,
+    app_id VARCHAR(64) NOT NULL,
+    seller_id VARCHAR(64) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'INIT',
+    channel_trade_no VARCHAR(64),
+    channel_trade_status VARCHAR(32),
+    expire_at DATETIME NOT NULL,
+    paid_at DATETIME,
+    confirmed_at DATETIME,
+    checkout_token_hash VARCHAR(64) UNIQUE,
+    checkout_expires_at DATETIME,
+    checkout_issued_at DATETIME,
+    close_requested_at DATETIME,
+    close_reason VARCHAR(32),
+    next_check_at DATETIME,
+    last_query_at DATETIME,
+    lease_owner VARCHAR(64),
+    lease_until DATETIME,
+    last_error_code VARCHAR(64),
+    created_at DATETIME NOT NULL,
+    CONSTRAINT fk_channel_payment_order FOREIGN KEY (order_id) REFERENCES ticket_order(id),
+    UNIQUE KEY uk_channel_trade (channel,environment,app_id,channel_trade_no),
+    INDEX idx_payment_check (next_check_at,lease_until)
+);
+
+CREATE TABLE IF NOT EXISTS payment_notify_event (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    app_id VARCHAR(64) NOT NULL,
+    notify_id VARCHAR(128) NOT NULL,
+    payment_order_id BIGINT NOT NULL,
+    trade_status VARCHAR(32) NOT NULL,
+    processed_at DATETIME NOT NULL,
+    UNIQUE KEY uk_alipay_notice (app_id,notify_id),
+    CONSTRAINT fk_payment_notice FOREIGN KEY (payment_order_id) REFERENCES payment_order(id)
+);
+
+CREATE TABLE IF NOT EXISTS payment_operation_log (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    action VARCHAR(32) NOT NULL,
+    actor_user_id BIGINT NOT NULL,
+    refund_id BIGINT NOT NULL,
+    created_at DATETIME NOT NULL
 );

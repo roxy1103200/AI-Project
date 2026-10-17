@@ -6,6 +6,7 @@ export const ADMIN_PAGES = [
   { id: "seats", label: "座位管理", group: "影院运营" },
   { id: "ticket-check-in", label: "验票入场", group: "票务服务" },
   { id: "refund-policy", label: "退票规则", group: "票务服务" },
+  { id: "payments", label: "支付与退款核对", group: "票务服务" },
   { id: "movie-reviews", label: "影评管理", group: "账户与服务" },
   { id: "ai-feedback", label: "AI 反馈", group: "账户与服务" },
   { id: "accounts", label: "账户安全", group: "账户与服务" },

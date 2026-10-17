@@ -25,6 +25,10 @@ public class OrderController {
 
     private final AuthService authService;
     private final OrderService orderService;
+    private com.cinema.ticketing.payment.PaymentService payments;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configurePayments(com.cinema.ticketing.payment.PaymentService payments) { this.payments = payments; }
 
     public OrderController(AuthService authService, OrderService orderService) {
         this.authService = authService;
@@ -67,14 +71,24 @@ public class OrderController {
             @PathVariable String orderNo,
             @RequestBody(required = false) RefundRequest request) {
         String reason = request == null ? null : request.reason();
-        return ApiResponse.success(orderService.refund(authService.requireUserId(token), orderNo, reason));
+        long userId = authService.requireUserId(token);
+        if (payments != null && payments.manages(orderNo)) {
+            payments.refund(userId, orderNo, reason);
+            return ApiResponse.success(orderService.findOrder(userId, orderNo));
+        }
+        return ApiResponse.success(orderService.refund(userId, orderNo, reason));
     }
 
     @PostMapping("/orders/{orderNo}/cancel")
     public ApiResponse<OrderView> cancel(
             @RequestHeader("X-Auth-Token") String token,
             @PathVariable String orderNo) {
-        return ApiResponse.success(orderService.cancel(authService.requireUserId(token), orderNo));
+        long userId = authService.requireUserId(token);
+        if (payments != null && payments.manages(orderNo)) {
+            payments.cancel(userId, orderNo);
+            return ApiResponse.success(orderService.findOrder(userId, orderNo));
+        }
+        return ApiResponse.success(orderService.cancel(userId, orderNo));
     }
 
     @GetMapping("/orders/{orderNo}")

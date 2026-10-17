@@ -11,6 +11,8 @@ import MovieDetailDialog from "./home/MovieDetailDialog";
 import CinemaAssistant from "./chat/CinemaAssistant";
 import { useScopedRequest } from "./auth/client";
 import { useTabSession, type StoredSession } from "./auth/useTabSession";
+import { openPayment } from "./payments/payment";
+import PaymentResult from "./payments/PaymentResult";
 
 const AdminWorkspace = lazy(() => import("./admin/AdminWorkspace"));
 
@@ -68,6 +70,9 @@ type OrderSummary = {
   received_at?: number;
   total_amount: number | string;
   status: string;
+  payment_status?: string;
+  refund_status?: string;
+  refund_reason_type?: string;
   expire_at?: string;
   paid_at?: string;
   created_at?: string;
@@ -122,7 +127,7 @@ function amount(value: number | string): string {
 
 function orderStatusLabel(status: string): string {
   const labels: Record<string, string> = {
-    UNPAID: "待支付", PAID: "支付处理中", ISSUED: "已出票", REFUNDED: "已退票", CANCELLED: "已取消",
+    UNPAID: "待支付", PAID: "支付处理中", ISSUED: "已出票", REFUNDING: "退款处理中", REFUNDED: "已退票", CANCELLED: "已取消",
   };
   return labels[status] ?? status;
 }
@@ -169,7 +174,7 @@ function App() {
     {auth.error && <button className="secondary-button" type="button" onClick={auth.retry}>重新核验</button>}
   </section></main>;
   return <>{securityNotice && <p className="security-notice" role="status">{securityNotice}</p>}
-    {isAdminPath(path) ? canOpenAdmin(auth.session?.role) && auth.session ?
+    {path === "/payment/result" ? <PaymentResult key={auth.session?.token ?? "guest"} session={auth.session} signIn={signIn} navigate={navigate} /> : isAdminPath(path) ? canOpenAdmin(auth.session?.role) && auth.session ?
       <Suspense fallback={<main className="admin-access"><p role="status">正在加载管理后台…</p></main>}><AdminWorkspace key={auth.session.token} session={auth.session} view={adminView(path)} navigate={navigate} signOut={auth.signOut} securityRevoked={securityRevoked} /></Suspense>
       : <AdminAccess key={auth.session?.token ?? "guest"} session={auth.session} signIn={signIn} signOut={auth.signOut} navigate={navigate} />
       : <CinemaWorkspace key={auth.session?.token ?? "guest"} session={auth.session} signIn={signIn} signOut={auth.signOut} securityRevoked={securityRevoked} openManagement={() => navigate("/admin/accounts")} />}
@@ -507,14 +512,8 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
     setIsBookingAction(true);
     setBookingMessage("");
     try {
-      const result = await apiRequest<OrderView>(`/api/orders/${activeOrder.orderNo}/pay`, {
-        method: "POST",
-        // 当前工程没有接入真实支付渠道；使用固定演示流水号确保重复提交具备幂等性。
-        body: JSON.stringify({ paymentNo: `DEMO-${activeOrder.orderNo}` }),
-      }, session.token);
-      setActiveOrder(result);
-      setOrderDetails((current) => ({ ...current, [result.orderNo]: result }));
-      setBookingMessage("支付成功，电子票已出票");
+      await openPayment(activeOrder.orderNo, session.token, apiRequest);
+      setBookingMessage("正在打开支付页面…");
       setBookingFailed(false);
       await refreshOrders(session.token);
     } catch (error) {
@@ -532,7 +531,7 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
       const result = await apiRequest<OrderView>(`/api/orders/${activeOrder.orderNo}/cancel`, { method: "POST" }, session.token);
       setActiveOrder(result);
       setOrderDetails((current) => ({ ...current, [result.orderNo]: result }));
-      setBookingMessage("订单已取消，座位已释放");
+      setBookingMessage(result.status === "CANCELLED" ? "订单已取消，座位已释放" : "正在确认渠道关单，请稍后刷新订单");
       setBookingFailed(false);
       await refreshOrders(session.token);
     } catch (error) {
@@ -563,17 +562,17 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
     setActiveOrderAction(orderNo);
     setOrdersMessage("");
     try {
+      if (action === "pay") { await openPayment(orderNo, session.token, apiRequest); return; }
       const path = `/api/orders/${orderNo}/${action}`;
       const init: RequestInit = action === "cancel"
         ? { method: "POST" }
-        : { method: "POST", body: JSON.stringify(action === "pay"
-          ? { paymentNo: `DEMO-${orderNo}` } : { reason: "用户申请退票" }) };
+        : { method: "POST", body: JSON.stringify({ reason: "用户申请退票" }) };
       const detail = await apiRequest<OrderView>(path, init, session.token);
       setOrderDetails((current) => ({ ...current, [orderNo]: detail }));
       setActiveOrder((current) => current?.orderNo === orderNo ? detail : current);
       await refreshOrders(session.token);
-      setOrdersMessage(action === "cancel" ? "待支付订单已取消，座位已释放"
-        : action === "pay" ? "支付成功，电子票已出票" : "退票已完成");
+      setOrdersMessage(action === "cancel" ? detail.status === "CANCELLED" ? "订单已取消，座位已释放" : "正在确认渠道关单，请稍后刷新"
+        : detail.status === "REFUNDED" ? "退票已完成" : "退款已受理，确认成功前电影票暂不可使用，请稍后刷新");
     } catch (error) {
       setOrdersMessage(error instanceof Error ? error.message : "操作失败，请刷新后重试");
     } finally {
@@ -700,7 +699,7 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
                   <article className="order-card" key={order.order_no}>
                     <div className="order-card-main">
                       <div className="order-card-title">
-                        <span className={`order-status status-${order.status.toLowerCase()}`}>{orderStatusLabel(order.status)}</span>
+                        <span className={`order-status status-${order.status.toLowerCase()}`}>{order.payment_status === "CLOSING" ? "关单处理中" : orderStatusLabel(order.status)}</span>
                         <h3>{order.movie_title ?? movie?.title ?? `场次 ${order.screening_id}`}</h3>
                         <p>{order.start_time
                           ? `${formatDateTime(order.start_time)} · ${order.cinema_name ?? ""} · ${order.hall_name ?? ""}`
@@ -720,8 +719,11 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
                             : <span>{detail ? "暂无座位明细" : "正在读取座位明细…"}</span>}
                         </div>
                         <div className="order-card-actions">
-                          {order.status === "UNPAID" && <button type="button" disabled={activeOrderAction !== null} onClick={() => void runOrderAction(order.order_no, "pay")}>继续支付</button>}
-                          {order.status === "UNPAID" && <button type="button" disabled={activeOrderAction === order.order_no} onClick={() => void runOrderAction(order.order_no, "cancel")}>取消订单</button>}
+                          {order.status === "UNPAID" && order.payment_status !== "CLOSING" && <button type="button" disabled={activeOrderAction !== null} onClick={() => void runOrderAction(order.order_no, "pay")}>继续支付</button>}
+                          {order.status === "UNPAID" && order.payment_status !== "CLOSING" && <button type="button" disabled={activeOrderAction === order.order_no} onClick={() => void runOrderAction(order.order_no, "cancel")}>取消订单</button>}
+                          {order.payment_status === "CLOSING" && <span className="refund-note">正在核对渠道交易，确认关单后释放座位。</span>}
+                          {order.status === "REFUNDING" && <span className="refund-note">退款确认中，电影票暂不可使用。</span>}
+                          {order.refund_reason_type === "LATE_PAYMENT" && <span className="refund-note">{order.refund_status === "REFUNDED" ? "未完成出票的款项已原路退回。" : "未完成出票的款项正在原路退回。"}</span>}
                           {order.status === "ISSUED" && <RefundControl deadline={order.refund_deadline} canRefund={order.can_refund} reason={order.refund_reason} serverTime={order.server_time} receivedAt={order.received_at} busy={activeOrderAction !== null} onRefund={() => void runOrderAction(order.order_no, "refund")} />}
                           {activeOrderAction === order.order_no && <span>处理中…</span>}
                         </div>
@@ -767,7 +769,7 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
                 {activeOrder.expireAt && activeOrder.status === "UNPAID" && <p className="checkout-hint">请在 {formatDateTime(activeOrder.expireAt)} 前完成支付，超时订单会自动取消。</p>}
                 {activeOrder.status === "UNPAID" && (
                   <div className="checkout-actions">
-                    <button className="primary-button" type="button" disabled={isBookingAction} onClick={() => void payActiveOrder()}>{isBookingAction ? "处理中…" : "模拟支付并出票"}</button>
+                    <button className="primary-button" type="button" disabled={isBookingAction} onClick={() => void payActiveOrder()}>{isBookingAction ? "处理中…" : "前往支付"}</button>
                     <button className="secondary-button" type="button" disabled={isBookingAction} onClick={() => void cancelActiveOrder()}>取消订单</button>
                   </div>
                 )}

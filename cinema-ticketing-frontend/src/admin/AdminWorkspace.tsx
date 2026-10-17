@@ -12,6 +12,7 @@ import TicketCheckInAdmin from "./TicketCheckInAdmin";
 import SalesReportAdmin from "./SalesReportAdmin";
 import AiFeedbackAdmin from "./AiFeedbackAdmin";
 import RefundPolicyAdmin from "./RefundPolicyAdmin";
+import PaymentAdmin from "./PaymentAdmin";
 import type { AdminView } from "./routes";
 
 type Cinema = { id: number; name: string; address: string; phone?: string | null; status?: string | null };
@@ -74,6 +75,7 @@ export default function AdminWorkspace({ session, view, navigate, signOut, secur
     case "sales-reports": content = <>{(movieError || cinemaError) && <p className="admin-module-error" role="alert">{movieError || cinemaError}</p>}<SalesReportAdmin request={request} token={token} cinemas={cinemas} movies={movies} /></>; break;
     case "ai-feedback": content = <AiFeedbackAdmin request={request} token={token} />; break;
     case "refund-policy": content = <RefundPolicyAdmin request={request} token={token} />; break;
+    case "payments": content = <PaymentAdmin request={request} token={token} />; break;
     default: content = <section className="admin-not-found"><h1>管理页面不存在</h1><p>请从左侧选择一个管理模块。</p><button className="secondary-button" type="button" onClick={() => navigate("/admin/accounts")}>前往账户安全</button></section>;
   }
   return <AdminLayout view={view} username={session.username} navigate={navigate} signOut={signOut} openSecurity={() => setSecurityOpen(true)}>

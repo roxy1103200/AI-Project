@@ -28,7 +28,7 @@ public class ReportExportService {
             throw new BusinessException(400, "明细超过 50000 条，请缩小日期范围或筛选影院/影片");
         }
         StringBuilder csv = new StringBuilder("\ufeff");
-        line(csv, "数据模式", "事件类型", "统计日", "事件时间（北京时间）", "记录ID", "订单号", "支付流水号",
+        line(csv, "渠道与环境", "事件类型", "统计日", "事件时间（北京时间）", "记录ID", "订单号", "支付流水号",
                 "影院", "影片", "影厅", "场次ID", "放映时间（北京时间）", "已支付金额", "退款金额", "毛售出票数", "订单票项数", "订单状态", "记录状态");
         appendEvents(csv, filter, true);
         appendEvents(csv, filter, false);
@@ -41,7 +41,7 @@ public class ReportExportService {
         line(csv, "数据模式", "日期口径", "放映日", "场次ID", "开场时间（北京时间）", "影院", "影片", "影厅",
                 "有效票数", "可售座位数", "容量来源", "上座率（比例）");
         for (var row : report.items()) {
-            line(csv, "模拟支付数据", "放映日", row.date(), row.screeningId(), row.startTime(), row.cinemaName(),
+            line(csv, "非生产票务数据（沙箱/历史模拟）", "放映日", row.date(), row.screeningId(), row.startTime(), row.cinemaName(),
                     row.movieTitle(), row.hallName(), row.effectiveTicketCount(), row.sellableSeatCount(),
                     row.capacitySource().equals("UNKNOWN") ? "历史容量未知" : "首次锁座快照",
                     row.occupancyRate());
@@ -56,7 +56,7 @@ public class ReportExportService {
 
     private void appendEvents(StringBuilder csv, ReportFilter filter, boolean payment) {
         String time = payment ? "e.paid_at" : "e.refunded_at";
-        String sql = "SELECT e.id,e.amount,e.status event_status," + time + " event_time,"
+        String sql = "SELECT e.id,e.amount,e.channel,e.environment,e.status event_status," + time + " event_time,"
                 + "o.order_no,o.status order_status,s.id screening_id,s.start_time,c.name cinema_name,"
                 + "m.title movie_title,h.name hall_name,"
                 + (payment ? "e.payment_no" : "(SELECT p.payment_no FROM payment_transaction p WHERE p.order_id=o.id)")
@@ -69,7 +69,7 @@ public class ReportExportService {
             List<Map<String, Object>> rows = jdbc.queryForList(sql, parameters.toArray());
             for (var row : rows) {
                 String eventTime = row.get("event_time").toString();
-                line(csv, "模拟支付数据", payment ? "支付日" : "退款处理日", eventTime.substring(0, 10), eventTime,
+                line(csv, row.get("channel") + "/" + row.get("environment"), payment ? "支付日" : "退款处理日", eventTime.substring(0, 10), eventTime,
                         row.get("id"), row.get("order_no"), row.get("payment_no"), row.get("cinema_name"),
                         row.get("movie_title"), row.get("hall_name"), row.get("screening_id"), row.get("start_time"),
                         payment ? row.get("amount") : "0.00", payment ? "0.00" : row.get("amount"),

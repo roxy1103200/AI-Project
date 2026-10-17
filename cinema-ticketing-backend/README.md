@@ -1,14 +1,14 @@
 # 影院售票系统
 
-一个包含观众购票、影院管理和 AI 助手的全栈项目。观众可以浏览影片与场次、选座锁座、创建订单、模拟支付、查看影票、取消或申请退票，并在符合购票条件后评价影片；管理员可以维护影片、影院、影厅和排期，并处理影评与 AI 回答反馈。
+一个包含观众购票、影院管理和 AI 助手的全栈项目。观众可以浏览影片与场次、选座锁座、创建订单、通过已配置的支付宝沙箱支付、查看影票、取消或申请退票，并在符合购票条件后评价影片；管理员可以维护影片、影院、影厅和排期，并处理影评与 AI 回答反馈。
 
-项目由 React 前端、Spring Boot 业务服务、FastAPI AI 服务和独立 AI 网关组成。主要技术包括 Java 21、Spring Boot、MyBatis、MySQL、Redis、RabbitMQ、LangChain、LangGraph、Dify、Docker Compose 和 Nginx。当前支付与退款是系统内的业务流程演示，没有连接真实支付渠道。
+项目由 React 前端、Spring Boot 业务服务、FastAPI AI 服务和独立 AI 网关组成。主要技术包括 Java 21、Spring Boot、MyBatis、MySQL、Redis、RabbitMQ、LangChain、LangGraph、Dify、Docker Compose 和 Nginx。支付宝沙箱代码已接入，默认关闭，待配置后联调；不支持生产真实资金交易。
 
 ## 核心业务流程
 
 1. 管理员维护影片、售票周期、影院影厅及放映场次；系统根据售票周期、场次时间和影院/影厅状态判断场次是否可订。
 2. 观众选择场次和座位。服务端使用 Redis Lua 原子锁定座位，锁定有效期为 5 分钟；锁座后创建待支付订单。
-3. 订单通过模拟支付后完成出票。观众可以查看本人订单、影票与座位；未支付订单可以主动取消，也会在超时后自动取消并释放座位。
+3. 订单经支付宝通知或主动查询确认收款后出票。未支付订单可以主动取消，超时后也会触发关单；有渠道交易的订单需确认关闭后才释放座位。历史模拟支付仅在显式启用 MOCK 时可用。
 4. 已出票订单按当前退票政策校验退票资格。观众完成观影或验票后，可以提交影片评价；评价审核通过后进入公开评分统计。
 5. AI 助手处理影片、场次和票务规则咨询。需要本人订单等实时数据时，用户可以主动转接内部 Agent 查询。
 
@@ -61,6 +61,12 @@ Windows 本地开发可在停止旧服务后运行 `powershell -File .\start-loc
 
 基础设施账号仅用于本地开发，生产环境必须通过环境变量替换。
 
+## 支付宝沙箱
+
+已加入收银台、支付通知、渠道查询、超时关单、原路退款和后台补偿。默认关闭支付，先填写 `.env.alipay-sandbox.example` 对应环境变量；密钥从外部文件读取。历史模拟支付接口也默认关闭。
+
+接入、数据库升级和待执行的联调步骤见 [沙箱配置说明](../docs/alipay-sandbox-setup.md)，管理核对入口为 `/admin/payments`。
+
 ## 第二阶段接口
 
 通用资源接口支持 `users`、`movies`、`cinemas`、`halls`、`seats`、`screenings`：
@@ -90,7 +96,7 @@ Windows 本地开发可在停止旧服务后运行 `powershell -File .\start-loc
 - `GET /api/screenings/{screeningId}/seats`：查询场次座位和实时占用状态
 - `POST /api/orders/lock-seats`：使用 Redis Lua 脚本原子锁座，锁定时间为 5 分钟
 - `POST /api/orders`：每单最多 6 个座位，创建 5 分钟有效的待支付订单，`requestId` 用于请求幂等
-- `POST /api/orders/{orderNo}/pay`：模拟支付并完成出票，订单按 `UNPAID -> PAID -> ISSUED` 流转
+- `POST /api/orders/{orderNo}/pay`：显式启用 MOCK 时才允许的历史模拟支付；沙箱订单使用 `/api/orders/{orderNo}/payment`
 - `POST /api/orders/{orderNo}/cancel`：用户主动取消待支付订单并释放座位
 - `GET /api/orders/{orderNo}`：查询当前登录用户的订单详情
 - `GET /api/orders`：查询当前用户的订单列表

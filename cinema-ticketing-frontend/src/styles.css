@@ -152,6 +152,7 @@ h2 { margin-bottom: 0; font-size: clamp(30px, 4vw, 48px); letter-spacing: -.06em
 .status-unpaid { border-color: rgb(236 190 82 / .35); color: #ecc45b; }
 .status-issued { border-color: rgb(125 211 160 / .3); color: #7dd3a0; }
 .status-refunded, .status-cancelled { color: #9298a0; }
+.status-refunding { color: #e7bd79; border-color: #806948; }
 .order-card-side { display: grid; flex-shrink: 0; gap: 8px; justify-items: end; }
 .order-card-side strong { color: #f5f3ef; font-size: 18px; }
 .order-card-side span { color: #727981; font-size: 10px; }

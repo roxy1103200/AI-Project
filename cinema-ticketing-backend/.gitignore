@@ -6,3 +6,9 @@ data/
 
 # 本地环境配置（指向哪台中间件服务器），每台机器不一样，不进仓库
 src/main/resources/application-local.yml
+
+# Payment credentials stay outside source control.
+.env.alipay-sandbox
+secrets/
+*.pem
+*.key

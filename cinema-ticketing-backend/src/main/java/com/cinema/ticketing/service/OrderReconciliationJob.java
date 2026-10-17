@@ -17,12 +17,8 @@ import java.util.List;
  * 发布与 ack 之间宕机也会丢消息。一旦丢了，订单就永远停在 {@code UNPAID}、座位锁也不释放，
  * 而且没有任何人会知道。
  *
- * <p>所以这里不依赖任何中间件，直接按 {@code expire_at} 扫库取消。正常情况下扫不到东西
- * （消息总会先一步到达），扫到就说明上游丢消息了，用 WARN 记一笔。
- *
- * <p>已知边界：没有做多实例互斥。多副本部署时几个实例会同时扫到同一批订单，靠
- * {@code UPDATE ... WHERE status = 'UNPAID'} 的行锁保证只有一方真正取消，结果正确但日志会重复。
- * 真要多副本，应该把这条查询换成 {@code FOR UPDATE SKIP LOCKED}。
+ * <p>按 {@code expire_at} 扫描；支付宝订单先核对/关闭渠道交易再取消，渠道未确认时保留占位。
+ * 模拟订单沿用本地幂等取消。支付宝查询通过支付单租约协调多实例。
  */
 @Component
 public class OrderReconciliationJob {
@@ -34,6 +30,10 @@ public class OrderReconciliationJob {
 
     private final JdbcTemplate jdbcTemplate;
     private final OrderService orderService;
+    private com.cinema.ticketing.payment.PaymentService payments;
+
+    @org.springframework.beans.factory.annotation.Autowired
+    public void configurePayments(com.cinema.ticketing.payment.PaymentService payments) { this.payments = payments; }
 
     public OrderReconciliationJob(JdbcTemplate jdbcTemplate, OrderService orderService) {
         this.jdbcTemplate = jdbcTemplate;
@@ -53,7 +53,8 @@ public class OrderReconciliationJob {
         int skipped = 0;
         for (String orderNo : orderNos) {
             try {
-                if (orderService.cancelOverdueOrder(orderNo)) {
+                if (payments != null && payments.manages(orderNo) ? payments.cancelOverdue(orderNo)
+                        : orderService.cancelOverdueOrder(orderNo)) {
                     cancelled++;
                 } else {
                     skipped++;
@@ -63,8 +64,7 @@ public class OrderReconciliationJob {
                 log.error("对账取消失败: {}", orderNo, exception);
             }
         }
-        // 扫到东西本身就是异常信号：说明延迟消息没送到。
-        log.warn("对账兜底：扫描到 {} 笔已过期仍未支付的订单，实际取消 {} 笔，跳过 {} 笔（跳过=已被其他路径处理）",
+        log.info("到期订单对账：扫描 {} 笔，已取消 {} 笔，待渠道确认或已处理 {} 笔",
                 orderNos.size(), cancelled, skipped);
     }
 }

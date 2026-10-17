@@ -13,7 +13,7 @@ public final class ReportViews {
     public record Metadata(LocalDate from, LocalDate to, String timeZone, String dataMode,
             String currency, LocalDateTime generatedAt, Map<String, String> dateBasis) {
         public static Metadata of(ReportFilter filter, Map<String, String> basis) {
-            return new Metadata(filter.from(), filter.to(), "Asia/Shanghai", "SIMULATED", "CNY",
+            return new Metadata(filter.from(), filter.to(), "Asia/Shanghai", "NON_PRODUCTION", "CNY",
                     LocalDateTime.now(ReportFilter.ZONE), basis);
         }
     }

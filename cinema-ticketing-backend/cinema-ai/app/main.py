@@ -521,7 +521,14 @@ def _business_answer(state: AgentState) -> str:
         # 为 `order` 保存当前步骤所需的值。
         order = data.get("order", {}) if intent == "refund" else data
         # 为 `status` 保存当前步骤所需的值。
-        status = {"UNPAID": "待支付", "PAID": "已支付", "ISSUED": "已出票", "CANCELLED": "已取消", "REFUNDED": "已退款"}
+        status = {
+            "UNPAID": "待支付",
+            "PAID": "已支付",
+            "ISSUED": "已出票",
+            "REFUNDING": "退款处理中，电影票暂不可使用",
+            "CANCELLED": "已取消",
+            "REFUNDED": "已退款",
+        }
         # 将当前计算结果返回给调用方。
         return (
             f"订单：{order.get('order_no') or state.get('entities', {}).get('order_no', '')}\n影片：{order.get('movie_title', '')}\n"

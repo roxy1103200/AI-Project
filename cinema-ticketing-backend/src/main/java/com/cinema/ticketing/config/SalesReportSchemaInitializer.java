@@ -17,7 +17,7 @@ import java.sql.SQLException;
 @ConditionalOnProperty(name = "reports.initialize-schema", havingValue = "true", matchIfMissing = true)
 public class SalesReportSchemaInitializer implements ApplicationRunner {
     public static final String NORMALIZE_REFUND_TIME_SQL = "UPDATE refund_record SET refunded_at=TIMESTAMPADD(SECOND,UNIX_TIMESTAMP(created_at),"
-            + "'1970-01-01 08:00:00') WHERE refunded_at IS NULL";
+            + "'1970-01-01 08:00:00') WHERE refunded_at IS NULL AND status='REFUNDED'";
     private final DataSource source;
     public SalesReportSchemaInitializer(DataSource source) { this.source = source; }
 

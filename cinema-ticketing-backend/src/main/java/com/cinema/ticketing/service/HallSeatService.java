@@ -166,7 +166,7 @@ public class HallSeatService {
         List<Object> arguments=new ArrayList<>(ids);
         String sql=structural ? "SELECT COUNT(*) FROM order_item WHERE seat_id IN ("+placeholders+")"
                 : "SELECT COUNT(*) FROM order_item oi JOIN ticket_order o ON o.id=oi.order_id JOIN screening s ON s.id=o.screening_id "
-                + "WHERE oi.seat_id IN ("+placeholders+") AND o.status IN ('UNPAID','PAID','ISSUED') AND s.end_time>?";
+                + "WHERE oi.seat_id IN ("+placeholders+") AND o.status IN ('UNPAID','PAID','ISSUED','REFUNDING') AND s.end_time>?";
         if(!structural) arguments.add(LocalDateTime.now());
         if(count(sql,arguments.toArray())>0) throw new BusinessException(409,structural?"已有订单记录的座位不能移动、重命名或删除":"部分座位有未结束场次的有效订单，暂不能修改");
         var screenings=jdbc.queryForList("SELECT id FROM screening WHERE hall_id=? AND status='SCHEDULED' AND end_time>? LIMIT 501",Long.class,hallId,LocalDateTime.now());
