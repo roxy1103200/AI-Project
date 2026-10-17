@@ -124,6 +124,9 @@ class CinemaMcpTests(unittest.IsolatedAsyncioTestCase):
             return httpx.Response(
                 200,
                 json={
+                    "contract_version": "cinema-order-v2", "payment_status": "SUCCESS", "refund_status": None,
+                    "refund_reason_type": None, "can_refund": True, "refund_reason": "符合退票条件",
+                    "server_time": "2026-10-08T12:00:00",
                     "order_no": path.rsplit("/", 1)[1],
                     "user_id": int(request.url.params["userId"]),
                     "status": "ISSUED",

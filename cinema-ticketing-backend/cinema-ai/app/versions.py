@@ -13,6 +13,12 @@ EXPERIMENT_ID = "glm-l1-v1"
 PROMPT_VERSION = "cinema-p1"
 RULES_VERSION = "cost-r1"
 RULE_FILES = (
+    "main.py",
+    "mcp_server.py",
+    "mcp_client.py",
+    "java_client.py",
+    "order_answers.py",
+    "runtime_info.py",
     "time_normalization.py",
     "intent.py",
     "intent_routing.py",

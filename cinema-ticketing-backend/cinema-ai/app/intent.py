@@ -26,7 +26,7 @@ from app.glm_router import classify, eligible
 from app.versions import load_prompt
 from app.time_normalization import (
     EXPRESSION, TIME_FILTERS, TemporalContext, apply_time_filters, normalize_times,
-    TimeTarget, clarify_time_target, temporal_clarification, temporal_summary, time_target_choice,
+    TimeTarget, clarify_time_target, temporal_clarification, temporal_summary, time_target_choice, is_time_followup,
 )
 # isort: on
 
@@ -433,7 +433,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
     # 为 `screening_reply` 保存当前步骤所需的值。
     prior = None
     target_choice = time_target_choice(question, history)
-    temporal_reply = EXPRESSION.fullmatch(question.strip(" ？?！!。").removeprefix("那").removesuffix("呢")) is not None
+    temporal_reply = is_time_followup(question)
     screening_reply = SCREENING_PATTERN.fullmatch(question.strip())
     # 为 `page_reply` 保存当前步骤所需的值。
     page_reply = bool(re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()))
@@ -680,7 +680,7 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         # 为 `plan.confidence` 保存当前步骤所需的值。
         plan.confidence = max(plan.confidence, rules.confidence)
     # 检查 `if general_listing(question) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip())`，据此选择当前处理分支。
-    time_followup = bool(history) and EXPRESSION.fullmatch(question.strip(" ？?！!。").removeprefix("那").removesuffix("呢")) is not None
+    time_followup = bool(history) and is_time_followup(question)
     if general_listing(question) and not time_followup and not time_target_choice(question, history) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()):
         # 为 `plan.movie_query` 保存当前步骤所需的值。
         plan.movie_query = ""
@@ -714,6 +714,9 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
     # 检查 `if fixed_lookup and plan.preference and plan.preference not in normalize_question(user_text)`，据此选择当前处理分支。
     if fixed_lookup and plan.preference and plan.preference not in normalize_question(user_text):
         # 为 `plan.preference` 保存当前步骤所需的值。
+        plan.preference = rules.preference
+    if plan.intent == "recommend" and rules.preference:
+        # Explicit genre is a separate slot; a model may not replace it with a date phrase.
         plan.preference = rules.preference
     # Identifiers are extracted from user text, independently of model completeness.
     # 为 `plan.order_nos` 保存当前步骤所需的值。

@@ -53,6 +53,8 @@ from app.reranker import DashScopeReranker
 from app.task_progress import progress
 # 导入当前步骤使用的模块或类型。
 from app.tracing import AgentTracing
+from app.order_answers import order_answer
+from app.runtime_info import RequestContextMiddleware, evidence, runtime_info
 # isort: on
 
 # 为 `INTERNAL_API_TOKEN` 保存当前步骤所需的值。
@@ -447,6 +449,7 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
 
 # 为 `app` 保存当前步骤所需的值。
 app = FastAPI(title="Cinema AI Assistant", version="0.2.0", lifespan=lifespan)
+app.add_middleware(RequestContextMiddleware)
 
 
 # 声明当前处理单元及其入口。
@@ -465,6 +468,16 @@ async def health() -> dict[str, Any]:
     """Return AI service health status."""
     # 将当前计算结果返回给调用方。
     return {"status": "UP", "tracing": assistant.tracing.status()}
+
+
+@app.get("/internal/runtime", dependencies=[Depends(verify_internal_token)])
+async def runtime() -> dict[str, Any]:
+    return runtime_info()
+
+
+@app.get("/internal/regression/{request_id}", dependencies=[Depends(verify_internal_token)])
+async def request_evidence(request_id: str) -> dict[str, Any]:
+    return evidence(request_id)
 
 
 # 为紧随其后的函数或类设置装饰行为。
@@ -518,26 +531,8 @@ def _business_answer(state: AgentState) -> str:
         return _seat_answer(data)
     # 检查 `if intent in ("order", "refund")`，据此选择当前处理分支。
     if intent in ("order", "refund"):
-        # 为 `order` 保存当前步骤所需的值。
         order = data.get("order", {}) if intent == "refund" else data
-        # 为 `status` 保存当前步骤所需的值。
-        status = {
-            "UNPAID": "待支付",
-            "PAID": "已支付",
-            "ISSUED": "已出票",
-            "REFUNDING": "退款处理中，电影票暂不可使用",
-            "CANCELLED": "已取消",
-            "REFUNDED": "已退款",
-        }
-        # 将当前计算结果返回给调用方。
-        return (
-            f"订单：{order.get('order_no') or state.get('entities', {}).get('order_no', '')}\n影片：{order.get('movie_title', '')}\n"
-            f"状态：{status.get(order.get('status'), order.get('status', '未知'))}\n"
-            f"开场：{order.get('start_time', '')}（北京时间）\n金额：¥{order.get('total_amount', '')}\n"
-            f"座位：{'、'.join(item.get('seat_code', '') for item in order.get('items', []))}\n"
-            f"退票：{order.get('refund_reason', '请在订单页面查看当前可退状态')}\n"
-            "如需操作，请前往我的订单。"
-        )
+        return order_answer(order)
     # 检查 `if intent == "movies"`，据此选择当前处理分支。
     if intent == "movies":
         # 将当前计算结果返回给调用方。

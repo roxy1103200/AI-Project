@@ -17,6 +17,7 @@ from mcp.client.streamable_http import streamable_http_client
 
 # 导入当前步骤使用的模块或类型。
 from app.failures import CinemaQueryError
+from app.runtime_info import REQUEST_ID, observe
 # isort: on
 
 # 为 `QUERY_TOOLS` 保存当前步骤所需的值。
@@ -54,7 +55,7 @@ class CinemaMcpClient:
             # 进入对应的循环、异常处理或资源管理分支。
             async with httpx.AsyncClient(
                 # 为 `headers` 保存当前步骤所需的值。
-                headers={"X-Internal-Token": self.token, "X-AI-User-ID": str(user_id)},
+                headers={"X-Internal-Token": self.token, "X-AI-User-ID": str(user_id), "X-Trace-Id": REQUEST_ID.get()},
                 # 为 `timeout` 保存当前步骤所需的值。
                 timeout=15.0,
                 # 为 `trust_env` 保存当前步骤所需的值。
@@ -73,6 +74,9 @@ class CinemaMcpClient:
                         result = await session.call_tool(name, arguments)
         # 为 `payload` 保存当前步骤所需的值。
         payload = result.structuredContent
+        observe("mcp", tool=name, arguments=arguments,
+                facts={key: payload.get("data", {}).get(key) for key in ("status", "payment_status", "refund_status", "refund_reason_type", "can_refund")}
+                if isinstance(payload, dict) and isinstance(payload.get("data"), dict) else {})
         # 检查 `if not isinstance(payload, dict)`，据此选择当前处理分支。
         if not isinstance(payload, dict):
             # 抛出当前异常，交由上层错误处理流程处理。

@@ -10,6 +10,7 @@ from typing import Any, Literal
 import httpx
 from fastapi import HTTPException
 from redis.asyncio import Redis
+from redis.exceptions import RedisError
 
 from app.config import INTERNAL_TOKEN, JAVA_API_URL, MAX_STREAMS, REDIS_PREFIX, REDIS_URL
 from app.feedback import MAX_SNAPSHOTS, SNAPSHOT_TTL, Snapshot
@@ -417,7 +418,7 @@ class ConversationStore:
             "truncated": record.truncated,
         }
         # Check the lease and conversation inside Lua so an expired worker cannot append to a replaced chat.
-        await self.redis.eval(
+        saved = await self.redis.eval(
             """
             if redis.call('GET',KEYS[1])~=ARGV[1] or redis.call('EXISTS',KEYS[2])==0 then return 0 end
             redis.call('RPUSH',KEYS[3],ARGV[2],ARGV[3]); redis.call('LTRIM',KEYS[3],-40,-1)
@@ -432,6 +433,8 @@ class ConversationStore:
             json.dumps(assistant, ensure_ascii=False),
             session.ttl,
         )
+        if saved != 1:
+            raise RedisError("Conversation lease expired before history could be saved")
 
     async def history(self, session: Session) -> list[dict[str, Any]]:
         """Restore forty recent messages; expired feedback remains visibly unavailable."""

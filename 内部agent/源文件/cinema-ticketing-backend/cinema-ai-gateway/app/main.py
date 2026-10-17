@@ -1,6 +1,7 @@
 """Async public gateway: Dify FAQ traffic and model streams bypass Java."""
 
 import asyncio
+import hmac
 import json
 import logging
 import uuid
@@ -8,7 +9,7 @@ from collections.abc import AsyncIterator
 from contextlib import aclosing, asynccontextmanager, suppress
 
 import httpx
-from fastapi import FastAPI, HTTPException, Request, Response
+from fastapi import FastAPI, Header, HTTPException, Request, Response
 from fastapi.responses import JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from redis.exceptions import RedisError
@@ -24,6 +25,7 @@ from app.config import (
 from app.feedback import FeedbackInput, Snapshot, submit
 from app.protocol import event, read_events
 from app.store import ChatChannel, ConversationStore, Session
+from app.runtime_info import runtime_info, safe_diagnostics
 
 COOKIE_NAME = "cinema_ai_session"
 MAX_ANSWER_SIZE = 40_000
@@ -67,6 +69,27 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 
 app = FastAPI(title="Cinema AI Gateway", version="0.2.0", lifespan=lifespan)
+
+
+def verify_diagnostic_token(token: str) -> None:
+    if not hmac.compare_digest(token, INTERNAL_TOKEN):
+        raise HTTPException(401, "Invalid internal service token")
+
+
+@app.get("/internal/runtime")
+async def runtime(x_internal_token: str = Header(default="")) -> dict[str, object]:
+    verify_diagnostic_token(x_internal_token)
+    return runtime_info()
+
+
+@app.get("/internal/regression/messages/{message_id}")
+async def message_evidence(message_id: uuid.UUID, request: Request, x_internal_token: str = Header(default="")) -> dict[str, object]:
+    verify_diagnostic_token(x_internal_token)
+    record = await request.app.state.stores["agent"].snapshot(str(message_id))
+    if record is None:
+        raise HTTPException(404, "Message evidence expired or not found")
+    return {"message_id": record.message_id, "ready": record.ready, "answer": record.answer,
+            "error_code": record.error_code, "context": record.context, "runtime": runtime_info()}
 
 
 @app.exception_handler(RedisError)
@@ -233,7 +256,9 @@ async def agent_events(
     client: httpx.AsyncClient, session: Session, body: ChatRequest, record: Snapshot, store: ConversationStore
 ) -> AsyncIterator[str]:
     """Resolve the login-bound credential, then stream the private read-only Agent."""
-    headers = {"X-Internal-Token": INTERNAL_TOKEN}
+    request_id = uuid.uuid4().hex
+    record.context["request_id"] = request_id
+    headers = {"X-Internal-Token": INTERNAL_TOKEN, "X-Trace-Id": request_id}
     resolved = await client.post(
         f"{JAVA_API_URL}/internal/ai/handoff/resolve", headers=headers, json={"credential": body.credential}, timeout=8
     )
@@ -280,6 +305,7 @@ async def agent_events(
                     raise ValueError("Agent answer exceeded size limit")
                 yield event("delta", text=text)
             elif kind == "context":
+                record.context.update(safe_diagnostics(packet))
                 record.context.update({
                     key: packet.get(key)
                     for key in (

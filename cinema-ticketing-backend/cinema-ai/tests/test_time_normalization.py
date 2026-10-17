@@ -146,6 +146,15 @@ class RelativeTimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(evening["entities"]["movie_scope"], "scheduled")
         self.assertEqual(evening["entities"]["screening_hour_from"], 18)
 
+    async def test_daypart_only_followup_preserves_confirmed_date(self) -> None:
+        history = [{"role": "user", "content": "明天《测试电影》有哪些场次"},
+                   {"role": "assistant", "content": "2026-10-14（北京时间）有效排期场次"}]
+        result = await self.state("晚上呢", history)
+        self.assertEqual(result["entities"]["screening_date"], "2026-10-14")
+        self.assertEqual(result["entities"]["movie_query"], "测试电影")
+        self.assertEqual(result["entities"]["screening_hour_from"], 18)
+        self.assertEqual(result["temporal_summary"]["windows"][0]["date_from"], "2026-10-14")
+
     async def test_free_form_entities_still_reach_understanding_after_time_resolution(self) -> None:
         payload = QuestionPlan(
             intent="screenings", normalized_question="查询流浪地球场次", confidence=0.9, movie_query="流浪地球"

@@ -272,5 +272,17 @@ class QueryAnswerTests(unittest.TestCase):
         self.assertNotIn("没有排期", movie_answer(data))
 
 
+    async def test_model_cannot_replace_explicit_genre_with_relative_date_phrase(self) -> None:
+        wrong = QuestionPlan(intent="recommend", preference="最近一周上映", movie_query="悬疑", confidence=1)
+        model = Mock()
+        model.bind.return_value.ainvoke = AsyncMock(return_value=SimpleNamespace(content=wrong.model_dump_json()))
+        with patch("app.intent.preliminary_route", return_value=("", "")):
+            result = await understand(model, "只看最近一周上映的悬疑电影", [])
+        self.assertEqual(result["intent_source"], "model")
+        self.assertEqual(result["entities"]["preference"], "悬疑")
+        self.assertEqual(result["entities"]["release_date_from"], "2026-10-02")
+        self.assertFalse(result["entities"]["release_date_preferred"])
+
+
 if __name__ == "__main__":
     unittest.main()

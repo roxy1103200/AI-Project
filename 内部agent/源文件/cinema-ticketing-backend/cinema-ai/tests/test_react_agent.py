@@ -14,6 +14,7 @@ from langchain_core.messages import AIMessage, AIMessageChunk, BaseMessage, Tool
 from app.failures import CinemaQueryError
 from app.intent import understand
 from app.react_tools import TOOL_SPECS, validate_arguments
+from tests.test_order_answers import sample
 
 with patch("app.model_config.create_model", return_value=None):
     from app.main import Assistant, ChatRequest, HistoryMessage, LiveChatRequest
@@ -98,7 +99,7 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         self.date_patch.start()
 
         # Keep extraction deterministic; only the ReAct decision model is scripted.
-        async def extract(_, question, history):
+        async def extract(_, question, history, **kwargs):
             return await understand(None, question, history)
 
         self.intent_patch = patch("app.react_agent.understand", side_effect=extract)
@@ -167,7 +168,7 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
                 AIMessage(content="查询完成"),
             ]
         )
-        self.assistant.mcp.call_tool.return_value = {"order_no": "OTEST12", "status": "ISSUED", "can_refund": True}
+        self.assistant.mcp.call_tool.return_value = sample(order_no="OTEST12", status="ISSUED", refund_status=None, refund_reason_type=None, can_refund=True)
         self.assistant.tools["query_ticket_policy"] = AsyncMock()
         self.assistant.tools["query_ticket_policy"].ainvoke.return_value = {
             "policy": {"version": 3},
@@ -259,7 +260,7 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
                 AIMessage(content="完成"),
             ]
         )
-        self.assistant.mcp.call_tool.return_value = {"status": "ISSUED"}
+        self.assistant.mcp.call_tool.return_value = sample(status="ISSUED", refund_status=None, refund_reason_type=None)
         with patch("app.react_agent.select_route", return_value=("react", "test_validation")):
             packets = await self.packets("OTEST12 的状态")
         self.assistant.mcp.call_tool.assert_awaited_once_with("query_order", {"order_no": "OTEST12"}, user_id=2)
@@ -275,7 +276,7 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         self.assistant.model = model
-        self.assistant.mcp.call_tool.return_value = {"status": "ISSUED"}
+        self.assistant.mcp.call_tool.return_value = sample(status="ISSUED", refund_status=None, refund_reason_type=None)
         packets = await self.packets("OTEST12 的状态")
         self.assistant.mcp.call_tool.assert_awaited_once()
         self.assertEqual(len(model.requests), 0)
@@ -293,7 +294,7 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         )
         model = ScriptedModel([call])
         self.assistant.model = model
-        self.assistant.mcp.call_tool.return_value = {"status": "ISSUED"}
+        self.assistant.mcp.call_tool.return_value = sample(status="ISSUED", refund_status=None, refund_reason_type=None)
         packets = await self.packets("查询 OTEST12 OTEST13 OTEST14 的状态")
         self.assertEqual(self.assistant.mcp.call_tool.await_count, 2)
         self.assertEqual(len(model.requests), 1)
@@ -326,9 +327,19 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
         self.assertNotIn("订单已支付", answer)
         self.assertTrue(any(p.get("code") == "business_auth_failed" for p in packets))
 
+    async def test_failed_read_without_evidence_never_completes_as_success(self) -> None:
+        for code in ("data_not_found", "business_unavailable", "query_timeout"):
+            with self.subTest(code=code):
+                self.assistant.model = None
+                self.assistant.mcp.call_tool.side_effect = CinemaQueryError(code, "本次查询未能确认")
+                packets = await self.packets("OTEST12 的状态")
+                self.assertTrue(any(packet.get("code") == code for packet in packets))
+                self.assertFalse(any(packet["type"] in {"complete", "delta"} for packet in packets))
+
     async def test_mismatched_order_owner_never_becomes_model_evidence(self) -> None:
         self.assistant.model = ScriptedModel([decision("query_order", {"order_no": "OTEST12"})])
         self.assistant.mcp.call_tool.return_value = {
+            **sample(status="ISSUED", refund_status=None, refund_reason_type=None),
             "order_no": "OTEST12",
             "user_id": 9,
             "status": "ISSUED",
@@ -352,7 +363,7 @@ class ReActAgentTests(unittest.IsolatedAsyncioTestCase):
 
         async def order_query(_, arguments, *, user_id):
             await asyncio.sleep(0)
-            return {"order_no": arguments["order_no"], "user_id": user_id, "status": "ISSUED"}
+            return sample(order_no=arguments["order_no"], user_id=user_id, status="ISSUED", refund_status=None, refund_reason_type=None)
 
         self.assistant.mcp.call_tool.side_effect = order_query
         responses = await asyncio.gather(

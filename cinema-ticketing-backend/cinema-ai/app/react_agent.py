@@ -695,6 +695,12 @@ class CinemaReAct:
         """Publish only code-checked final text, after reflection has completed."""
         writer = get_stream_writer()
         updated = {**state, **state["budget"].snapshot()}
+        failure = state.get("last_tool_error", {})
+        if not state["observations"] and failure and failure.get("code") not in {"invalid_tool_call", "screening_unavailable"}:
+            updated.update(answer=failure["message"], error=failure["message"], error_code=failure["code"])
+            emit_context(updated)
+            writer({"type": "error", "message": failure["message"], "code": failure["code"]})
+            return updated
         if state.get("error"):
             updated["answer"] = state["error"]
             emit_context(updated)

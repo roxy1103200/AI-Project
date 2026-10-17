@@ -1,7 +1,6 @@
 package com.cinema.ticketing.controller;
 
 import com.cinema.ticketing.common.BusinessException;
-import com.cinema.ticketing.common.JdbcTimes;
 import com.cinema.ticketing.common.RefundPolicyText;
 import com.cinema.ticketing.service.AiMovieQueryService;
 import com.cinema.ticketing.service.AiDateWindow;
@@ -21,8 +20,6 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
-import java.time.LocalDateTime;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -120,61 +117,7 @@ public class InternalAiController {
             @PathVariable String orderNo,
             @RequestParam long userId) {
         verify(token);
-        // created_at 是 TIMESTAMP 列（JSON 里带 +00:00 偏移），expire_at / paid_at 是 DATETIME
-        // （无时区的本地字面量）。统一成 LocalDateTime 再返回，见 JdbcTimes。
-        Map<String, Object> order =
-                JdbcTimes.asLocalDateTimes(
-                        jdbcTemplate.queryForMap(
-                                "SELECT o.id, o.order_no, o.user_id, o.screening_id,"
-                                    + " o.total_amount, o.status, o.expire_at, o.paid_at,"
-                                    + " o.created_at, m.title movie_title, s.start_time, h.name"
-                                    + " hall_name, c.name cinema_name, p.cutoff_minutes"
-                                    + " refund_cutoff_minutes, EXISTS(SELECT 1 FROM order_item i"
-                                    + " WHERE i.order_id=o.id AND i.checked_in_at IS NOT NULL)"
-                                    + " has_check_in FROM ticket_order o JOIN screening s ON"
-                                    + " s.id=o.screening_id JOIN movie m ON m.id=s.movie_id JOIN"
-                                    + " hall h ON h.id=s.hall_id JOIN cinema c ON c.id=h.cinema_id"
-                                    + " LEFT JOIN refund_policy p ON p.id=(SELECT MAX(id) FROM"
-                                    + " refund_policy WHERE enabled=TRUE) WHERE o.order_no = ? AND"
-                                    + " o.user_id = ?",
-                                orderNo,
-                                userId));
-        Map<String, Object> result = new HashMap<>(order);
-        Number cutoff = (Number) order.get("refund_cutoff_minutes");
-        LocalDateTime now = LocalDateTime.now();
-        LocalDateTime deadline =
-                cutoff == null
-                        ? null
-                        : ((LocalDateTime) order.get("start_time"))
-                                .minusMinutes(cutoff.longValue());
-        boolean checkedIn =
-                Boolean.TRUE.equals(order.get("has_check_in"))
-                        || "1".equals(String.valueOf(order.get("has_check_in")));
-        boolean allowed =
-                "ISSUED".equals(order.get("status"))
-                        && !checkedIn
-                        && deadline != null
-                        && now.isBefore(deadline);
-        result.put("refund_deadline", deadline);
-        result.put("can_refund", allowed);
-        result.put("server_time", now);
-        result.put(
-                "refund_reason",
-                cutoff == null
-                        ? "退票规则暂不可用"
-                        : !"ISSUED".equals(order.get("status"))
-                                ? "只有已出票订单可以退票"
-                                : checkedIn
-                                        ? "订单中已有电影票验票入场，不能退票"
-                                        : allowed ? "当前可申请退票" : "已超过退票截止时间");
-        result.put(
-                "items",
-                jdbcTemplate.queryForList(
-                        "SELECT oi.seat_id, s.seat_code, oi.price, oi.ticket_status,"
-                                + " oi.checked_in_at FROM order_item oi JOIN seat s ON s.id ="
-                                + " oi.seat_id WHERE oi.order_id = ? ORDER BY oi.id",
-                        order.get("id")));
-        return result;
+        return new com.cinema.ticketing.service.OrderReadService(jdbcTemplate).find(userId, orderNo);
     }
 
     @GetMapping("/refund-policy")

@@ -447,7 +447,9 @@ def validate_result(name: str, data: Any, arguments: dict[str, Any], *, user_id:
     # 检查 `elif name == "query_order"`，据此选择当前处理分支。
     elif name == "query_order":
         # 为 `valid` 保存当前步骤所需的值。
-        valid = isinstance(data, dict) and "status" in data
+        from app.order_answers import valid_order_contract
+
+        valid = valid_order_contract(data)
         # 检查 `if valid`，据此选择当前处理分支。
         if valid:
             # 检查 `if "order_no" in data and data["order_no"].lower() != arguments["order_no"].lower()`，据此选择当前处理分支。

@@ -394,6 +394,15 @@ class ChannelIsolationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ValueError):
             await self.stores["dify"].save_snapshot(record)
 
+    async def test_expired_lease_cannot_report_persisted_success(self) -> None:
+        store = self.stores["agent"]
+        session = await store.load(self.info["agent"]["sessionId"])
+        session.lease = "expired-owner"
+        record = Snapshot(session_id=session.chat_id, provider="AGENT", question="test", answer="answer", ready=True)
+        with self.assertRaises(redis.exceptions.RedisError):
+            await store.finish(session, record)
+        self.assertEqual(await store.history(session), [])
+
 
 if __name__ == "__main__":
     unittest.main()

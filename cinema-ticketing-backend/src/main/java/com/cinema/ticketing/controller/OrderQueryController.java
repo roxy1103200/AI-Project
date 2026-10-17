@@ -1,7 +1,6 @@
 package com.cinema.ticketing.controller;
 
 import com.cinema.ticketing.common.ApiResponse;
-import com.cinema.ticketing.common.JdbcTimes;
 import com.cinema.ticketing.service.AuthService;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -12,7 +11,6 @@ import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
 import java.util.Map;
-import java.time.LocalDateTime;
 
 @RestController
 @RequestMapping("/api/orders")
@@ -31,35 +29,7 @@ public class OrderQueryController {
             @RequestHeader("X-Auth-Token") String token,
             @RequestParam(required = false) Long userId) {
         long currentUserId = authService.requireUserId(token);
-        // created_at 是 TIMESTAMP 列，驱动返回 java.sql.Timestamp（JSON 里带 +00:00 偏移），
-        // 而同一条记录里的 expire_at / paid_at 是 DATETIME（无时区的本地字面量）。统一成
-        // LocalDateTime 再返回，见 JdbcTimes。
         long ownerId = userId != null && authService.isAdmin(token) ? userId : currentUserId;
-        List<Map<String, Object>> orders = JdbcTimes.asLocalDateTimes(jdbcTemplate.queryForList(
-                "SELECT o.id, o.order_no, o.user_id, o.screening_id, o.total_amount, o.status, "
-                        + "o.expire_at, o.paid_at, o.created_at, m.title movie_title, "
-                        + "cp.status payment_status,cr.status refund_status,cr.reason_type refund_reason_type, "
-                        + "s.start_time, h.name hall_name, c.name cinema_name, p.cutoff_minutes refund_cutoff_minutes, "
-                        + "EXISTS(SELECT 1 FROM order_item i WHERE i.order_id=o.id AND i.checked_in_at IS NOT NULL) has_check_in "
-                        + "FROM ticket_order o JOIN screening s ON s.id = o.screening_id "
-                        + "JOIN movie m ON m.id = s.movie_id JOIN hall h ON h.id = s.hall_id "
-                        + "JOIN cinema c ON c.id = h.cinema_id "
-                        + "LEFT JOIN refund_policy p ON p.id=(SELECT MAX(id) FROM refund_policy WHERE enabled=TRUE) "
-                        + "LEFT JOIN payment_order cp ON cp.order_id=o.id LEFT JOIN refund_record cr ON cr.payment_order_id=cp.id "
-                        + "WHERE o.user_id = ? ORDER BY o.created_at DESC", ownerId));
-        LocalDateTime now = LocalDateTime.now();
-        for (Map<String, Object> order : orders) {
-            Number cutoff = (Number) order.get("refund_cutoff_minutes");
-            LocalDateTime deadline = cutoff == null ? null
-                    : ((LocalDateTime) order.get("start_time")).minusMinutes(cutoff.longValue());
-            boolean checkedIn = Boolean.TRUE.equals(order.get("has_check_in")) || "1".equals(String.valueOf(order.get("has_check_in")));
-            boolean allowed = "ISSUED".equals(order.get("status")) && !checkedIn && deadline != null && now.isBefore(deadline);
-            order.put("refund_deadline", deadline);
-            order.put("can_refund", allowed);
-            order.put("server_time", now);
-            order.put("refund_reason", "REFUNDING".equals(order.get("status")) ? "退款处理中，电影票暂不可使用" : cutoff == null ? "退票规则暂不可用" : !"ISSUED".equals(order.get("status"))
-                    ? "只有已出票订单可以退票" : checkedIn ? "订单中已有电影票验票入场，不能退票" : !allowed ? "已超过退票截止时间" : "");
-        }
-        return ApiResponse.success(orders);
+        return ApiResponse.success(new com.cinema.ticketing.service.OrderReadService(jdbcTemplate).list(ownerId));
     }
 }

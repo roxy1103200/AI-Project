@@ -8,6 +8,7 @@ from typing import Any
 
 # 导入当前步骤使用的模块或类型。
 import httpx
+from app.runtime_info import REQUEST_ID, observe
 # isort: on
 
 
@@ -33,7 +34,8 @@ class JavaApiClient:
     async def get(self, path: str, params: dict[str, Any] | None = None) -> Any:
         """Return decoded JSON after checking the upstream HTTP status."""
         # 为 `response` 保存当前步骤所需的值。
-        response = await self.client.get(path, params=params)
+        response = await self.client.get(path, params=params, headers={"X-Trace-Id": REQUEST_ID.get()})
+        observe("java", path=path, parameters={key: value for key, value in (params or {}).items() if key not in {"userId", "query", "movieQuery", "cinemaQuery"}}, status=response.status_code)
         # 继续构造当前业务表达式或数据结构。
         response.raise_for_status()
         # 将当前计算结果返回给调用方。
@@ -43,7 +45,8 @@ class JavaApiClient:
     async def post(self, path: str, payload: dict[str, Any]) -> Any:
         """Call the recommendation endpoint and return decoded JSON."""
         # 为 `response` 保存当前步骤所需的值。
-        response = await self.client.post(path, json=payload)
+        response = await self.client.post(path, json=payload, headers={"X-Trace-Id": REQUEST_ID.get()})
+        observe("java", path=path, parameters={key: value for key, value in payload.items() if key != "preference"}, status=response.status_code)
         # 继续构造当前业务表达式或数据结构。
         response.raise_for_status()
         # 将当前计算结果返回给调用方。

@@ -1,5 +1,35 @@
 # 影院 Agent 真实模型对照评测
 
+## 网站入口回归（2026-10-17 新增）
+
+`website_regression.py` 与下述直接调用内部 Agent 的评测分开：它通过网站代理登录、申请会话和 Java 转接凭证，再请求网关 SSE。用例在 `website_cases.py`，包含 32 个场景；不修改冻结 Golden v1。
+
+先在后端目录生成 Java 构建和包含 H2、嵌入式 Redis 的测试依赖清单：
+
+```powershell
+mvn.cmd -q -DskipTests package dependency:build-classpath '-Dmdep.includeScope=test' '-Dmdep.outputFile=target/website-classpath.txt'
+```
+
+再在 `E:\development\AI-Project\cinema-ticketing-backend\cinema-ai` 执行：
+
+```powershell
+$env:PYTHONUTF8 = '1'
+.venv\Scripts\python.exe -m evaluation.website_environment --output ..\target\website-regression-NEW
+.venv\Scripts\python.exe -m evaluation.website_regression --environment ..\target\website-regression-NEW --core
+.venv\Scripts\python.exe -m evaluation.website_regression --environment ..\target\website-regression-NEW
+.venv\Scripts\python.exe -m evaluation.website_environment --stop --output ..\target\website-regression-NEW
+```
+
+启动器仅使用独立本机端口：网站 15173、网关 18010、Agent 18000、MCP 18020、Java 18080、故障代理 18081、夹具控制 18090、H2 19092、Redis 16379。已有端口被占用时拒绝启动。测试账号、服务令牌和进程创建时间保存在忽略的输出目录中，报告不导出凭证。Windows Java 路径可通过 `WEBSITE_JAVA` 指定。
+
+沿用本机 Qwen 配置和模型，固定 A 分组，关闭记忆、重排及支付功能。夹具使用 H2/Redis，原网站业务库不写入。完整批次含 O12 状态推进：**重复执行完整批次前，停止旧测试环境并使用新目录重新启动夹具**；单独复测无状态改变的项目可使用 `--case-ids T06,D04`。源码改变后也须重启相关测试进程，否则预检会标记 BLOCKED。
+
+输出包括组件预检、独立事实快照、逐轮事件/答案/参数/关联 ID、场景状态及调用计数。正常完成须恰好一次且能从网站历史恢复；缺少运行版本、实际查询证据或必要夹具不能算通过。
+
+浏览器另做六个代表场景；`website_browser_evidence.py` 只用于把已观察到的页面结果与网关历史交叉核对，不执行浏览器，也不能代替浏览器验收。
+
+`website_rollout.py` 会重启原网站服务，**不属于隔离回归启动命令**；只有明确批准原网站重启后才执行。2026-10-17 的此次原站重启被自动审批拒绝，尚未执行。详细结果见项目 `docs/website-agent-regression-report-2026-10-17.md`。
+
 对照 `039085e` 的旧版网站聊天流程与当前 ReAct 的 `Assistant.live`，使用相同 Qwen 模型和真实开发 Java / MySQL / Redis。MCP 使用独立监听器和官方 SDK，Java 使用独立端口 18080；退出时关闭本次启动的服务。初始化建表、RabbitMQ 消费与过期订单清理在评测服务中关闭。
 
 ## 数据与外部服务

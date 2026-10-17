@@ -56,6 +56,12 @@ class TemporalContext(BaseModel):
     windows: list[TimeWindow] = Field(default_factory=list, max_length=12)
 
 
+def is_time_followup(question: str) -> bool:
+    """Recognize date or daypart-only corrections without treating a new query as a follow-up."""
+    text = question.strip(" ？?！!。").removeprefix("那").removesuffix("呢")
+    return EXPRESSION.fullmatch(text) is not None or re.fullmatch(r"早上|早晨|上午|中午|下午|晚上|晚间|夜场|凌晨", text) is not None
+
+
 def _number(text: str) -> int:
     if text.isdigit():
         return int(text)

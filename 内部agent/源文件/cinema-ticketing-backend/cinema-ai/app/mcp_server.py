@@ -17,6 +17,7 @@ from datetime import date
 from typing import Annotated, Any, Literal
 
 import httpx
+from app.runtime_info import RequestContextMiddleware, evidence, runtime_info
 
 # 导入当前步骤使用的模块或类型。
 from mcp.server.fastmcp import Context, FastMCP
@@ -352,7 +353,15 @@ def create_app(client: JavaApiClient | None = None, token: str | None = None) ->
         return JSONResponse({"status": "UP", "service": "cinema-mcp"})
 
     # 为 `server` 保存当前步骤所需的值。
-    server = Starlette(routes=[Route("/health", health), Mount("/", app=http_app)], lifespan=lifespan)
+    async def runtime(_: Request) -> JSONResponse:
+        return JSONResponse(runtime_info("mcp"))
+
+    async def request_evidence(request: Request) -> JSONResponse:
+        return JSONResponse(evidence(request.path_params["request_id"], "mcp"))
+
+    server = Starlette(routes=[Route("/health", health), Route("/internal/runtime", runtime),
+                              Route("/internal/regression/{request_id}", request_evidence), Mount("/", app=http_app)], lifespan=lifespan)
+    server.add_middleware(RequestContextMiddleware)
     # 将当前计算结果返回给调用方。
     return InternalTokenMiddleware(server, service_token)
 
