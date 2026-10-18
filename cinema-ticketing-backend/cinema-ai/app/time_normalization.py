@@ -12,6 +12,7 @@ from app.query_semantics import query_domains
 
 TimeTarget = Literal["release", "screening", "unspecified"]
 ResolvedTimeTarget = Literal["release", "screening"]
+TIME_POLICY_VERSION = "recommendation-time-v2"
 
 RELEASE_FILTERS = ("release_date_from", "release_date_to")
 SCREENING_FILTERS = ("screening_date_from", "screening_date_to", "screening_hour_from", "screening_hour_to")
@@ -59,7 +60,30 @@ class TemporalContext(BaseModel):
 def is_time_followup(question: str) -> bool:
     """Recognize date or daypart-only corrections without treating a new query as a follow-up."""
     text = question.strip(" ？?！!。").removeprefix("那").removesuffix("呢")
-    return EXPRESSION.fullmatch(text) is not None or re.fullmatch(r"早上|早晨|上午|中午|下午|晚上|晚间|夜场|凌晨", text) is not None
+    return (
+        EXPRESSION.fullmatch(text) is not None
+        or re.fullmatch(r"早上|早晨|上午|中午|下午|晚上|晚间|夜场|凌晨", text) is not None
+    )
+
+
+def is_query_refinement(question: str) -> bool:
+    """Recognize bounded corrections without inheriting unrelated standalone requests."""
+    return (
+        is_time_followup(question)
+        or bool(re.fullmatch(r"新上映的|上映的|有票的|按上映日期|按观影日期", question.strip(" ？?。")))
+        or bool(
+            re.search(
+                r"^(?:我是说|我说的是|改成|换成|还是|按观影日期|按上映日期)|这些电影|这些影片|这几部", question.strip()
+            )
+        )
+    )
+
+
+def references_recommendations(question: str) -> bool:
+    """Identify an additive query about the previous recommendation set."""
+    return bool(re.search(r"这些(?:电影|影片)?|这几部", question)) and bool(
+        re.search(r"场次|有票|买票|购票|排期|放映|票价|多少钱|能看|观影|今晚|明晚", question)
+    )
 
 
 def _number(text: str) -> int:
@@ -212,7 +236,7 @@ def normalize_times(question: str, today: date, default_target: TimeTarget) -> T
             target, assumed = "release", False
         elif (
             re.search(
-                r"场次|排期|排片|排场|排上了|开场|票价|多少钱|几点|有票|买票|购票|订购|座位|余票|放啥片|放映的电影|放映哪些电影|放映安排|影院.*放映|(?:能|可以|想|准备).{0,3}看|今晚|明晚|明早|今早",
+                r"场次|排期|排片|排场|排上了|开场|票价|多少钱|几点|有票|买票|购票|订购|座位|余票|还有座|空位|空座|放啥片|放映的电影|放映哪些电影|放映安排|影院.*放映|(?:能|可以|想|准备).{0,3}看|今晚|明晚|明早|今早",
                 context,
             )
             or daypart_interval(context)[0] is not None
@@ -249,6 +273,77 @@ def normalize_times(question: str, today: date, default_target: TimeTarget) -> T
             TimeWindow(expression="观影时段", target="screening", hour_from=hour_from, hour_to=hour_to)
         )
     return result
+
+
+def restore_displayed_times(prior: TemporalContext, pending: str) -> TemporalContext:
+    """Keep previously displayed absolute intervals when a follow-up crosses midnight."""
+    result = prior.model_copy(deep=True)
+    for target, label in (("release", r"(?:按上映日期筛选：|优先推荐上映日期在 )"), ("screening", r"观影日期：")):
+        match = re.search(label + r"(\d{4}-\d{2}-\d{2}) 至 (\d{4}-\d{2}-\d{2})", pending)
+        if match:
+            with suppress(ValueError):
+                start, end = date.fromisoformat(match[1]), date.fromisoformat(match[2])
+                if start <= end:
+                    for window in result.windows:
+                        if window.target == target:
+                            window.date_from, window.date_to = start.isoformat(), end.isoformat()
+    return result
+
+
+def resolve_query_times(
+    question: str,
+    intent: str,
+    today: date,
+    *,
+    prior: TemporalContext | None = None,
+    pending: str = "",
+    choice: ResolvedTimeTarget | None = None,
+) -> TemporalContext:
+    """Resolve explicit, inherited and assumed meanings through one shared policy."""
+    if intent not in ("recommend", "movies", "screenings", "seats"):
+        return TemporalContext(reference_date=today.isoformat())
+    prior = restore_displayed_times(prior, pending) if prior else None
+    if prior and choice:
+        return clarify_time_target(prior, choice, question, pending, today)
+    targets = {window.target for window in prior.windows} if prior else set()
+    inherited: TimeTarget = next(iter(targets)) if len(targets) == 1 else "unspecified"
+    context = normalize_times(question, today, inherited)
+    text = re.sub(r"《[^》]+》", "", question)
+    if intent == "recommend" and "推荐" in text:
+        for window in context.windows:
+            if (
+                window.target == "unspecified"
+                and window.reason == "target_required"
+                and re.fullmatch(
+                    r"(?:最近|近|过去)(?:的)?\s*(?:一|1)(?:个)?(?:周|星期)|(?:最近|近|过去)(?:的)?\s*(?:七|7)\s*(?:天|日)",
+                    window.expression,
+                )
+            ):
+                window.target, window.assumed_target = "release", True
+                window.status, window.reason = "resolved", "none"
+    if not prior:
+        return context
+    if not context.windows:
+        context = prior.model_copy(deep=True)
+        context.reference_date = today.isoformat()
+        return context
+    for window in context.windows:
+        previous = next((item for item in prior.windows if item.target == window.target), None)
+        if not previous:
+            continue
+        if window.assumed_target:
+            window.assumed_target = previous.assumed_target
+        if not re.search(r"必须|只要|仅限|一定要|最好|优先|尽量", question):
+            window.strength = previous.strength
+        if window.target == "screening" and window.status == "resolved":
+            if window.date_from is None:
+                window.date_from, window.date_to = previous.date_from, previous.date_to
+            if window.hour_from is None and is_time_followup(question):
+                window.hour_from, window.hour_to = previous.hour_from, previous.hour_to
+    if references_recommendations(question):
+        present = {window.target for window in context.windows}
+        context.windows.extend(window.model_copy(deep=True) for window in prior.windows if window.target not in present)
+    return context
 
 
 def apply_time_filters(plan: Any, context: TemporalContext) -> None:
@@ -306,17 +401,24 @@ def temporal_clarification(context: TemporalContext, intent: str, preference: st
 
 
 def time_target_choice(question: str, history: list[dict[str, str]]) -> ResolvedTimeTarget | None:
-    """Recognize a choice only while the immediately preceding turn asks for it."""
+    """Recognize an answer to clarification or an explicit correction of a displayed scope."""
     if not history or history[-1].get("role") != "assistant":
         return None
     pending = history[-1].get("content", "")
-    if not re.search(r"新上映的.*还是.*可购票场次", pending, re.DOTALL):
+    binary = bool(re.search(r"新上映的.*还是.*可购票场次", pending, re.DOTALL))
+    if not binary and not (re.search(r"上映日期|观影日期", pending) and is_query_refinement(question)):
         return None
     text = EXPRESSION.sub("", question).strip(" ，,。？?！!；;")
     if len(text) > 60:
         return None
-    release = bool(re.search(r"新上映|上映的|上映日期|首映|新片|前者|第一[个种项]", text))
-    screening = bool(re.search(r"有票|买票|购票|订购|场次|排期|排片|观影|放映|能看|后者|第二[个种项]", text))
+    release = bool(re.search(r"新上映|上映的|上映日期|首映|新片", text)) or (
+        binary and bool(re.search(r"前者|第一[个种项]", text))
+    )
+    screening = bool(re.search(r"有票|买票|购票|订购|场次|排期|排片|观影|放映|能看", text)) or (
+        binary and bool(re.search(r"后者|第二[个种项]", text))
+    )
+    if references_recommendations(question):
+        return None
     return ("release" if release else "screening") if release != screening else None
 
 
@@ -336,15 +438,13 @@ def clarify_time_target(
     context.reference_date = today.isoformat()
     displayed = re.search(r"（(\d{4}-\d{2}-\d{2}) 至 (\d{4}-\d{2}-\d{2})，北京时间）", pending)
     for window in context.windows:
-        if window.target != "unspecified":
-            continue
         window.target, window.assumed_target = target, False
         if displayed and len(context.windows) == 1:
             with suppress(ValueError):
                 start, end = date.fromisoformat(displayed[1]), date.fromisoformat(displayed[2])
                 if start <= end:
                     window.date_from, window.date_to = start.isoformat(), end.isoformat()
-        if window.date_from and window.date_to:
+        if window.date_from and window.date_to and window.status != "invalid":
             window.status, window.reason = "resolved", "none"
         elif window.reason == "target_required":
             window.reason = "vague"

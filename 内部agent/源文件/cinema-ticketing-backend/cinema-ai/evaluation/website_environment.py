@@ -211,10 +211,13 @@ def stop(output: Path) -> None:
                     "powershell.exe",
                     "-NoProfile",
                     "-Command",
-                    f"(Get-Process -Id {pid} -ErrorAction SilentlyContinue).StartTime.ToUniversalTime().Ticks",
+                    f"$ownedProcess = Get-Process -Id {pid} -ErrorAction SilentlyContinue; "
+                    "if ($null -ne $ownedProcess) { $ownedProcess.StartTime.ToUniversalTime().Ticks }",
                 ],
                 capture_output=True,
                 text=True,
+                encoding="utf-8",
+                errors="replace",
                 creationflags=subprocess.CREATE_NO_WINDOW,
             )
             if probe.stdout.strip() != expected:
@@ -224,6 +227,8 @@ def stop(output: Path) -> None:
             ["taskkill", "/PID", str(pid), "/T", "/F"], capture_output=True, creationflags=subprocess.CREATE_NO_WINDOW
         )
         print(f"Owned {name}: stop exit={result.returncode}", flush=True)
+        if result.returncode:
+            raise RuntimeError(f"Unable to stop owned {name}; inspect this run's process evidence")
 
 
 if __name__ == "__main__":

@@ -15,6 +15,7 @@ from app.react_agent import initial_state
 from app.tracing import summarize_payload
 from evaluation.eval_traces import trace_report
 from evaluation.train_intent_classifier import validate_corpus
+from tests.test_order_answers import sample
 
 
 class RoutingOptimizationTests(unittest.IsolatedAsyncioTestCase):
@@ -29,7 +30,6 @@ class RoutingOptimizationTests(unittest.IsolatedAsyncioTestCase):
         for question, slot in (
             ("我的订单能退票吗", "order_no"),
             ("查询空座", "screening_id"),
-            ("查询周末场次", "screening_date"),
             ("查询2026-02-30的场次", "valid_date"),
         ):
             with self.subTest(question=question):
@@ -57,12 +57,11 @@ class RoutingOptimizationTests(unittest.IsolatedAsyncioTestCase):
             plan = await understand(None, question, [])
             self.assertFalse(plan["clarification"])
 
-    async def test_ambiguous_seat_discovery_date_is_clarified(self) -> None:
-        model = Mock()
-        result = await understand(model, "《测试影片》周末还有座吗", [])
-        self.assertIn("日期", result["clarification"])
-        self.assertEqual(result["slot_summary"]["missing_slots"], ["screening_date"])
-        model.bind.assert_not_called()
+    async def test_weekend_screening_and_seat_dates_are_resolved(self) -> None:
+        for question in ("查询周末场次", "《测试影片》周末还有座吗"):
+            result = await understand(None, question, [])
+            self.assertFalse(result["clarification"])
+            self.assertEqual(result["entities"]["screening_date"], "2026-10-11")
 
     async def test_composite_still_uses_model(self) -> None:
         model = Mock()
@@ -120,7 +119,8 @@ class RuleVerificationTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_known_order_has_zero_model_calls(self) -> None:
         self.assistant.model = Mock()
-        self.assistant.mcp.call_tool.return_value = {"status": "ISSUED", "total_amount": 45}
+        self.assistant.mcp.call_tool.return_value = sample(status="ISSUED", total_amount=45,
+            refund_status=None, refund_reason_type=None, refund_reason="已出票")
         result = await self.invoke("查询OTEST12的状态和总金额")
         self.assertEqual(result["model_call_count"], 0)
         self.assertEqual(result["reflection_status"], "rules_passed")

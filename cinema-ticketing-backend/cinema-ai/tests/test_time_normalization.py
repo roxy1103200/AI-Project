@@ -242,7 +242,6 @@ class RelativeTimeTests(unittest.IsolatedAsyncioTestCase):
         for question in (
             AMBIGUOUS_QUESTION,
             "推荐这周的悬疑电影",
-            "你给我推荐悬疑题材的电影，最好是最近一周的电影，然后给我明确的时间信息",
         ):
             with self.subTest(question=question):
                 result = await understand(model, question, [])
@@ -344,7 +343,9 @@ class RelativeTimeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(arguments["query_scope"], "bookable")
         question = "推荐悬疑电影，最好是最近一周的"
         first = await understand(None, question, [])
-        history = [{"role": "user", "content": question}, {"role": "assistant", "content": first["clarification"]}]
+        # V2 answers this recommendation directly; corrections also work after an answer.
+        self.assertFalse(first["clarification"])
+        history = [{"role": "user", "content": question}, {"role": "assistant", "content": recommendation_answer([], first["entities"])}]
         for reply, end in (("新上映的", "2026-10-13"), ("改成下周新上映的", "2026-10-25")):
             with self.subTest(reply=reply):
                 result = await self.state(reply, history)

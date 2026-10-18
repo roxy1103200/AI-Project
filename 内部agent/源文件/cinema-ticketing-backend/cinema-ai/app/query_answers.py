@@ -54,7 +54,7 @@ def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) 
             lines[-1] = f"优先推荐上映日期在 {start} 至 {end} 的影片（北京时间，含起止日）。"
     windows = entities.get("temporal", {}).get("windows", [])
     if any(window.get("assumed_target") for window in windows if window.get("target") == "release"):
-        lines.append("这里按已确认的影片上映日期条件查询。")
+        lines.append("我先按上述上映日期范围为你推荐；如果你想按观影日期查询，可以直接告诉我。")
     if any(window.get("status") == "ambiguous" for window in windows):
         lines.append("你未限定具体时间范围，先按上映日期由近到远推荐。")
     viewing = bool(entities.get("screening_date_from") or entities.get("screening_date") or entities.get("screening_hour_from") is not None)
@@ -395,6 +395,8 @@ def screening_answer(data: list[dict[str, Any]], entities: dict[str, Any]) -> st
         period = f"{entities['screening_date_from']} 至 {entities['screening_date_to']}（北京时间，含起止日）"
     if entities.get("screening_hour_from") is not None:
         period += f"，每天 {entities['screening_hour_from']:02d}:00 至 {entities['screening_hour_to']:02d}:00（不含结束时刻）"
+    if entities.get("candidate_titles") and entities.get("movie_query"):
+        period = f"《{entities['movie_query']}》\n" + period
     # 检查 `if not data`，据此选择当前处理分支。
     if not data:
         # 将当前计算结果返回给调用方。

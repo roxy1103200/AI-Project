@@ -163,7 +163,7 @@ class QueryIntentTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(plan["entities"]["movie_scope"], "catalog")
 
 
-class QueryAnswerTests(unittest.TestCase):
+class QueryAnswerTests(unittest.IsolatedAsyncioTestCase):
     def test_screening_contract_rejects_changed_date_and_missing_facts(self) -> None:
         row = {
             "id": 1,
@@ -273,10 +273,10 @@ class QueryAnswerTests(unittest.TestCase):
 
 
     async def test_model_cannot_replace_explicit_genre_with_relative_date_phrase(self) -> None:
-        wrong = QuestionPlan(intent="recommend", preference="最近一周上映", movie_query="悬疑", confidence=1)
+        wrong = QuestionPlan(intent="recommend", normalized_question="悬疑电影推荐", preference="最近一周上映", movie_query="悬疑", confidence=1)
         model = Mock()
         model.bind.return_value.ainvoke = AsyncMock(return_value=SimpleNamespace(content=wrong.model_dump_json()))
-        with patch("app.intent.preliminary_route", return_value=("", "")):
+        with patch("app.intent.preliminary_route", return_value=("", "")), patch("app.intent.beijing_today", return_value=date(2026, 10, 8)):
             result = await understand(model, "只看最近一周上映的悬疑电影", [])
         self.assertEqual(result["intent_source"], "model")
         self.assertEqual(result["entities"]["preference"], "悬疑")

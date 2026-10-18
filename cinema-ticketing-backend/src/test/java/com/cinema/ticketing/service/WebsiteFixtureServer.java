@@ -52,6 +52,15 @@ public class WebsiteFixtureServer {
         movie(70001, "回归悬疑新片", today, "ON_SHOW", null);
         movie(70002, "回归悬疑旧片", today.minusDays(30), "ON_SHOW", null);
         movie(70003, "回归悬疑预售片", today.plusDays(7), "UPCOMING", today.plusDays(3).atStartOfDay());
+        movie(70010, "回归边界悬疑片", today.minusDays(6), "ON_SHOW", null);
+        movie(70011, "回归今日喜剧片", today, "ON_SHOW", null);
+        movie(70012, "回归范围外科幻片", today.minusDays(7), "ON_SHOW", null);
+        movie(70013, "回归未来科幻片", today.plusDays(1), "UPCOMING", null);
+        movie(70014, "回归日期未知片", null, "ON_SHOW", null);
+        movie(70015, "回归下架新片", today, "OFFLINE", null);
+        movie(70016, "回归归档新片", today, "ARCHIVED", null);
+        jdbc.update("UPDATE movie SET genre='喜剧' WHERE id=70011");
+        jdbc.update("UPDATE movie SET genre='科幻' WHERE id IN (70012,70013,70014,70015,70016)");
         long screening = 71000;
         for (int day = -7; day <= 14; day++) {
             for (int film = 1; film <= 2; film++) for (int hour : new int[]{13, 19}) {
@@ -121,7 +130,7 @@ public class WebsiteFixtureServer {
             value = Map.of("advanced", ADVANCE_ORDER);
         } else if (path.equals("/snapshot")) {
             value = Map.of("reference_date", today.toString(), "time_zone", "Asia/Shanghai", "orders", orders,
-                    "movies", jdbc.queryForList("SELECT id,title,genre,release_date FROM movie ORDER BY id"),
+                    "movies", jdbc.queryForList("SELECT id,title,genre,release_date,status,sale_start_time FROM movie ORDER BY id"),
                     "screenings", jdbc.queryForList("SELECT id,movie_id,start_time,status FROM screening ORDER BY id"));
         } else { status = 404; value = Map.of("error", "Unknown test-only endpoint"); }
         byte[] body = JSON.writeValueAsBytes(value);

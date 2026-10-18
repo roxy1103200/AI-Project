@@ -16,6 +16,7 @@ from app.react_agent import initial_state
 from app.reflection import ReflectionResult, grounded_revision
 from app.task_progress import build_tasks, progress, select_route
 from tests.test_react_agent import ScriptedModel, decision
+from tests.test_order_answers import sample
 
 
 class WorkflowGuardTests(unittest.IsolatedAsyncioTestCase):
@@ -38,7 +39,8 @@ class WorkflowGuardTests(unittest.IsolatedAsyncioTestCase):
             self.assistant = Assistant()
         self.assistant.model = ScriptedModel([])
         self.assistant.memory.recall = AsyncMock(return_value=[])
-        self.assistant.mcp.call_tool = AsyncMock(return_value={"status": "ISSUED"})
+        self.assistant.mcp.call_tool = AsyncMock(return_value=sample(status="ISSUED", refund_status=None,
+            refund_reason_type=None, refund_reason="已出票"))
 
     async def asyncTearDown(self) -> None:
         await self.assistant.client.aclose()

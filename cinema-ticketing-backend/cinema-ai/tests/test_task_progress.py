@@ -14,6 +14,17 @@ from app.react_tools import validate_arguments
 from app.task_progress import build_tasks, progress
 from evaluation.metrics import judge
 from tests.test_react_agent import ScriptedModel, decision, screening
+from tests.test_order_answers import sample
+
+
+def order_fact(status: str = "ISSUED", number: str = "") -> dict:
+    """Exercise task budgets using the current financial-state contract."""
+    fact = sample(status=status, refund_status="REFUNDED" if status == "REFUNDED" else None,
+                  refund_reason_type="CUSTOMER" if status == "REFUNDED" else None,
+                  refund_reason="已退款" if status == "REFUNDED" else "已出票")
+    if number:
+        fact["order_no"] = number
+    return fact
 
 
 class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
@@ -99,8 +110,8 @@ class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
             ]
         )
         self.assistant.mcp.call_tool.side_effect = [
-            {"order_no": "OTEST12", "status": "ISSUED"},
-            {"order_no": "OTEST13", "status": "REFUNDED"},
+            order_fact("ISSUED", "OTEST12"),
+            order_fact("REFUNDED", "OTEST13"),
         ]
         result = await self.invoke("分别查询 OTEST12 和 OTEST13 两个订单的状态")
         self.assertEqual(result["tool_calls"], ["query_order", "query_order"])
@@ -151,7 +162,7 @@ class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
         self.assistant.model = ScriptedModel(
             [decision("query_order", {"order_no": "OTEST12"}), AIMessage(content="完成")]
         )
-        self.assistant.mcp.call_tool.side_effect = [{"status": "ISSUED"}, {"status": "REFUNDED"}]
+        self.assistant.mcp.call_tool.side_effect = [order_fact(), order_fact("REFUNDED")]
         result = await self.invoke("查询 OTEST12 和 OTEST13 两个订单")
         self.assertEqual(result["tool_calls"], ["query_order", "query_order"])
 
@@ -162,7 +173,7 @@ class TaskProgressTests(unittest.IsolatedAsyncioTestCase):
                 for number in ("OTEST12", "OTEST13", "OTEST14", "OTEST15")
             ]
         )
-        self.assistant.mcp.call_tool.return_value = {"status": "ISSUED"}
+        self.assistant.mcp.call_tool.return_value = order_fact()
         result = await self.invoke("查询 OTEST12 OTEST13 OTEST14 OTEST15 四个订单")
         self.assertEqual(result["finish_reason"], "done_verified")
         self.assertNotIn("查询上限", result["answer"])

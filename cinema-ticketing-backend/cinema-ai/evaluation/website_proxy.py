@@ -28,7 +28,7 @@ async def fault(request: Request, x_fixture_token: str = Header(default="")) -> 
     body = await request.json()
     if body.get("mode") not in {"", "java_unavailable", "truncate"}:
         raise HTTPException(400)
-    if body.get("path", "") and not body["path"].startswith("/internal/orders/OWEBREG"):
+    if body.get("path", "") and not (body["path"].startswith("/internal/orders/OWEBREG") or body["path"] == "/internal/recommendations"):
         raise HTTPException(400)
     FAULT.update(mode=body.get("mode", ""), path=body.get("path", ""))
     return {"armed": FAULT["mode"]}

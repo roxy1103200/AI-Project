@@ -405,6 +405,11 @@ def validate_arguments(
         # 为 `permitted_keywords` 保存当前步骤所需的值。
         permitted_keywords = [str(value) for value in entities.values() if isinstance(value, str) and value]
         permitted_keywords += [item["content"] for item in state.get("memories", [])]
+        candidates = entities.get("candidate_titles", [])
+        if name == "search_screenings" and candidates:
+            if arguments.get("movie_query") not in candidates:
+                raise CinemaQueryError("invalid_tool_call", "请只查询上一轮推荐的影片，不能替换候选集合。")
+            permitted_keywords += candidates
         # 进入对应的循环、异常处理或资源管理分支。
         for observation in state.get("observations", []):
             # 为 `data` 保存当前步骤所需的值。

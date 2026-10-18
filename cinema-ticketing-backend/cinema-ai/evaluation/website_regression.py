@@ -20,6 +20,7 @@ from dotenv import dotenv_values
 
 from evaluation.website_cases import CASES, CORE, Turn
 from evaluation.website_environment import AI, BACKEND, ROOT
+from evaluation.website_time_policy import score_time_policy
 
 WEB = "http://127.0.0.1:15173"
 URLS = {
@@ -74,6 +75,7 @@ class WebsiteRegression:
         self.client = httpx.AsyncClient(trust_env=False, timeout=httpx.Timeout(100, connect=5))
         self.tokens: dict[str, str] = {}
         self.orders: dict[str, str] = {}
+        self.fixture: dict = {}
 
     async def json(self, method: str, url: str, **kwargs) -> dict:
         response = await self.client.request(method, url, **kwargs)
@@ -130,6 +132,7 @@ class WebsiteRegression:
             self.tokens[alias] = result["data"]["token"]
         snapshot = await self.json("GET", "http://127.0.0.1:18090/snapshot", headers=self.fixture_headers)
         self.orders = snapshot["orders"]
+        self.fixture = snapshot
         save(self.output / "fixture-snapshot.json", snapshot)
 
     async def session(self, account: str = "a") -> dict:
@@ -150,19 +153,22 @@ class WebsiteRegression:
 
     async def turn(self, session: dict, turn: Turn) -> dict:
         question = turn.question.format(**self.orders)
+        if turn.action == "new_account_b":
+            session = await self.session("b")
         if turn.action == "reset":
             result = await self.json("POST", WEB + "/ai-gateway/agent/reset", headers=self.browser_headers(session))
             session["sessionId"] = result["sessionId"]
+            session.pop("last_answer", None)
         if turn.action == "advance":
             await self.json("POST", "http://127.0.0.1:18090/advance", headers=self.fixture_headers)
-        if turn.action in {"truncate", "java_unavailable"}:
+        if turn.action in {"truncate", "java_unavailable", "recommendation_unavailable"}:
             await self.json(
                 "POST",
                 "http://127.0.0.1:18081/__fixture/fault",
                 headers=self.fixture_headers,
                 json={
-                    "mode": turn.action,
-                    "path": "/internal/orders/" + self.orders["O04"] if turn.action == "java_unavailable" else "",
+                    "mode": "java_unavailable" if turn.action == "recommendation_unavailable" else turn.action,
+                    "path": "/internal/recommendations" if turn.action == "recommendation_unavailable" else "/internal/orders/" + self.orders["O04"] if turn.action == "java_unavailable" else "",
                 },
             )
         credential = (
@@ -180,6 +186,8 @@ class WebsiteRegression:
             headers["X-Auth-Token"] = self.tokens["b"]
         events, started = [], time.perf_counter()
         row = {"question": question, "check": turn.check, "reference_date": datetime.now(BEIJING).date().isoformat()}
+        if turn.check.startswith("rt:"):
+            row.update(fixture=self.fixture, prior_answer=session.get("last_answer", ""))
         stopped = False
         async with self.client.stream(
             "POST",
@@ -235,6 +243,7 @@ class WebsiteRegression:
         )
         row["failures"] = score(row)
         row["status"] = "FAIL" if row["failures"] else "PASS"
+        session["last_answer"] = row["answer"]
         return row
 
 
@@ -308,6 +317,8 @@ def score(row: dict) -> list[str]:
         require("悬疑" not in str(context.get("entities", {})), "reset 后仍残留题材")
         require(not context.get("entities", {}).get("screening_date_from"), "reset 后残留本周")
         return failures
+    if check.startswith("rt:"):
+        return failures + score_time_policy(row)
     if check.startswith("order_") or check == "persisted":
         facts, website = row["facts"], row["website_facts"]
         expected_states = {
@@ -444,7 +455,7 @@ async def original_preflight(output: Path) -> None:
     save(output / "original-website-preflight.json", rows)
 
 
-async def run(options: argparse.Namespace) -> None:
+async def run(options: argparse.Namespace) -> bool:
     output = options.environment / ("results-" + datetime.now().strftime("%Y%m%d-%H%M%S-%f"))
     output.mkdir(parents=True)
     await original_preflight(output)
@@ -454,16 +465,23 @@ async def run(options: argparse.Namespace) -> None:
         preflight = await runner.preflight()
         if any(row["status"] != "PASS" for row in preflight):
             print("BLOCKED: runtime identity mismatch; see " + str(output), flush=True)
-            return
+            save(output / "summary.json", {"suite": options.suite, "counts": {"BLOCKED": 1}, "scenarios": 0})
+            return False
         await runner.login()
+        if options.suite == "v2":
+            from evaluation.website_cases_v2 import CASES as suite_cases, CORE as suite_core
+        else:
+            suite_cases, suite_core = CASES, CORE
         selected = [
             case
-            for case in CASES
-            if (not options.core or case.id in CORE)
+            for case in suite_cases
+            if (not options.core or case.id in suite_core)
             and (not options.case_ids or case.id in options.case_ids.split(","))
         ]
         if options.case_ids and set(options.case_ids.split(",")) != {case.id for case in selected}:
             raise ValueError("Unknown case identifier or incompatible --core selection")
+        if not selected:
+            raise ValueError("No scenarios selected")
         for case in selected:
             row = {"id": case.id, "title": case.title, "turns": []}
             try:
@@ -493,6 +511,8 @@ async def run(options: argparse.Namespace) -> None:
             output / "summary.json",
             {
                 "counts": dict(Counter(row["status"] for row in rows)),
+                "suite": options.suite,
+                "policy_version": "recommendation-time-v2" if options.suite == "v2" else "legacy-expectations",
                 "scenarios": len(rows),
                 "rounds": sum(len(row["turns"]) for row in rows),
                 "scope": "isolated website + actual configured model",
@@ -503,6 +523,7 @@ async def run(options: argparse.Namespace) -> None:
     finally:
         await runner.client.aclose()
     print("Evidence: " + str(output), flush=True)
+    return bool(rows) and all(row["status"] == "PASS" for row in rows)
 
 
 if __name__ == "__main__":
@@ -510,4 +531,5 @@ if __name__ == "__main__":
     parser.add_argument("--environment", type=Path, required=True)
     parser.add_argument("--core", action="store_true")
     parser.add_argument("--case-ids", default="")
-    asyncio.run(run(parser.parse_args()))
+    parser.add_argument("--suite", choices=("v1", "v2"), default="v1")
+    raise SystemExit(0 if asyncio.run(run(parser.parse_args())) else 1)

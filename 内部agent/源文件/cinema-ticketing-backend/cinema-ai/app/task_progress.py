@@ -68,7 +68,7 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
             and any(word in text for word in ("查", "找", "比较", "看看", "瞅"))
         )
     )
-    titles = list(dict.fromkeys(re.findall(r"《([^》]+)》", question)))
+    titles = entities.get("candidate_titles") or list(dict.fromkeys(re.findall(r"《([^》]+)》", question)))
     if "screenings" not in domains and entities.get("order_no"):
         slots = False
     movie_queries = titles if len(titles) > 1 else [entities["movie_query"] or entities["preference"]]
@@ -89,7 +89,7 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
                 "查询影片资料" if facts else "查询影片列表",
             )
     if slots:
-        for query in titles if len(titles) > 1 else [entities["movie_query"]]:
+        for query in titles if titles else [entities["movie_query"]]:
             add(
                 "search_screenings",
                 {

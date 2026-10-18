@@ -2,6 +2,26 @@
 
 ## 网站入口回归（2026-10-17 新增）
 
+### 推荐时间策略 v2（2026-10-18）
+
+本轮“推荐最近一周的电影”直接按最近 7 天上映推荐，披露默认口径；明确观影含义、必要澄清和用户纠正保持独立处理。
+
+- `website_cases.py` 保留 v1 的 32 个场景和历史含义。
+- `website_cases_v2.py` 包含 67 个场景：保留基线，替换旧 D05 的过度澄清预期，并新增时间策略及 9 次独立会话稳定性复测。
+- `website_time_policy.py` 从夹具快照独立计算预期，检查真实参数、候选集合及范围外标注。协议中的 `null` 可选字段不算有效筛选条件。
+- `--suite` 默认仍为 v1。验证新策略应显式选 v2；v1 的旧 D05 在新版业务规则下已不再是正确体验预期，不能把它的历史通过率直接沿用。
+- `summary.json` 记录套件和策略版本；FAIL、BLOCKED 或无有效用例将非零退出。
+
+在下述构建和启动步骤完成后运行：
+
+```powershell
+.venv\Scripts\python.exe -m evaluation.website_regression --environment ..\target\website-regression-NEW --suite v2 --case-ids RT-A01,RT-A02,RT-P01,RT-C01,RT-C02
+```
+
+完整回归使用新的环境与夹具，再执行 `--suite v2`（不加题号）。浏览器应单独在 API 回归结束后验收，避免同一测试账号的 reset 干扰 UI。原 `website_browser_evidence.py` 的历史固定日期和 B01–B06 描述属于旧浏览器验收，不能直接给本轮新行为计分。
+
+执行方案见项目 `docs/agent-recommendation-time-policy-plan-2026-10-17.md`。隔离环境使用现有 Qwen 配置，真实模型需要网络可用；出现 APIConnectionError 的降级结果必须单独记录，不能当作真实模型成功验收。
+
 `website_regression.py` 与下述直接调用内部 Agent 的评测分开：它通过网站代理登录、申请会话和 Java 转接凭证，再请求网关 SSE。用例在 `website_cases.py`，包含 32 个场景；不修改冻结 Golden v1。
 
 先在后端目录生成 Java 构建和包含 H2、嵌入式 Redis 的测试依赖清单：

@@ -7,13 +7,18 @@ from typing import Any
 
 from app.intent_classifier import predict_intent
 from app.query_semantics import movie_fields, policy_kind, prose, query_domains
-from app.time_normalization import temporal_clarification
+from app.time_normalization import references_recommendations, temporal_clarification
 
 
 def preliminary_route(rules: Any, question: str, history: list[dict[str, str]], *, unfiltered: bool = False) -> tuple[str, str]:
     """Return the winning layer and its reason; empty layer requires the LLM."""
     text = prose(question)
     domains = query_domains(question, bool(rules.order_no))
+    if references_recommendations(question) and not getattr(rules, "candidate_titles", []):
+        return "preflight", "missing_recommendation_context"
+    if rules.intent == "recommend" and not rules.movie_query and set(movie_fields(question)) <= {"release_date"}:
+        # A request to show release dates is already satisfied by recommendation rows.
+        domains.discard("movies")
     multiple = len(domains - {"general_policy"}) > 1 or len(rules.order_nos) > 1 or question.count("《") > 1
     if temporal_clarification(rules.temporal, rules.intent):
         if any(window.status == "invalid" for window in rules.temporal.windows):
@@ -58,9 +63,11 @@ def preliminary_route(rules: Any, question: str, history: list[dict[str, str]], 
         return "", "composite_requires_understanding"
     if os.getenv("AGENT_L0_ENABLED", "true").lower() != "true":
         return "", "llm_required"
+    if getattr(rules, "candidate_titles", []):
+        return "l0", "previous_recommendations"
     if history and re.search(r"那|它|这部|刚才|前面|下一页|第\s*\d+\s*页", text):
         return "", "context_requires_understanding"
-    grounded_time_query = unfiltered or bool(rules.movie_query) or (rules.intent == "recommend" and bool(rules.preference) and not re.search(r"影院|影城|电影城", text))
+    grounded_time_query = unfiltered or bool(rules.movie_query) or (rules.intent == "recommend" and not re.search(r"影院|影城|电影城", text))
     if grounded_time_query and rules.temporal.windows and rules.intent in ("recommend", "movies", "screenings"):
         return "l0", "normalized_time"
     if rules.intent in ("order", "refund") and rules.order_no:
@@ -102,6 +109,7 @@ def slot_summary(plan: dict[str, Any], reason: str = "") -> dict[str, Any]:
         "policy_source_unavailable": ["policy_source"],
         "unresolved_time": ["time_range"],
         "ambiguous_time_target": ["time_target"],
+        "missing_recommendation_context": ["movie_query"],
     }.get(reason, [])
     if not missing and plan.get("clarification"):
         if any(window.get("target") == "unspecified" for window in entities.get("temporal", {}).get("windows", [])):
