@@ -533,10 +533,12 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             plan.confidence = max(plan.confidence, 0.95)
         if prior is not None and not plan.preference:
             plan.preference = prior.preference
-    temporal_question = question.replace("这一周", "这周").replace("这一星期", "这星期")
-    if maximum is not None and not re.search(r"上映|新片|首映", temporal_question):
-        temporal_question += " 可购票场次"
-    temporal = resolve_query_times(temporal_question, plan.intent, today, prior=prior.temporal if prior else None, pending=pending, choice=target_choice)
+    temporal = resolve_query_times(
+        question, plan.intent, today, prior=prior.temporal if prior else None,
+        pending=pending, choice=target_choice,
+        default_target="screening" if maximum is not None else "unspecified",
+        bookable_only=plan.intent == "recommend" or (plan.intent == "screenings" and plan.screening_scope == "bookable"),
+    )
     if prior is not None and price_followup(question) and not temporal.windows:
         temporal = prior.temporal.model_copy(deep=True)
     if prior is not None and target_choice:
@@ -769,7 +771,11 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
     if time_followup or time_target_choice(question, history) or plan.intent == rules.intent:
         temporal = rules.temporal.model_copy(deep=True)
     elif plan.intent in ("recommend", "movies", "screenings", "seats"):
-        temporal = resolve_query_times(question, plan.intent, today)
+        temporal = resolve_query_times(
+            question, plan.intent, today,
+            default_target="screening" if plan.max_ticket_price is not None else "unspecified",
+            bookable_only=plan.intent == "recommend" or (plan.intent == "screenings" and plan.screening_scope == "bookable"),
+        )
     else:
         temporal = TemporalContext(reference_date=today.isoformat())
     apply_time_filters(plan, temporal)

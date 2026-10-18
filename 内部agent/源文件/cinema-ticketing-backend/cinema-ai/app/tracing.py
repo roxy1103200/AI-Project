@@ -373,7 +373,7 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
     if isinstance(payload.get("understanding_layer"), str) and payload["understanding_layer"] in {"l0", "l1", "preflight", "llm", "fallback"}:
         summary["understanding_layer"] = payload["understanding_layer"]
     if isinstance(payload.get("preflight_reason"), str) and payload["preflight_reason"] in {
-        "invalid_date", "greeting", "unsupported_transaction", "policy_source_unavailable", "ticket_budget", "invalid_ticket_budget", "unsupported_ticket_budget",
+        "invalid_date", "greeting", "unsupported_transaction", "policy_source_unavailable", "ticket_budget", "invalid_ticket_budget", "unsupported_ticket_budget", "historical_screening_window", "expired_screening_window",
         "missing_order_no", "missing_screening_id", "missing_date", "explicit_order",
         "explicit_screening", "explicit_movie_fields", "ticket_policy", "explicit_screening_date",
         "validated_local_classifier", "glm_high_confidence", "none", "normalized_time", "unresolved_time", "ambiguous_time_target",

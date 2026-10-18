@@ -13,7 +13,7 @@ from app.query_semantics import query_domains
 
 TimeTarget = Literal["release", "screening", "unspecified"]
 ResolvedTimeTarget = Literal["release", "screening"]
-TIME_POLICY_VERSION = "recommendation-time-v2"
+TIME_POLICY_VERSION = "recommendation-time-v3"
 
 RELEASE_FILTERS = ("release_date_from", "release_date_to")
 SCREENING_FILTERS = ("screening_date_from", "screening_date_to", "screening_hour_from", "screening_hour_to")
@@ -47,6 +47,7 @@ class TimeWindow(BaseModel):
     hour_from: int | None = None
     hour_to: int | None = None
     assumed_target: bool = False
+    assumed_direction: bool = False
     reason: Literal["none", "vague", "year_required", "invalid_date", "conflict", "target_required"] = "none"
 
 
@@ -56,6 +57,10 @@ class TemporalContext(BaseModel):
     reference_date: str = ""
     time_zone: Literal["Asia/Shanghai"] = "Asia/Shanghai"
     windows: list[TimeWindow] = Field(default_factory=list, max_length=12)
+    bookable_only: bool = False
+    effective_screening_date_from: str | None = None
+    effective_screening_date_to: str | None = None
+    bookable_window_issue: Literal["none", "historical_request", "expired_range"] = "none"
 
 
 def is_time_followup(question: str) -> bool:
@@ -299,6 +304,39 @@ def resolve_query_times(
     prior: TemporalContext | None = None,
     pending: str = "",
     choice: ResolvedTimeTarget | None = None,
+    default_target: TimeTarget = "unspecified",
+    bookable_only: bool = False,
+) -> TemporalContext:
+    """Resolve target and direction using explicit business context, never synthetic text."""
+    question = question.replace("这一周", "这周").replace("这一星期", "这星期")
+    context = _resolve_query_times(
+        question, intent, today, prior=prior, pending=pending, choice=choice,
+        default_target=default_target,
+    )
+    context.bookable_only = bookable_only
+    current_expressions = {match[0] for match in EXPRESSION.finditer(re.sub(r"《[^》]+》", "", question))}
+    for window in context.windows:
+        if not bookable_only or window.target != "screening" or window.status != "resolved":
+            continue
+        if window.expression not in current_expressions:
+            continue  # A budget-only follow-up preserves the already displayed absolute dates.
+        if re.fullmatch(r"(?:最近|近)(?:的)?\s*[\d一二两三四五六七八九十]+\s*(?:个)?(?:星期|周|天|日|月)", window.expression):
+            future_expression = re.sub(r"^(?:最近|近)", "未来", window.expression)
+            start, end = _bounds(future_expression, today, "screening", question)
+            window.date_from, window.date_to = start.isoformat(), end.isoformat()
+            window.assumed_direction = True
+    return context
+
+
+def _resolve_query_times(
+    question: str,
+    intent: str,
+    today: date,
+    *,
+    prior: TemporalContext | None = None,
+    pending: str = "",
+    choice: ResolvedTimeTarget | None = None,
+    default_target: TimeTarget = "unspecified",
 ) -> TemporalContext:
     """Resolve explicit, inherited and assumed meanings through one shared policy."""
     if intent not in ("recommend", "movies", "screenings", "seats"):
@@ -307,7 +345,7 @@ def resolve_query_times(
     if prior and choice:
         return clarify_time_target(prior, choice, question, pending, today)
     targets = {window.target for window in prior.windows} if prior else set()
-    inherited: TimeTarget = next(iter(targets)) if len(targets) == 1 else "unspecified"
+    inherited: TimeTarget = next(iter(targets)) if len(targets) == 1 else default_target
     context = normalize_times(question, today, inherited)
     text = re.sub(r"《[^》]+》", "", question)
     if intent == "recommend" and "推荐" in text:
@@ -375,10 +413,44 @@ def apply_time_filters(plan: Any, context: TemporalContext) -> None:
                 plan.screening_date = window.date_from
                 plan.screening_date_from = plan.screening_date_to = None
             plan.screening_hour_from, plan.screening_hour_to = window.hour_from, window.hour_to
+    apply_bookable_window(plan, context)
+
+
+def apply_bookable_window(plan: Any, context: TemporalContext) -> None:
+    """Keep requested windows intact while intersecting ticket queries with today onward."""
+    context.effective_screening_date_from = context.effective_screening_date_to = None
+    context.bookable_window_issue = "none"
+    if not context.bookable_only:
+        return
+    screening = [window for window in context.windows if window.target == "screening"]
+    if any(window.status != "resolved" for window in screening):
+        return
+    if any(re.search(r"过去|历史|此前|上周|上星期|上个月|去年|昨天|昨日|前天|[天日周]前$", window.expression) for window in screening):
+        context.bookable_window_issue = "historical_request"
+        return
+    start = plan.screening_date or plan.screening_date_from
+    end = plan.screening_date or plan.screening_date_to
+    if not start or not end:
+        return
+    if end < context.reference_date:
+        context.bookable_window_issue = "expired_range"
+        return
+    effective_start = max(start, context.reference_date)
+    context.effective_screening_date_from, context.effective_screening_date_to = effective_start, end
+    if effective_start == end:
+        plan.screening_date = effective_start
+        plan.screening_date_from = plan.screening_date_to = None
+    else:
+        plan.screening_date = None
+        plan.screening_date_from, plan.screening_date_to = effective_start, end
 
 
 def temporal_clarification(context: TemporalContext, intent: str, preference: str = "", movie_query: str = "") -> str:
     """Ask only when an unresolved condition is required for the requested task."""
+    if context.bookable_window_issue == "historical_request":
+        return "你指定的是历史场次范围，当前可购票查询不能用于查询历史场次。请提供今天或之后的观影日期；我不会自动把过去日期改成未来日期。"
+    if context.bookable_window_issue == "expired_range":
+        return "你指定的观影日期已经全部过去，无法在该范围查询当前可购票场次。请提供今天或之后的日期。"
     for window in context.windows:
         if window.status == "resolved":
             continue
@@ -468,6 +540,10 @@ def temporal_summary(context: TemporalContext) -> dict[str, Any]:
         "reference_date": context.reference_date,
         "time_zone": context.time_zone,
         "windows": [window.model_dump(exclude={"expression"}) for window in context.windows],
+        "bookable_only": context.bookable_only,
+        "effective_screening_date_from": context.effective_screening_date_from,
+        "effective_screening_date_to": context.effective_screening_date_to,
+        "bookable_window_issue": context.bookable_window_issue,
     }
 
 
@@ -495,6 +571,13 @@ def sanitize_temporal_summary(value: Any) -> dict[str, Any]:
     except (KeyError, ValueError, TypeError):
         return {}
     safe: dict[str, Any] = {"reference_date": reference, "time_zone": "Asia/Shanghai", "windows": []}
+    if type(value.get("bookable_only")) is bool:
+        safe["bookable_only"] = value["bookable_only"]
+    if isinstance(value.get("bookable_window_issue"), str) and value["bookable_window_issue"] in {"none", "historical_request", "expired_range"}:
+        safe["bookable_window_issue"] = value["bookable_window_issue"]
+    for key in ("effective_screening_date_from", "effective_screening_date_to"):
+        with suppress(ValueError, TypeError, KeyError):
+            safe[key] = date.fromisoformat(value[key]).isoformat()
     windows = value.get("windows", [])
     if not isinstance(windows, list):
         return safe
@@ -518,5 +601,7 @@ def sanitize_temporal_summary(value: Any) -> dict[str, Any]:
                 clean[key] = window[key]
         if type(window.get("assumed_target")) is bool:
             clean["assumed_target"] = window["assumed_target"]
+        if type(window.get("assumed_direction")) is bool:
+            clean["assumed_direction"] = window["assumed_direction"]
         safe["windows"].append(clean)
     return safe

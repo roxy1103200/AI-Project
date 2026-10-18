@@ -21,6 +21,10 @@ def preliminary_route(rules: Any, question: str, history: list[dict[str, str]], 
         return "preflight", "unsupported_ticket_budget"
     if references_recommendations(question) and not getattr(rules, "candidate_titles", []):
         return "preflight", "missing_recommendation_context"
+    if rules.temporal.bookable_window_issue == "historical_request":
+        return "preflight", "historical_screening_window"
+    if rules.temporal.bookable_window_issue == "expired_range":
+        return "preflight", "expired_screening_window"
     if rules.intent == "recommend" and not rules.movie_query and set(movie_fields(question)) <= {"release_date"}:
         # A request to show release dates is already satisfied by recommendation rows.
         domains.discard("movies")

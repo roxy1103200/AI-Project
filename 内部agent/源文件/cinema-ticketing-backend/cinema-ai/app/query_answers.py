@@ -49,8 +49,25 @@ def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) 
     """Show the chosen release interval and explicitly label relaxed preferences."""
     if not valid_ticket_prices(data, entities):
         return "当前返回的场次价格信息无法确认满足预算，请稍后重试。"
+    temporal = entities.get("temporal", {})
+    if temporal.get("bookable_window_issue", "none") != "none":
+        return "指定日期属于历史范围或已全部过去，无法用于当前可购票推荐，请提供今天或之后的观影日期。"
+    if temporal.get("bookable_only"):
+        for row in data:
+            for slot in row.get("screenings", []):
+                try:
+                    start_time = datetime.fromisoformat(str(slot["start_time"]))
+                except (KeyError, TypeError, ValueError):
+                    return "当前场次时间信息无法确认，请稍后重试。"
+                if start_time.tzinfo is not None:
+                    start_time = start_time.astimezone(timezone(timedelta(hours=8)))
+                if not _valid_screening_time(start_time, entities) or start_time.date().isoformat() < temporal.get("reference_date", ""):
+                    return "当前返回的场次时间与查询范围不一致，暂时无法确认推荐结果。"
     start, end = entities.get("release_date_from"), entities.get("release_date_to")
     lines = []
+    time_note = bookable_time_note(entities)
+    if time_note:
+        lines.append(time_note)
     maximum = entities.get("max_ticket_price")
     if maximum is not None:
         comparison = "不超过" if entities.get("price_upper_inclusive", True) else "低于"
@@ -72,7 +89,10 @@ def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) 
     if viewing:
         viewing_start = entities.get("screening_date_from") or entities.get("screening_date")
         viewing_end = entities.get("screening_date_to") or viewing_start
-        period = f"观影日期：{viewing_start} 至 {viewing_end}（北京时间，含起止日）" if viewing_start else "观影范围：今天及之后（北京时间）"
+        label = "实际可购票日期" if temporal.get("bookable_only") else "观影日期"
+        period = f"{label}：{viewing_start} 至 {viewing_end}（北京时间，含起止日）" if viewing_start else "观影范围：今天及之后（北京时间）"
+        if temporal.get("bookable_only"):
+            period += "，仅查询当前时刻之后尚未开始的场次"
         if entities.get("screening_hour_from") is not None:
             period += f"，每天 {entities['screening_hour_from']:02d}:00 至 {entities['screening_hour_to']:02d}:00（不含结束时刻）"
         lines.append(period + "。")
@@ -97,6 +117,24 @@ def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) 
         for slot in row.get("screenings", [])[:3]:
             lines.append(f"  场次 {slot['id']}｜{slot['start_time']}｜{slot['cinema_name']} {slot['hall_name']}｜¥{slot['price']}")
     return "\n".join(lines)
+
+
+def bookable_time_note(entities: dict[str, Any]) -> str:
+    """Explain assumptions and the difference between requested and actionable dates."""
+    temporal = entities.get("temporal", {})
+    if not temporal.get("bookable_only"):
+        return ""
+    notes = []
+    effective_start = temporal.get("effective_screening_date_from")
+    for window in temporal.get("windows", []):
+        if window.get("target") != "screening":
+            continue
+        if window.get("assumed_direction"):
+            notes.append(f"购票推荐中的“{window.get('expression', '近期')}”按今天起的未来范围理解。")
+        start, end = window.get("date_from"), window.get("date_to")
+        if start and effective_start and start < effective_start:
+            notes.append(f"指定观影日期为 {start} 至 {end}，实际只查询该范围内剩余可购票场次，不扩大日期范围。")
+    return "\n".join(dict.fromkeys(notes))
 # isort: on
 
 
