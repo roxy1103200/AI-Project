@@ -33,7 +33,7 @@ from langchain_core.tools import BaseTool, tool
 from pydantic import BaseModel, Field
 
 # 导入当前步骤使用的模块或类型。
-from app.failures import describe_failure
+from app.failures import CinemaQueryError, describe_failure
 # 导入当前步骤使用的模块或类型。
 from app.java_client import JavaApiClient
 # 导入当前步骤使用的模块或类型。
@@ -119,16 +119,27 @@ def create_tools(
         release_date_to: str | None = None, release_date_preferred: bool = False,
         screening_date_from: str | None = None, screening_date_to: str | None = None,
         screening_hour_from: int | None = None, screening_hour_to: int | None = None,
+        max_ticket_price: str | None = None, price_upper_inclusive: bool = True,
+        movie_query: str = "", cinema_query: str = "",
     ) -> Any:
         """Recommend movies using the Java recommendation endpoint."""
         # 将当前计算结果返回给调用方。
-        return await client.post("/internal/recommendations", {
+        payload = {
             "userId": user_id, "preference": preference,
             "releaseDateFrom": release_date_from, "releaseDateTo": release_date_to,
             "releaseDatePreferred": release_date_preferred,
             "screeningDateFrom": screening_date_from, "screeningDateTo": screening_date_to,
             "screeningHourFrom": screening_hour_from, "screeningHourTo": screening_hour_to,
-        })
+            "maxTicketPrice": max_ticket_price, "priceUpperInclusive": price_upper_inclusive,
+            "movieQuery": movie_query, "cinemaQuery": cinema_query,
+        }
+        path = "/internal/recommendations/budget" if max_ticket_price is not None else "/internal/recommendations"
+        try:
+            return await client.post(path, payload)
+        except httpx.HTTPStatusError as exc:
+            if max_ticket_price is not None and exc.response.status_code == 404:
+                raise CinemaQueryError("query_contract_mismatch", "当前查询服务尚不支持预算筛选，暂时无法确认符合预算的场次。") from exc
+            raise
 
     # 将当前计算结果返回给调用方。
     return {

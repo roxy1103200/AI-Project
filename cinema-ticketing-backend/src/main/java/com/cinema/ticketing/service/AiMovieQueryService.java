@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Clock;
+import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.ZoneId;
@@ -237,15 +238,33 @@ public class AiMovieQueryService {
     @Transactional(readOnly = true)
     public List<Map<String, Object>> recommendations(
             String preference, LocalDate from, LocalDate to, boolean preferred, AiDateWindow viewing) {
+        return recommendations(preference, from, to, preferred, viewing, null, true, "", "");
+    }
+
+    @Transactional(readOnly = true)
+    public List<Map<String, Object>> recommendations(
+            String preference, LocalDate from, LocalDate to, boolean preferred, AiDateWindow viewing,
+            BigDecimal maxTicketPrice, boolean priceUpperInclusive, String movieQuery, String cinemaQuery) {
         new AiDateWindow(from, to, null, null, null, null);
+        if (maxTicketPrice != null && (maxTicketPrice.signum() < 0 || maxTicketPrice.scale() > 2
+                || maxTicketPrice.compareTo(new BigDecimal("1000000")) > 0)) {
+            throw new BusinessException(400, "票价上限无效，请提供不超过两位小数的非负金额");
+        }
         StringBuilder where = new StringBuilder("m.status NOT IN ('OFFLINE','ARCHIVED')");
         List<Object> args = new ArrayList<>();
         Filter screeningFilter = null;
-        if (viewing.screeningFrom() != null || viewing.hourFrom() != null) {
+        if (viewing.screeningFrom() != null || viewing.hourFrom() != null || maxTicketPrice != null
+                || (cinemaQuery != null && !cinemaQuery.isBlank())) {
             LocalDateTime now = LocalDateTime.now(clock);
             StringBuilder sql = new StringBuilder(SellableScreenings.WHERE);
             List<Object> slots = new ArrayList<>(List.of(now, now, now));
             appendScreeningWindow(sql, slots, null, viewing);
+            if (maxTicketPrice != null) {
+                sql.append(" AND s.price>=0");
+                sql.append(priceUpperInclusive ? " AND s.price<=?" : " AND s.price<?");
+                slots.add(maxTicketPrice);
+            }
+            appendKeyword(sql, slots, "c.name", cinemaQuery);
             screeningFilter = new Filter(sql.toString(), slots);
             where.append(" AND EXISTS (SELECT 1 FROM screening s JOIN hall h ON h.id=s.hall_id"
                     + " JOIN cinema c ON c.id=h.cinema_id WHERE s.movie_id=m.id AND ")
@@ -257,6 +276,7 @@ public class AiMovieQueryService {
             String keyword = "%" + preference.trim() + "%";
             args.addAll(List.of(keyword, keyword, keyword));
         }
+        appendKeyword(where, args, "m.title", movieQuery);
         if (!preferred) appendRelease(where, args, from, to);
         String ordering = "";
         if (preferred && from != null) {

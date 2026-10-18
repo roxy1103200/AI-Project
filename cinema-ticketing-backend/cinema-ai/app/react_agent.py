@@ -443,7 +443,7 @@ class CinemaReAct:
             # 为 `args` 保存当前步骤所需的值。
             args = {"preference": entities["preference"], **recommendation_time_arguments(entities)}
             # 检查 `if not args["preference"]`，据此选择当前处理分支。
-            if not args["preference"]:
+            if not args["preference"] and entities.get("max_ticket_price") is None:
                 args["preference"] = next(
                     # 继续构造当前业务表达式或数据结构。
                     (
@@ -679,8 +679,8 @@ class CinemaReAct:
                 }
             )
             # Empty recommendations use the deterministic response even with a custom formatter.
-            if name == "recommend_movies" and data == []:
-                answer = recommendation_answer([], {**state["entities"], **arguments})
+            if name == "recommend_movies" and (data == [] or arguments.get("max_ticket_price") is not None):
+                answer = recommendation_answer(data, {**state["entities"], **arguments})
             # 检查 `if name == "query_seats"`，据此选择当前处理分支。
             if name == "query_seats":
                 # 为 `answer` 保存当前步骤所需的值。

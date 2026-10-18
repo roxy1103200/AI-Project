@@ -20,6 +20,7 @@ RULE_FILES = (
     "order_answers.py",
     "runtime_info.py",
     "time_normalization.py",
+    "ticket_price.py",
     "intent.py",
     "intent_routing.py",
     "query_semantics.py",

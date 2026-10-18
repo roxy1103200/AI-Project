@@ -46,7 +46,7 @@ class JavaApiClient:
         """Call the recommendation endpoint and return decoded JSON."""
         # 为 `response` 保存当前步骤所需的值。
         response = await self.client.post(path, json=payload, headers={"X-Trace-Id": REQUEST_ID.get()})
-        observe("java", path=path, parameters={key: value for key, value in payload.items() if key != "preference"}, status=response.status_code)
+        observe("java", path=path, parameters={key: value for key, value in payload.items() if key not in {"userId", "preference", "movieQuery", "cinemaQuery"}}, status=response.status_code)
         # 继续构造当前业务表达式或数据结构。
         response.raise_for_status()
         # 将当前计算结果返回给调用方。

@@ -20,6 +20,7 @@ import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
+import java.math.BigDecimal;
 import java.util.List;
 import java.util.Map;
 
@@ -135,7 +136,7 @@ public class InternalAiController {
         return new KnowledgeSearchService(jdbcTemplate).search(query);
     }
 
-    @PostMapping("/recommendations")
+    @PostMapping({"/recommendations", "/recommendations/budget"})
     public List<Map<String, Object>> recommendations(
             @RequestHeader("X-Internal-Token") String token,
             @RequestBody(required = false) Map<String, Object> request) {
@@ -145,12 +146,30 @@ public class InternalAiController {
         Map<String, Object> values = request == null ? Map.of() : request;
         Object preferred = values.getOrDefault("releaseDatePreferred", false);
         if (!(preferred instanceof Boolean)) throw new BusinessException(400, "日期偏好参数无效");
+        Object inclusive = values.getOrDefault("priceUpperInclusive", true);
+        if (!(inclusive instanceof Boolean)) throw new BusinessException(400, "票价边界参数无效");
         return movieQueries.recommendations(preference,
                 requestDate(values.get("releaseDateFrom")), requestDate(values.get("releaseDateTo")),
                 Boolean.TRUE.equals(preferred),
                 new AiDateWindow(null, null, requestDate(values.get("screeningDateFrom")),
                         requestDate(values.get("screeningDateTo")), requestHour(values.get("screeningHourFrom")),
-                        requestHour(values.get("screeningHourTo"))));
+                        requestHour(values.get("screeningHourTo"))),
+                requestPrice(values.get("maxTicketPrice")), Boolean.TRUE.equals(inclusive),
+                String.valueOf(values.getOrDefault("movieQuery", "")),
+                String.valueOf(values.getOrDefault("cinemaQuery", "")));
+    }
+
+    private BigDecimal requestPrice(Object value) {
+        if (value == null) return null;
+        try {
+            BigDecimal price = new BigDecimal(String.valueOf(value));
+            if (price.signum() < 0 || price.scale() > 2 || price.compareTo(new BigDecimal("1000000")) > 0) {
+                throw new NumberFormatException("out of range");
+            }
+            return price;
+        } catch (NumberFormatException exception) {
+            throw new BusinessException(400, "票价上限无效，请提供不超过两位小数的非负金额");
+        }
     }
 
     private LocalDate requestDate(Object value) {

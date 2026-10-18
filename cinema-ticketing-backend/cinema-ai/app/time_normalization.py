@@ -3,6 +3,7 @@
 import calendar
 import re
 from contextlib import suppress
+from app.ticket_price import price_arguments
 from datetime import date, timedelta
 from typing import Any, Literal
 
@@ -478,6 +479,10 @@ def recommendation_time_arguments(entities: dict[str, Any]) -> dict[str, Any]:
     }
     if entities.get("screening_date"):
         arguments.update(screening_date_from=entities["screening_date"], screening_date_to=entities["screening_date"])
+    arguments.update(price_arguments(entities))
+    for key in ("movie_query", "cinema_query"):
+        if entities.get(key):
+            arguments[key] = entities[key]
     return arguments
 
 

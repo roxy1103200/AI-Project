@@ -24,6 +24,7 @@ from app.intent_routing import preliminary_route, slot_summary
 from app.query_semantics import movie_fields, policy_kind, query_domains
 from app.glm_router import classify, eligible
 from app.versions import load_prompt
+from app.ticket_price import PRICE_FIELDS, price_followup, ticket_budget
 from app.time_normalization import (
     EXPRESSION, TIME_FILTERS, TemporalContext, apply_time_filters,
     temporal_clarification, temporal_summary, time_target_choice, is_time_followup,
@@ -121,6 +122,8 @@ class QuestionPlan(BaseModel):
     )
     policy_kind: Literal["none", "ticket_policy", "general_policy", "mixed"] = "none"
     candidate_titles: list[str] = Field(default_factory=list, max_length=5)
+    max_ticket_price: str | None = Field(default=None, pattern=r"^\d+\.\d{2}$")
+    price_upper_inclusive: bool = True
 
 
 # 声明当前处理单元及其入口。
@@ -436,7 +439,7 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
     prior = None
     target_choice = time_target_choice(question, history)
     temporal_reply = is_time_followup(question)
-    refinement = is_query_refinement(question)
+    refinement = is_query_refinement(question) or price_followup(question)
     screening_reply = SCREENING_PATTERN.fullmatch(question.strip())
     # 为 `page_reply` 保存当前步骤所需的值。
     page_reply = bool(re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()))
@@ -520,7 +523,22 @@ def rule_plan(question: str, history: list[dict[str, str]], today: date | None =
             plan.normalized_question = f"{normalized}（承接问题：{prior.normalized_question[:400]}）"[:1000]
     # 将当前计算结果返回给调用方。
     pending = history[-1].get("content", "") if history and history[-1].get("role") == "assistant" else ""
-    temporal = resolve_query_times(question, plan.intent, today, prior=prior.temporal if prior else None, pending=pending, choice=target_choice)
+    maximum, inclusive, price_changed = ticket_budget(question)
+    if not price_changed and prior is not None:
+        maximum, inclusive = prior.max_ticket_price, prior.price_upper_inclusive
+    plan.max_ticket_price, plan.price_upper_inclusive = maximum, inclusive
+    if maximum is not None or (price_changed and prior is not None and prior.intent == "recommend"):
+        if plan.intent not in ("order", "refund", "policy", "seats"):
+            plan.intent, plan.movie_scope, plan.screening_scope = "recommend", "catalog", "bookable"
+            plan.confidence = max(plan.confidence, 0.95)
+        if prior is not None and not plan.preference:
+            plan.preference = prior.preference
+    temporal_question = question.replace("这一周", "这周").replace("这一星期", "这星期")
+    if maximum is not None and not re.search(r"上映|新片|首映", temporal_question):
+        temporal_question += " 可购票场次"
+    temporal = resolve_query_times(temporal_question, plan.intent, today, prior=prior.temporal if prior else None, pending=pending, choice=target_choice)
+    if prior is not None and price_followup(question) and not temporal.windows:
+        temporal = prior.temporal.model_copy(deep=True)
     if prior is not None and target_choice:
         if plan.intent == "movies":
             plan.movie_scope = "catalog"
@@ -580,7 +598,7 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
     if model and not layer and plan.intent != "chat" and not (fixed_lookup and general_listing(question)):
         # 为 `prompt` 保存当前步骤所需的值。
         schema = QuestionPlan.model_json_schema()
-        for field in (*TIME_FILTERS, "release_date_preferred", "temporal", "candidate_titles"):
+        for field in (*TIME_FILTERS, *PRICE_FIELDS, "release_date_preferred", "temporal", "candidate_titles"):
             schema["properties"].pop(field, None)
         schema.get("$defs", {}).pop("TemporalContext", None)
         schema.get("$defs", {}).pop("TimeWindow", None)
@@ -671,14 +689,21 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         # 为 `plan.confidence` 保存当前步骤所需的值。
         plan.confidence = max(plan.confidence, rules.confidence)
     # 检查 `if general_listing(question) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip())`，据此选择当前处理分支。
-    time_followup = bool(history) and is_query_refinement(question)
+    time_followup = bool(history) and (is_query_refinement(question) or price_followup(question))
     if time_followup:
         plan.intent, plan.movie_scope, plan.screening_scope = rules.intent, rules.movie_scope, rules.screening_scope
         plan.preference = rules.preference
     plan.candidate_titles = rules.candidate_titles
+    plan.max_ticket_price = rules.max_ticket_price
+    plan.price_upper_inclusive = rules.price_upper_inclusive
+    if rules.max_ticket_price is not None or ticket_budget(question)[2]:
+        plan.intent, plan.movie_scope, plan.screening_scope = rules.intent, rules.movie_scope, rules.screening_scope
+        plan.preference = rules.preference
+        plan.confidence = max(plan.confidence, rules.confidence)
+        plan.requested_intents = [item for item in plan.requested_intents if item not in ("movies", "screenings")]
     if plan.candidate_titles:
         plan.requested_intents = ["screenings"]
-    if general_listing(question) and not time_followup and not time_target_choice(question, history) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()):
+    if general_listing(question) and plan.max_ticket_price is None and not time_followup and not time_target_choice(question, history) and not re.fullmatch(r"第\s*\d+\s*页[？?]?", question.strip()):
         # 为 `plan.movie_query` 保存当前步骤所需的值。
         plan.movie_query = ""
         # 为 `plan.cinema_query` 保存当前步骤所需的值。
@@ -804,12 +829,16 @@ async def understand(model: ChatOpenAI | None, question: str, history: list[dict
         clarification = "请补充具体场次日期，以便准确查询，例如本周六的日期。"
     elif preflight_reason == "missing_recommendation_context":
         clarification = "你指哪几部电影？请提供片名，或先让我推荐影片，再查询这些影片的场次。"
+    elif preflight_reason == "invalid_ticket_budget":
+        clarification = "请提供有效的单张票价预算，使用非负金额且最多保留两位小数，例如15元以内。"
+    elif preflight_reason == "unsupported_ticket_budget":
+        clarification = "目前支持按单张票价上限筛选，请用数字说明每张最高多少钱，例如15元以内。价格区间或多人总预算暂时无法直接筛选。"
     if plan.intent == "seats" and not plan.screening_id and plan.confidence >= 0.65 and (
         plan.movie_query or plan.cinema_query or plan.screening_date
     ) and not invalid_date and preflight_reason != "missing_date":
         clarification = ""
     time_question = temporal_clarification(plan.temporal, plan.intent, plan.preference, plan.movie_query)
-    if time_question:
+    if time_question and preflight_reason not in ("invalid_ticket_budget", "unsupported_ticket_budget"):
         clarification = time_question
     if plan.intent == "policy" or policy_kind(question) != "ticket_policy":
         plan.policy_kind = policy_kind(question)

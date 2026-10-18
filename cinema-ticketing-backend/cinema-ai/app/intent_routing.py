@@ -8,12 +8,17 @@ from typing import Any
 from app.intent_classifier import predict_intent
 from app.query_semantics import movie_fields, policy_kind, prose, query_domains
 from app.time_normalization import references_recommendations, temporal_clarification
+from app.ticket_price import invalid_ticket_budget, unsupported_ticket_budget
 
 
 def preliminary_route(rules: Any, question: str, history: list[dict[str, str]], *, unfiltered: bool = False) -> tuple[str, str]:
     """Return the winning layer and its reason; empty layer requires the LLM."""
     text = prose(question)
     domains = query_domains(question, bool(rules.order_no))
+    if invalid_ticket_budget(question) and rules.intent in ("recommend", "movies", "screenings"):
+        return "preflight", "invalid_ticket_budget"
+    if unsupported_ticket_budget(question) and rules.intent in ("recommend", "movies", "screenings"):
+        return "preflight", "unsupported_ticket_budget"
     if references_recommendations(question) and not getattr(rules, "candidate_titles", []):
         return "preflight", "missing_recommendation_context"
     if rules.intent == "recommend" and not rules.movie_query and set(movie_fields(question)) <= {"release_date"}:
@@ -61,6 +66,8 @@ def preliminary_route(rules: Any, question: str, history: list[dict[str, str]], 
         return "preflight", "missing_date"
     if multiple:
         return "", "composite_requires_understanding"
+    if getattr(rules, "max_ticket_price", None) is not None and rules.intent == "recommend":
+        return "l0", "ticket_budget"
     if os.getenv("AGENT_L0_ENABLED", "true").lower() != "true":
         return "", "llm_required"
     if getattr(rules, "candidate_titles", []):
@@ -125,6 +132,7 @@ def slot_summary(plan: dict[str, Any], reason: str = "") -> dict[str, Any]:
         "screening_id": bool(entities.get("screening_id")),
         "movie_query": bool(entities.get("movie_query")),
         "cinema_query": bool(entities.get("cinema_query")),
+        "ticket_budget": entities.get("max_ticket_price") is not None,
         "missing_slots": missing,
         "policy_kind": entities.get("policy_kind", "none"),
     }

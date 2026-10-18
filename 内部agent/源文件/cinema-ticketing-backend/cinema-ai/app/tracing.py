@@ -373,7 +373,7 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
     if isinstance(payload.get("understanding_layer"), str) and payload["understanding_layer"] in {"l0", "l1", "preflight", "llm", "fallback"}:
         summary["understanding_layer"] = payload["understanding_layer"]
     if isinstance(payload.get("preflight_reason"), str) and payload["preflight_reason"] in {
-        "invalid_date", "greeting", "unsupported_transaction", "policy_source_unavailable",
+        "invalid_date", "greeting", "unsupported_transaction", "policy_source_unavailable", "ticket_budget", "invalid_ticket_budget", "unsupported_ticket_budget",
         "missing_order_no", "missing_screening_id", "missing_date", "explicit_order",
         "explicit_screening", "explicit_movie_fields", "ticket_policy", "explicit_screening_date",
         "validated_local_classifier", "glm_high_confidence", "none", "normalized_time", "unresolved_time", "ambiguous_time_target",
@@ -402,7 +402,7 @@ def summarize_payload(payload: Any) -> dict[str, Any]:
         summary["temporal_summary"] = temporal
     slots = payload.get("slot_summary")
     if isinstance(slots, dict):
-        safe = {key: slots[key] for key in ("order_no", "screening_id", "movie_query", "cinema_query", "release_date_range") if type(slots.get(key)) is bool}
+        safe = {key: slots[key] for key in ("order_no", "screening_id", "movie_query", "cinema_query", "release_date_range", "ticket_budget") if type(slots.get(key)) is bool}
         if slots.get("screening_date") is None or type(slots.get("screening_date")) is bool:
             safe["screening_date"] = slots.get("screening_date")
         allowed_slots = {"order_no", "screening_date", "screening_id", "valid_date", "policy_source", "time_range", "time_target"}

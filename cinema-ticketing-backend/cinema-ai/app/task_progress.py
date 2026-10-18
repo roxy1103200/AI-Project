@@ -69,6 +69,10 @@ def build_tasks(state: dict[str, Any]) -> list[dict[str, Any]]:
         )
     )
     titles = entities.get("candidate_titles") or list(dict.fromkeys(re.findall(r"《([^》]+)》", question)))
+    if state["intent"] == "recommend" and entities.get("max_ticket_price") is not None:
+        slots = False
+        if not facts:
+            requested.discard("movies")
     if "screenings" not in domains and entities.get("order_no"):
         slots = False
     movie_queries = titles if len(titles) > 1 else [entities["movie_query"] or entities["preference"]]

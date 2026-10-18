@@ -22,6 +22,7 @@ from app.query_answers import valid_movie_result, valid_screening_result, valid_
 # 导入当前步骤使用的模块或类型。
 from app.task_progress import progress
 from app.time_normalization import TIME_FILTERS
+from app.ticket_price import PRICE_FIELDS, valid_ticket_prices
 # isort: on
 
 # 为 `Keyword` 保存当前步骤所需的值。
@@ -126,6 +127,11 @@ class PolicyArguments(ToolArguments):
 class RecommendationArguments(DateRangeArguments):
     """Identity is injected by the executor, never included in this schema."""
 
+    max_ticket_price: str | None = Field(default=None, pattern=r"^\d+\.\d{2}$")
+    price_upper_inclusive: bool = True
+    movie_query: str = Field(default="", max_length=120)
+    cinema_query: str = Field(default="", max_length=120)
+
     # 设置当前结构中的 `preference` 字段。
     preference: Keyword = ""
 
@@ -168,7 +174,7 @@ DESCRIPTIONS = {
     # 设置当前结构中的 `query_ticket_policy` 字段。
     "query_ticket_policy": "检索购票与退票规则及来源；具体订单能否退票以 query_order 的实时资格为准。",
     # 设置当前结构中的 `recommend_movies` 字段。
-    "recommend_movies": "按偏好及上映日期范围推荐电影；release_date_preferred=true 时允许明确标注的范围外补充推荐。观影日期和时段要求须有实际可订购场次。日期使用已校验的任务参数；身份由服务器注入，不能传 user_id。",
+    "recommend_movies": "按题材、上映日期及可购票场次推荐电影。max_ticket_price 是单张票面价格上限（两位小数字符串），price_upper_inclusive=false 表示严格低于上限；不得将预算写入 preference。预算、影片、影院和日期使用已校验的任务参数。release_date_preferred=true 只允许明确标注的上映日期范围外补充推荐，不放宽预算。身份由服务器注入，不能传 user_id。",
     # 设置当前结构中的 `ask_user` 字段。
     "ask_user": "缺少条件或有多个候选场次需用户选择时，提出明确的问题并结束本轮，不能猜测编号。",
 }
@@ -316,7 +322,9 @@ def validate_arguments(
         # 进入对应的循环、异常处理或资源管理分支。
         for key in ("query", "movie_query", "cinema_query", "preference"):
             # 检查 `if key in supplied and key in constraints`，据此选择当前处理分支。
-            if key in supplied and key in constraints:
+            if key in supplied and key in constraints and not (
+                name == "recommend_movies" and entities.get("max_ticket_price") is not None
+            ):
                 # 为 `literal_title` 保存当前步骤所需的值。
                 literal_title = entities["movie_query"] and f"《{entities['movie_query']}》" in "".join(
                     item["content"] for item in state["messages"] if item["role"] == "user"
@@ -342,6 +350,13 @@ def validate_arguments(
     # 进入对应的循环、异常处理或资源管理分支。
     try:
         # 为 `arguments` 保存当前步骤所需的值。
+        if name == "recommend_movies":
+            for key in PRICE_FIELDS:
+                expected = constraints.get(key, entities.get(key))
+                if key in supplied and supplied[key] != expected:
+                    raise CinemaQueryError("invalid_tool_call", f"价格参数与用户要求不一致：{key}。")
+                if expected is not None:
+                    arguments[key] = expected
         if name in ("search_movies", "search_screenings", "recommend_movies"):
             for key in (*TIME_FILTERS, "release_date_preferred"):
                 expected = constraints.get(key) if "tasks" in state else entities.get(key)
@@ -356,6 +371,12 @@ def validate_arguments(
         arguments = ARGUMENT_MODELS[name].model_validate(arguments).model_dump(mode="json")
         for key in (*TIME_FILTERS, "release_date_preferred"):
             if arguments.get(key) is None or arguments.get(key) is False:
+                arguments.pop(key, None)
+        if name == "recommend_movies" and arguments.get("max_ticket_price") is None:
+            for key in PRICE_FIELDS:
+                arguments.pop(key, None)
+        for key in ("movie_query", "cinema_query"):
+            if name == "recommend_movies" and not arguments.get(key):
                 arguments.pop(key, None)
     # 进入对应的循环、异常处理或资源管理分支。
     except (ValidationError, TypeError, ValueError) as exc:
@@ -474,7 +495,8 @@ def validate_result(name: str, data: Any, arguments: dict[str, Any], *, user_id:
         # 为 `valid` 保存当前步骤所需的值。
         valid = isinstance(data, list) and all(isinstance(row, dict) and "title" in row for row in data)
         valid = valid and valid_release_result(data, arguments)
-        if valid and any(arguments.get(key) is not None for key in ("screening_date_from", "screening_hour_from")):
+        valid = valid and valid_ticket_prices(data, arguments)
+        if valid and any(arguments.get(key) is not None for key in ("screening_date_from", "screening_hour_from", "max_ticket_price")):
             valid = all(isinstance(row.get("screenings"), list) and row["screenings"] and valid_screening_result(
                 [{**slot, "title": row["title"]} for slot in row["screenings"]], arguments
             ) for row in data)

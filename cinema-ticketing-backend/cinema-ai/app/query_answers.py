@@ -7,6 +7,7 @@ from app.query_semantics import GENERAL_POLICY_WORDS, movie_fields
 # 导入当前步骤使用的模块或类型。
 from typing import Any
 from app.time_normalization import TIME_FILTERS
+from app.ticket_price import valid_ticket_prices
 
 
 def valid_release_result(rows: list[dict[str, Any]], entities: dict[str, Any]) -> bool:
@@ -46,8 +47,18 @@ def _valid_screening_time(start: datetime, entities: dict[str, Any]) -> bool:
 
 def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) -> str:
     """Show the chosen release interval and explicitly label relaxed preferences."""
+    if not valid_ticket_prices(data, entities):
+        return "当前返回的场次价格信息无法确认满足预算，请稍后重试。"
     start, end = entities.get("release_date_from"), entities.get("release_date_to")
     lines = []
+    maximum = entities.get("max_ticket_price")
+    if maximum is not None:
+        comparison = "不超过" if entities.get("price_upper_inclusive", True) else "低于"
+        lines.append(f"按可购票场次票面价格筛选：每张{comparison}{maximum}元，优惠及最终实付金额以支付页面为准。")
+        if entities.get("preference"):
+            lines.append(f"题材或偏好：{entities['preference']}。")
+        if not entities.get("screening_date_from") and not entities.get("screening_date"):
+            lines.append("观影范围：当前可购票的今天及之后场次（北京时间）。")
     if start:
         lines.append(f"按上映日期筛选：{start} 至 {end}（北京时间，含起止日）。")
         if entities.get("release_date_preferred"):
@@ -66,7 +77,9 @@ def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) 
             period += f"，每天 {entities['screening_hour_from']:02d}:00 至 {entities['screening_hour_to']:02d}:00（不含结束时刻）"
         lines.append(period + "。")
     if not data:
-        if viewing:
+        if maximum is not None:
+            lines.append("没有查到同时满足上述预算及其他条件的可购票场次。可以提高预算或调整日期，当前未放宽筛选条件。")
+        elif viewing:
             detail = "同时满足上映日期条件且有可购票场次的影片" if start else "有可购票场次的影片"
             lines.append(f"没有查到符合上述条件的{detail}。可以调整题材或观影日期；未查到可购票场次不代表没有排期。")
         elif start:
@@ -74,7 +87,7 @@ def recommendation_answer(data: list[dict[str, Any]], entities: dict[str, Any]) 
         else:
             lines.append("没有查到符合题材或偏好的影片，可以换一个题材或补充其他偏好。")
         return "\n".join(lines)
-    if viewing:
+    if viewing or maximum is not None:
         lines.append("以下影片具有符合条件的当前可订购场次：")
     for row in data:
         alternative = ""
