@@ -23,11 +23,10 @@ public class TicketCheckInService {
         LocalDateTime now = LocalDateTime.now();
         LocalDateTime start = JdbcTimes.asLocalDateTime(order.get("start_time"));
         LocalDateTime end = start.plusMinutes(((Number) order.get("duration")).longValue());
-        boolean inWindow = !now.isBefore(start.minusMinutes(15)) && now.isBefore(end);
-        order.put("canCheckIn", "ISSUED".equals(order.get("status")) && "SCHEDULED".equals(order.get("screening_status")) && inWindow);
-        order.put("checkInReason", !"ISSUED".equals(order.get("status")) ? "只有已出票订单可以验票"
-                : !"SCHEDULED".equals(order.get("screening_status")) ? "场次已取消"
-                : !inWindow ? "验票开放时间为开场前 15 分钟至影片放映结束" : "请选择实际到场的座位验票");
+        var decision = TicketCheckInPolicy.evaluate((String) order.get("status"),
+                (String) order.get("screening_status"), start, ((Number) order.get("duration")).intValue(), now);
+        order.put("canCheckIn", decision.allowed());
+        order.put("checkInReason", decision.reason());
         order.put("viewing_end_time", end);
         return order;
     }

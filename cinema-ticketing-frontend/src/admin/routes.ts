@@ -4,6 +4,7 @@ export const ADMIN_PAGES = [
   { id: "cinemas", label: "影院管理", group: "影院运营" },
   { id: "halls", label: "影厅管理", group: "影院运营" },
   { id: "seats", label: "座位管理", group: "影院运营" },
+  { id: "orders", label: "订单查询", group: "票务服务" },
   { id: "ticket-check-in", label: "验票入场", group: "票务服务" },
   { id: "refund-policy", label: "退票规则", group: "票务服务" },
   { id: "payments", label: "支付与退款核对", group: "票务服务" },
@@ -14,6 +15,10 @@ export const ADMIN_PAGES = [
 ] as const;
 
 export type AdminView = typeof ADMIN_PAGES[number]["id"];
+
+export function orderNoFromSearch(search: string): string {
+  return new URLSearchParams(search).get("orderNo")?.trim() ?? "";
+}
 
 export function isAdminPath(path: string): boolean {
   return path === "/admin" || path.startsWith("/admin/");

@@ -13,14 +13,15 @@ import SalesReportAdmin from "./SalesReportAdmin";
 import AiFeedbackAdmin from "./AiFeedbackAdmin";
 import RefundPolicyAdmin from "./RefundPolicyAdmin";
 import PaymentAdmin from "./PaymentAdmin";
-import type { AdminView } from "./routes";
+import OrderQueryAdmin from "./OrderQueryAdmin";
+import { orderNoFromSearch, type AdminView } from "./routes";
 
 type Cinema = { id: number; name: string; address: string; phone?: string | null; status?: string | null };
 type Hall = { id: number; cinema_id: number; name: string; hall_type?: string; status?: string };
 
 /** Own management data and requests independently of the customer's booking workspace. */
-export default function AdminWorkspace({ session, view, navigate, signOut, securityRevoked }: {
-  session: StoredSession; view: AdminView | null; navigate: (path: string) => void;
+export default function AdminWorkspace({ session, view, search = "", navigate, signOut, securityRevoked }: {
+  session: StoredSession; view: AdminView | null; search?: string; navigate: (path: string) => void;
   signOut: () => void; securityRevoked: (message: string) => void;
 }) {
   const request = useScopedRequest();
@@ -71,7 +72,8 @@ export default function AdminWorkspace({ session, view, navigate, signOut, secur
     case "cinemas": content = <CinemaAdmin cinemas={cinemas} halls={halls} isLoading={cinemaLoading} errorMessage={cinemaError} token={token} request={request} onRefresh={() => refreshCinemas()} />; break;
     case "halls": case "seats": content = <>{cinemaError && <p className="admin-module-error" role="alert">{cinemaError}</p>}<HallSeatAdmin view={view} cinemas={cinemas} request={request} token={token} onRefresh={() => refreshCinemas()} onSeats={() => navigate("/admin/seats")} /></>; break;
     case "movie-reviews": content = <MovieReviewAdmin request={request} token={token} onChanged={() => refreshMovies()} />; break;
-    case "ticket-check-in": content = <TicketCheckInAdmin request={request} token={token} />; break;
+    case "orders": content = <OrderQueryAdmin request={request} token={token} initialOrderNo={orderNoFromSearch(search)} navigate={navigate} />; break;
+    case "ticket-check-in": content = <TicketCheckInAdmin key={orderNoFromSearch(search)} request={request} token={token} initialOrderNo={orderNoFromSearch(search)} />; break;
     case "sales-reports": content = <>{(movieError || cinemaError) && <p className="admin-module-error" role="alert">{movieError || cinemaError}</p>}<SalesReportAdmin request={request} token={token} cinemas={cinemas} movies={movies} /></>; break;
     case "ai-feedback": content = <AiFeedbackAdmin request={request} token={token} />; break;
     case "refund-policy": content = <RefundPolicyAdmin request={request} token={token} />; break;

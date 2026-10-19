@@ -1,24 +1,39 @@
-import { useState, type FormEvent } from "react";
+import { useCallback, useEffect, useRef, useState, type FormEvent } from "react";
 import type { ApiRequest } from "./movie-save";
 import { reviewTime } from "../home/review-business";
+import { OrderQueryRequest, orderQueryError } from "./order-query";
 import "./movie-reviews-admin.css";
 
 type Ticket = { id: number; ticket_status: string; seat_code: string; checked_in_at: string | null };
 type Order = { order_no: string; status: string; username: string; movie_title: string; cinema_name: string; hall_name: string; start_time: string; viewing_end_time: string; canCheckIn: boolean; checkInReason: string; items: Ticket[] };
 
-export default function TicketCheckInAdmin({ request, token }: { request: ApiRequest; token: string }) {
-  const [number, setNumber] = useState("");
+export default function TicketCheckInAdmin({ request, token, initialOrderNo = "" }: { request: ApiRequest; token: string; initialOrderNo?: string }) {
+  const [number, setNumber] = useState(initialOrderNo);
   const [data, setData] = useState<Order | null>(null);
   const [selected, setSelected] = useState<number[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
-  async function lookup(event: FormEvent) {
-    event.preventDefault(); if (!number.trim() || busy) return;
+  const pending = useRef(new OrderQueryRequest());
+  const load = useCallback(async (orderNo: string) => {
+    const operation = pending.current.begin();
     setBusy(true); setData(null); setError(""); setMessage(""); setSelected([]);
-    try { setData(await request<Order>(`/api/admin/tickets/${encodeURIComponent(number.trim())}`, {}, token)); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : "订单查询失败"); }
-    finally { setBusy(false); }
+    const invalid = orderQueryError(orderNo);
+    if (invalid) { setError(invalid); setBusy(false); return; }
+    try {
+      const detail = await request<Order>(`/api/admin/tickets/${encodeURIComponent(orderNo.trim())}`, { signal: operation.signal }, token);
+      if (operation.current()) setData(detail);
+    } catch (cause) { if (operation.current()) setError(cause instanceof Error ? cause.message : "订单查询失败"); }
+    finally { if (operation.current()) setBusy(false); }
+  }, [request, token]);
+  useEffect(() => {
+    setNumber(initialOrderNo);
+    if (initialOrderNo) void load(initialOrderNo);
+    return () => pending.current.cancel();
+  }, [initialOrderNo, load]);
+  async function lookup(event: FormEvent) {
+    event.preventDefault(); if (busy) return;
+    await load(number);
   }
   async function checkIn() {
     if (!data || busy || selected.length === 0) return;

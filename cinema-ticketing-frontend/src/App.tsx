@@ -152,15 +152,16 @@ function moviePosterUrl(movieId: number, version: number): string {
 function App() {
   const auth = useTabSession();
   const [securityNotice, setSecurityNotice] = useState("");
-  const [path, setPath] = useState(window.location.pathname);
+  const [location, setLocation] = useState(() => ({ path: window.location.pathname, search: window.location.search }));
+  const path = location.path;
   useEffect(() => {
-    const restore = () => setPath(window.location.pathname);
+    const restore = () => setLocation({ path: window.location.pathname, search: window.location.search });
     window.addEventListener("popstate", restore);
     return () => window.removeEventListener("popstate", restore);
   }, []);
   function navigate(next: string) {
     window.history.pushState(null, "", next);
-    setPath(next);
+    setLocation({ path: window.location.pathname, search: window.location.search });
     window.scrollTo({ top: 0, behavior: "instant" });
   }
   async function signIn(username: string, password: string) {
@@ -175,7 +176,7 @@ function App() {
   </section></main>;
   return <>{securityNotice && <p className="security-notice" role="status">{securityNotice}</p>}
     {path === "/payment/result" ? <PaymentResult key={auth.session?.token ?? "guest"} session={auth.session} signIn={signIn} navigate={navigate} /> : isAdminPath(path) ? canOpenAdmin(auth.session?.role) && auth.session ?
-      <Suspense fallback={<main className="admin-access"><p role="status">正在加载管理后台…</p></main>}><AdminWorkspace key={auth.session.token} session={auth.session} view={adminView(path)} navigate={navigate} signOut={auth.signOut} securityRevoked={securityRevoked} /></Suspense>
+      <Suspense fallback={<main className="admin-access"><p role="status">正在加载管理后台…</p></main>}><AdminWorkspace key={auth.session.token} session={auth.session} view={adminView(path)} search={location.search} navigate={navigate} signOut={auth.signOut} securityRevoked={securityRevoked} /></Suspense>
       : <AdminAccess key={auth.session?.token ?? "guest"} session={auth.session} signIn={signIn} signOut={auth.signOut} navigate={navigate} />
       : <CinemaWorkspace key={auth.session?.token ?? "guest"} session={auth.session} signIn={signIn} signOut={auth.signOut} securityRevoked={securityRevoked} openManagement={() => navigate("/admin/accounts")} />}
   </>;
