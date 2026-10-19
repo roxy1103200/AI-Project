@@ -6,7 +6,7 @@ export type MemoryProposal = { content: string; category: string };
 const categories = { GENERAL: "一般偏好", GENRE: "电影类型", CINEMA: "影院", SEAT: "座位", HABIT: "观影习惯" };
 
 /** Only the Agent mounts this panel. Java authenticates each operation. */
-export default function UserMemories({ token, request, onClose }: { token: string; request: Request; onClose: () => void }) {
+export default function UserMemories({ token, request, onClose, onCountChange }: { token: string; request: Request; onClose: () => void; onCountChange?: (count: number) => void }) {
   const [items, setItems] = useState<Memory[]>([]);
   const [draft, setDraft] = useState<MemoryProposal>({ content: "", category: "GENERAL" });
   const [editing, setEditing] = useState<Memory | null>(null);
@@ -15,7 +15,7 @@ export default function UserMemories({ token, request, onClose }: { token: strin
   const [error, setError] = useState("");
   async function refresh(signal?: AbortSignal) {
     const rows = await request<Memory[]>("/api/ai/memories", { signal }, token);
-    if (!signal?.aborted) setItems(rows);
+    if (!signal?.aborted) { setItems(rows); onCountChange?.(rows.length); }
   }
   useEffect(() => {
     const abort = new AbortController();
@@ -60,7 +60,7 @@ export default function UserMemories({ token, request, onClose }: { token: strin
   </section>;
 }
 
-export function SaveMemory({ proposal, messageId, token, request }: { proposal: MemoryProposal; messageId?: string; token: string; request: Request }) {
+export function SaveMemory({ proposal, messageId, token, request, onSaved }: { proposal: MemoryProposal; messageId?: string; token: string; request: Request; onSaved?: () => void }) {
   const [state, setState] = useState<"ready" | "saving" | "saved">("ready");
   const [error, setError] = useState("");
   async function save() {
@@ -69,6 +69,7 @@ export function SaveMemory({ proposal, messageId, token, request }: { proposal: 
     try {
       await request("/api/ai/memories", { method: "POST", body: JSON.stringify({ ...proposal, sourceMessageId: messageId }) }, token);
       setState("saved");
+      onSaved?.();
     } catch (cause) { setState("ready"); setError(cause instanceof Error ? cause.message : "保存失败"); }
   }
   return <div className="assistant-memory-proposal"><p>{proposal.content}</p><button type="button" disabled={state !== "ready"} onClick={() => void save()}>{state === "saved" ? "已保存记忆" : state === "saving" ? "保存中…" : "保存记忆"}</button>{error && <small role="alert">{error}</small>}</div>;
