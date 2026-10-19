@@ -1,0 +1,15 @@
+<!doctype html><html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>旧订单海报兼容验证</title><link rel="stylesheet" href="/src/styles.css"></head><body><main class="orders-section content-width"><h2>旧订单格式海报验证</h2><div id="root" class="order-list"></div></main><script type="module">
+import React from "react";
+import { createRoot } from "react-dom/client";
+import OrderCard from "/src/orders/OrderCard.tsx";
+import { OrderPosterResolver } from "/src/orders/order-posters.ts";
+const orders = [{ screening_id: 56, title: "颠倒的帕特玛" }, { screening_id: 58, title: "钢之炼金术师 叹息之丘的圣星" }];
+const enriched = await new OrderPosterResolver().resolve(orders, async path => {
+  const response = await fetch(path); const payload = await response.json();
+  if (!response.ok || payload.code !== 0) throw new Error("Metadata unavailable");
+  return payload.data;
+});
+createRoot(document.getElementById("root")).render(React.createElement(React.Fragment, null, ...enriched.map((order, index) => React.createElement(OrderCard, {
+  key: index, orderNo: "POSTER-PREVIEW-" + index, title: order.title, showtime: "兼容旧订单缺少 movie_id 的返回格式", venue: "只读验证，无交易操作", amount: "26.00", status: "CANCELLED", statusLabel: "预览", expanded: false, onToggle() {}, onTicket() {}, poster: order.movie_id ? "/api/movies/" + order.movie_id + "/poster" : undefined, children: null
+}))));
+</script></body></html>

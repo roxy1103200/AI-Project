@@ -11,7 +11,7 @@ import org.springframework.jdbc.core.JdbcTemplate;
 /** User-scoped read model shared by the website and Java's private AI endpoint. */
 public class OrderReadService {
     private static final String SELECT = "SELECT o.id,o.order_no,o.user_id,o.screening_id,o.total_amount,o.status,"
-            + "o.expire_at,o.paid_at,o.created_at,m.title movie_title,s.start_time,h.name hall_name,c.name cinema_name,"
+            + "o.expire_at,o.paid_at,o.created_at,m.id movie_id,m.title movie_title,s.start_time,h.name hall_name,c.name cinema_name,"
             + "p.cutoff_minutes refund_cutoff_minutes,COALESCE(cp.status,CASE WHEN pt.status='SUCCESS' THEN 'SUCCESS' ELSE 'NOT_STARTED' END) payment_status,cr.status refund_status,"
             + "cr.reason_type refund_reason_type,EXISTS(SELECT 1 FROM order_item i WHERE i.order_id=o.id "
             + "AND i.checked_in_at IS NOT NULL) has_check_in FROM ticket_order o JOIN screening s ON s.id=o.screening_id "

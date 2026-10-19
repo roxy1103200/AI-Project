@@ -1,9 +1,11 @@
-import { lazy, Suspense, useEffect, useState, type FormEvent } from "react";
+import { lazy, Suspense, useEffect, useRef, useState, type FormEvent } from "react";
 import AdminAccess from "./admin/AdminAccess";
 import { adminView, canOpenAdmin, isAdminPath } from "./admin/routes";
 import AccountSecurityDialog from "./auth/AccountSecurityDialog";
 import RefundControl from "./orders/RefundControl";
 import TicketDialog from "./orders/TicketDialog";
+import OrderCard from "./orders/OrderCard";
+import { OrderPosterResolver } from "./orders/order-posters";
 import MovieCarousel from "./home/MovieCarousel";
 import TwoWeekSchedule from "./home/TwoWeekSchedule";
 import MovieReviews from "./home/MovieReviews";
@@ -58,6 +60,7 @@ type Seat = {
 
 type OrderSummary = {
   order_no: string;
+  movie_id?: number;
   screening_id: number;
   movie_title?: string;
   start_time?: string;
@@ -219,6 +222,8 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
   const [bookingFailed, setBookingFailed] = useState(false);
   const [isBookingAction, setIsBookingAction] = useState(false);
   const [orders, setOrders] = useState<OrderSummary[]>([]);
+  const orderPosters = useRef(new OrderPosterResolver());
+  const ordersRefresh = useRef(0);
   const [orderDetails, setOrderDetails] = useState<Record<string, OrderView>>({});
   const [expandedOrder, setExpandedOrder] = useState<string | null>(null);
   const [ordersMessage, setOrdersMessage] = useState("");
@@ -306,6 +311,7 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
   }
 
   async function refreshOrders(token = session?.token) {
+    const refresh = ++ordersRefresh.current;
     if (!token) {
       setOrders([]);
       return;
@@ -314,11 +320,16 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
     setOrdersMessage("");
     try {
       const result = await apiRequest<OrderSummary[]>("/api/orders", {}, token);
-      setOrders((result ?? []).map((order) => ({ ...order, received_at: Date.now() })));
+      if (refresh !== ordersRefresh.current) return;
+      const current = (result ?? []).map((order) => ({ ...order, received_at: Date.now() }));
+      setOrders(current);
+      void orderPosters.current.resolve(current, apiRequest).then(enriched => {
+        if (refresh === ordersRefresh.current) setOrders(enriched);
+      });
     } catch (error) {
-      setOrdersMessage(error instanceof Error ? error.message : "订单读取失败");
+      if (refresh === ordersRefresh.current) setOrdersMessage(error instanceof Error ? error.message : "订单读取失败");
     } finally {
-      setIsOrdersLoading(false);
+      if (refresh === ordersRefresh.current) setIsOrdersLoading(false);
     }
   }
 
@@ -694,24 +705,19 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
             <div className="order-list">
               {orders.map((order) => {
                 const screening = screenings.find((item) => item.id === order.screening_id);
-                const movie = screening ? movieById.get(screening.movie_id) : undefined;
+                const movieId = order.movie_id ?? screening?.movie_id;
+                const movie = movieId ? movieById.get(movieId) : undefined;
                 const detail = orderDetails[order.order_no];
                 return (
-                  <article className="order-card" key={order.order_no}>
-                    <div className="order-card-main">
-                      <div className="order-card-title">
-                        <span className={`order-status status-${order.status.toLowerCase()}`}>{order.payment_status === "CLOSING" ? "关单处理中" : orderStatusLabel(order.status)}</span>
-                        <h3>{order.movie_title ?? movie?.title ?? `场次 ${order.screening_id}`}</h3>
-                        <p>{order.start_time
-                          ? `${formatDateTime(order.start_time)} · ${order.cinema_name ?? ""} · ${order.hall_name ?? ""}`
-                          : screening ? `${formatDateTime(screening.start_time)} · ${screeningVenue(screening)}` : "场次信息"}</p>
-                      </div>
-                      <div className="order-card-side">
-                        <strong>¥{amount(order.total_amount)}</strong>
-                        <span>订单号 {order.order_no}</span>
-                        <button className="order-ticket-button" type="button" onClick={() => setTicketOrderNo(order.order_no)}>{order.status === "ISSUED" ? "查看电影票" : "查看座位"}</button>
-                      </div>
-                    </div>
+                  <OrderCard key={order.order_no} orderNo={order.order_no}
+                    title={order.movie_title ?? movie?.title ?? `场次 ${order.screening_id}`}
+                    poster={movieId ? moviePosterUrl(movieId, imageVersion) : undefined}
+                    showtime={order.start_time ? formatDateTime(order.start_time) : screening ? formatDateTime(screening.start_time) : "场次时间待确认"}
+                    venue={[order.cinema_name, order.hall_name].filter(Boolean).join(" · ") || (screening ? screeningVenue(screening) : "")}
+                    amount={amount(order.total_amount)} status={order.status}
+                    statusLabel={order.payment_status === "CLOSING" ? "关单处理中" : orderStatusLabel(order.status)}
+                    expanded={expandedOrder === order.order_no} onToggle={() => void toggleOrderDetails(order.order_no)}
+                    onTicket={() => setTicketOrderNo(order.order_no)}>
                     {expandedOrder === order.order_no && (
                       <div className="order-card-detail">
                         <div className="order-seat-list">
@@ -730,10 +736,7 @@ function CinemaWorkspace({ session, signIn, signOut, securityRevoked, openManage
                         </div>
                       </div>
                     )}
-                    <button className="order-expand" type="button" onClick={() => void toggleOrderDetails(order.order_no)}>
-                      {expandedOrder === order.order_no ? "收起订单详情 ↑" : "查看订单详情 ↓"}
-                    </button>
-                  </article>
+                  </OrderCard>
                 );
               })}
             </div>
